@@ -1,0 +1,138 @@
+<?php
+
+namespace App\Http\Controllers;
+
+
+use App\Models\User;
+use Hash;
+use Illuminate\Http\Request;
+use Illuminate\Validation\Rules\Password;
+
+
+class UserController extends Controller
+{
+    public function user (Request $request)
+    {
+        return $request->user();
+    }
+
+    public function register (Request $request)
+    {
+        $request->validate([
+            'first_name' => ['required', 'string'],
+            'last_name' => ['required', 'string'],
+            'email' => ['required', 'string', 'email', 'unique:users,email'],
+            'password' => ['required', 'confirmed', Password::defaults()],
+            'phone_number' => ['required', 'string'],
+            'role' => ['required', 'string']
+        ]);
+
+        User::create([
+            'first_name' => $request->first_name,
+            'last_name' => $request->last_name,
+            'email' => $request->email,
+            'password' => Hash::make($request->password),
+            'phone_number' => $request->phone_number,
+            'role' => $request->role
+        ]);
+
+        return response()->json([
+            'message' => 'User Registered successfully'
+        ], 200);
+    }
+
+    public function login(Request $request) 
+    {
+        $request->validate([
+            'email' => ['required', 'email'],
+            'password' => ['required']
+        ]);
+
+        $user = User::where('email', $request->email)->first();
+
+        if (!$user || !Hash::check($request->password, $user->password)) {
+            return response()->json(['message' => 'Credentials Provided are Incorrect.'], 422);
+        }
+
+        $token = $user->createToken('token')->plainTextToken;
+
+        return response()->json([
+            'token' => $token,
+            $user = [
+                'id' => $user->id,
+                'first_name' => $user->first_name,
+                'last_name' => $user->last_name,
+                'email' => $user->email,
+                'phone_number' => $user->phone_number,
+                'role' => $user->role
+            ],
+            'message' => 'Login Successful.'
+        ], 200);
+    }
+
+    public function logout(Request $request)
+    {
+        $user = $request->user();
+
+        $user->currentAccessToken()->delete();
+
+        return response()->json([
+            'message' => 'Logout Successful.'
+        ], 200);
+    }
+
+    public function getEmployees(Request $request)
+    {
+        $employees = User::whereIn('role', ['staff'])->get();
+        return response()->json($employees);
+    }
+
+    public function updateEmployee(Request $request, $id)
+    {
+        $request->validate([
+            'first_name' => ['required', 'string'],
+            'last_name' => ['required', 'string'],
+            'email' => ['required', 'string', 'email', 'unique:users,email,' . $id],
+            'phone_number' => ['required', 'string'],
+            'role' => ['required', 'string']
+        ]);
+
+        // Fix: Find employee by ID, not by role
+        $employee = User::findOrFail($id);
+        
+        // Optional: Only allow updating employees (not admins/owners)
+        if (in_array($employee->role, ['customer', 'owner'])) {
+            return response()->json(['message' => 'Cannot update customer or owner'], 403);
+        }
+
+        $employee->update([
+            'first_name' => $request->first_name,
+            'last_name' => $request->last_name,
+            'email' => $request->email,
+            'phone_number' => $request->phone_number,
+            'role' => $request->role,
+        ]);
+
+        return response()->json([
+            'message' => 'Employee Updated Successfully',
+            'employee' => $employee
+        ], 200);
+    }
+
+    public function deleteEmployee($id)
+    {
+        // Fix: Find employee by ID, not by role
+        $employee = User::findOrFail($id);
+        
+        // Optional: Prevent deleting admins or owners
+        if (in_array($employee->role, ['customer', 'owner'])) {
+            return response()->json(['message' => 'Cannot delete customer or owner'], 403);
+        }
+        
+        $employee->delete();
+
+        return response()->json([
+            'message' => 'Employee Deleted Successfully'
+        ], 200);
+    }
+}
