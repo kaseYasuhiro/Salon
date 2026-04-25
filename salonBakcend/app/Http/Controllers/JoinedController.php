@@ -30,16 +30,16 @@ class JoinedController extends Controller
             'product_name' => ['required', 'string'],
             'description' => ['required', 'string'],
             'unit' => ['required', 'string'],
-            'unit_size' => ['required', 'string'],
+            'unit_size' => ['required', 'numeric'],
             'estimated_usages_per_unit' => ['required', 'numeric'],
 
             'product_quantity' => ['required', 'numeric'],
             'current_usages' => ['required', 'numeric'],
             'reorder_level' => ['required', 'numeric'],
-            'expiration_date' => ['required', 'date', 'date_format:m/d/Y']
+            'expiration_date' => ['required', 'date', 'date_format:Y-m-d']
         ]);
 
-        Products::create([
+        $product = Products::create([
             'product_name' => $request->product_name,
             'description' => $request->description,
             'unit' => $request->unit,
@@ -47,7 +47,8 @@ class JoinedController extends Controller
             'estimated_usages_per_unit' => $request->estimated_usages_per_unit
         ]);
         
-        Inventory::create([
+        $inventory = Inventory::create([
+            'product_id' => $product->id,
             'product_quantity' => $request->product_quantity,
             'current_usages' => $request->current_usages,
             'reorder_level' => $request->reorder_level,
@@ -96,4 +97,20 @@ class JoinedController extends Controller
             'message' => 'Inventory Updated Successfully'
         ], 200);
     }
+
+    public function deleteProductsFromInventory($id)
+    {
+        $product = Products::where('id', $id)->first();
+        $inventory = Inventory::where('id', id)->first();
+
+        $product->delete();
+        $inventory->delete();
+
+        return response()->json([
+            'message' => 'Item Deleted Successfully'
+        ], 200);
+    }
+
+
+
 }

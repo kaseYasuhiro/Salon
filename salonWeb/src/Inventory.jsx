@@ -15,16 +15,18 @@ function Inventory() {
   const [showModal, setShowModal] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [formError, setFormError] = useState('');
+  const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
 
   const [formData, setFormData] = useState({
     product_name: '',
-    quantity: '',
+    description: '',
     unit: '',
+    unit_size: '',
+    estimated_usages_per_unit: '',
+    product_quantity: '',
+    current_usages: '',
     reorder_level: '',
-    unit_price: '',
-    supplier: '',
-    category: 'products',
-    status: 'active'
+    expiration_date: ''
   });
 
   const categories = [
@@ -41,44 +43,54 @@ function Inventory() {
     { label: 'Total Value', value: '$0', icon: DollarSign, color: 'bg-green-100', textColor: 'text-green-600' },
   ];
 
-  // Mock data for demonstration
-  const mockInventory = [
-    { id: 1, product_name: 'Hair Conditioner', quantity: 250, unit: 'ml', reorder_level: 100, status: 'In Stock', unit_price: 15.99, supplier: 'Beauty Supply Co.', category: 'products' },
-    { id: 2, product_name: 'Shampoo', quantity: 180, unit: 'ml', reorder_level: 100, status: 'In Stock', unit_price: 12.99, supplier: 'Beauty Supply Co.', category: 'products' },
-    { id: 3, product_name: 'Hair Color Kit', quantity: 45, unit: 'boxes', reorder_level: 50, status: 'Low Stock', unit_price: 45.00, supplier: 'ColorPro', category: 'products' },
-    { id: 4, product_name: 'Nail Polish Set', quantity: 15, unit: 'bottles', reorder_level: 30, status: 'Critical', unit_price: 8.50, supplier: 'NailArt', category: 'products' },
-    { id: 5, product_name: 'Hair Gel', quantity: 120, unit: 'g', reorder_level: 80, status: 'In Stock', unit_price: 9.99, supplier: 'StylingPro', category: 'products' },
-    { id: 6, product_name: 'Scissors Set', quantity: 8, unit: 'pieces', reorder_level: 5, status: 'In Stock', unit_price: 89.99, supplier: 'SalonTools', category: 'tools' },
-    { id: 7, product_name: 'Hair Dryer', quantity: 3, unit: 'units', reorder_level: 2, status: 'Low Stock', unit_price: 129.99, supplier: 'SalonTools', category: 'equipment' },
-    { id: 8, product_name: 'Curling Iron', quantity: 5, unit: 'units', reorder_level: 3, status: 'In Stock', unit_price: 79.99, supplier: 'SalonTools', category: 'equipment' },
-  ];
+  // Toast notification component
+  const showToast = (message, type = 'success') => {
+    setToast({ show: true, message, type });
+    setTimeout(() => {
+      setToast({ show: false, message: '', type: 'success' });
+    }, 3000);
+  };
 
   // Fetch inventory from API
   const fetchInventory = async () => {
     setIsLoading(true);
     try {
-      // Replace with actual API call
-      // const response = await api.get('/inventory');
-      // setInventory(response.data);
+      const response = await api.get('/inventory');
+      console.log('Fetched inventory:', response.data);
       
-      // Using mock data for now
-      setTimeout(() => {
-        setInventory(mockInventory);
+      if (Array.isArray(response.data)) {
+        const transformedData = response.data.map(item => ({
+          ...item,
+          product_name: item.products?.product_name || 'N/A',
+          description: item.products?.description || 'N/A',
+          unit: item.products?.unit || 'N/A',
+          unit_size: item.products?.unit_size || 'N/A',
+          estimated_usages_per_unit: item.products?.estimated_usages_per_unit || 0
+        }));
         
-        // Update stats
-        const lowStock = mockInventory.filter(i => i.status === 'Low Stock').length;
-        const criticalStock = mockInventory.filter(i => i.status === 'Critical').length;
-        const totalValue = mockInventory.reduce((sum, i) => sum + (i.quantity * i.unit_price), 0);
+        setInventory(transformedData);
         
-        stats[0].value = mockInventory.length.toString();
-        stats[1].value = lowStock.toString();
-        stats[2].value = criticalStock.toString();
+        const lowStockItems = transformedData.filter(item => {
+          const remainingUsages = (item.product_quantity * item.estimated_usages_per_unit) - item.current_usages;
+          return remainingUsages <= item.reorder_level && remainingUsages > item.reorder_level * 0.5;
+        }).length;
+        
+        const criticalStockItems = transformedData.filter(item => {
+          const remainingUsages = (item.product_quantity * item.estimated_usages_per_unit) - item.current_usages;
+          return remainingUsages <= item.reorder_level * 0.5;
+        }).length;
+        
+        const totalValue = transformedData.reduce((sum, item) => sum + ((item.product_quantity || 0) * (item.unit_price || 0)), 0);
+        
+        stats[0].value = transformedData.length.toString();
+        stats[1].value = lowStockItems.toString();
+        stats[2].value = criticalStockItems.toString();
         stats[3].value = `$${totalValue.toLocaleString()}`;
-        
-        setIsLoading(false);
-      }, 500);
+      }
     } catch (error) {
       console.error('Error fetching inventory:', error);
+      showToast('Failed to fetch inventory', 'error');
+    } finally {
       setIsLoading(false);
     }
   };
@@ -93,26 +105,52 @@ function Inventory() {
     setFormError('');
   };
 
+  // Add product to inventory
   const handleAddItem = async (e) => {
     e.preventDefault();
     
-    if (!formData.product_name || !formData.quantity || !formData.unit || !formData.reorder_level) {
+    // Validate all required fields
+    if (!formData.product_name || !formData.description || !formData.unit || 
+        !formData.unit_size || !formData.estimated_usages_per_unit || 
+        !formData.product_quantity || !formData.current_usages || 
+        !formData.reorder_level || !formData.expiration_date) {
       setFormError('Please fill in all required fields');
       return;
     }
 
     setIsLoading(true);
     try {
-      // Replace with actual API call
-      // await api.post('/inventory/add', formData);
+      const response = await api.post('/inventory/add', {
+        product_name: formData.product_name,
+        description: formData.description,
+        unit: formData.unit,
+        unit_size: parseFloat(formData.unit_size),
+        estimated_usages_per_unit: parseFloat(formData.estimated_usages_per_unit),
+        product_quantity: parseInt(formData.product_quantity),
+        current_usages: parseInt(formData.current_usages),
+        reorder_level: parseInt(formData.reorder_level),
+        expiration_date: formData.expiration_date
+      });
       
-      alert('Item added successfully!');
+      console.log('Product added:', response.data);
+      showToast(response.data.message || 'Product added to inventory successfully!', 'success');
       setShowModal(false);
       resetForm();
       fetchInventory();
     } catch (error) {
-      console.error('Error adding item:', error);
-      setFormError(error.response?.data?.message || 'Error adding item');
+      console.error('Error adding product:', error);
+      
+      if (error.response?.data?.message) {
+        setFormError(error.response.data.message);
+        showToast(error.response.data.message, 'error');
+      } else if (error.response?.data?.errors) {
+        const errors = Object.values(error.response.data.errors).flat();
+        setFormError(errors.join(', '));
+        showToast(errors.join(', '), 'error');
+      } else {
+        setFormError('Error adding product to inventory. Please try again.');
+        showToast('Error adding product to inventory', 'error');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -121,23 +159,29 @@ function Inventory() {
   const handleUpdateItem = async (e) => {
     e.preventDefault();
     
-    if (!formData.product_name || !formData.quantity || !formData.unit || !formData.reorder_level) {
+    if (!formData.product_quantity && !formData.reorder_level) {
       setFormError('Please fill in all required fields');
       return;
     }
 
     setIsLoading(true);
     try {
-      // Replace with actual API call
-      // await api.post(`/inventory/update/${editingItem.id}`, formData);
+      // Replace with actual API call for updating inventory item
+      // await api.post(`/inventory/update/${editingItem.id}`, {
+      //   product_quantity: formData.product_quantity,
+      //   current_usages: formData.current_usages,
+      //   reorder_level: formData.reorder_level,
+      //   expiration_date: formData.expiration_date
+      // });
       
-      alert('Item updated successfully!');
+      showToast('Stock updated successfully!', 'success');
       setShowModal(false);
       resetForm();
       fetchInventory();
     } catch (error) {
       console.error('Error updating item:', error);
-      setFormError(error.response?.data?.message || 'Error updating item');
+      setFormError(error.response?.data?.message || 'Error updating stock');
+      showToast(error.response?.data?.message || 'Error updating stock', 'error');
     } finally {
       setIsLoading(false);
     }
@@ -146,14 +190,14 @@ function Inventory() {
   const handleDeleteItem = async (id) => {
     if (window.confirm('Are you sure you want to delete this item?')) {
       try {
-        // Replace with actual API call
+        // Replace with actual API call for deleting inventory item
         // await api.post(`/inventory/delete/${id}`);
         
-        alert('Item deleted successfully!');
+        showToast('Item deleted successfully!', 'success');
         fetchInventory();
       } catch (error) {
         console.error('Error deleting item:', error);
-        alert(error.response?.data?.message || 'Error deleting item');
+        showToast(error.response?.data?.message || 'Error deleting item', 'error');
       }
     }
   };
@@ -161,13 +205,14 @@ function Inventory() {
   const resetForm = () => {
     setFormData({
       product_name: '',
-      quantity: '',
+      description: '',
       unit: '',
+      unit_size: '',
+      estimated_usages_per_unit: '',
+      product_quantity: '',
+      current_usages: '',
       reorder_level: '',
-      unit_price: '',
-      supplier: '',
-      category: 'products',
-      status: 'active'
+      expiration_date: ''
     });
     setEditingItem(null);
     setFormError('');
@@ -176,14 +221,15 @@ function Inventory() {
   const handleEdit = (item) => {
     setEditingItem(item);
     setFormData({
-      product_name: item.product_name,
-      quantity: item.quantity,
-      unit: item.unit,
-      reorder_level: item.reorder_level,
-      unit_price: item.unit_price,
-      supplier: item.supplier,
-      category: item.category,
-      status: item.status
+      product_name: item.product_name || '',
+      description: item.description || '',
+      unit: item.unit || '',
+      unit_size: item.unit_size || '',
+      estimated_usages_per_unit: item.estimated_usages_per_unit || '',
+      product_quantity: item.product_quantity || '',
+      current_usages: item.current_usages || '',
+      reorder_level: item.reorder_level || '',
+      expiration_date: item.expiration_date || ''
     });
     setShowModal(true);
   };
@@ -196,15 +242,18 @@ function Inventory() {
     }
   };
 
-  const getStatusBadge = (status, quantity, reorderLevel) => {
-    if (status === 'Critical' || quantity <= reorderLevel * 0.5) {
+  const getStatusBadge = (item) => {
+    const remainingUsages = (item.product_quantity * item.estimated_usages_per_unit) - item.current_usages;
+    const reorderPoint = item.reorder_level;
+    
+    if (remainingUsages <= reorderPoint * 0.5) {
       return (
         <span className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full bg-red-100 text-red-700">
           <AlertTriangle size={12} />
           Critical
         </span>
       );
-    } else if (status === 'Low Stock' || quantity <= reorderLevel) {
+    } else if (remainingUsages <= reorderPoint) {
       return (
         <span className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full bg-yellow-100 text-yellow-700">
           <Clock size={12} />
@@ -222,8 +271,7 @@ function Inventory() {
   };
 
   const filteredInventory = inventory.filter(item => {
-    if (selectedCategory !== 'all' && item.category !== selectedCategory) return false;
-    if (searchTerm && !item.product_name.toLowerCase().includes(searchTerm.toLowerCase())) return false;
+    if (searchTerm && !(item.product_name || '').toLowerCase().includes(searchTerm.toLowerCase())) return false;
     return true;
   });
 
@@ -240,6 +288,22 @@ function Inventory() {
 
   return (
     <div className="space-y-6">
+      {/* Toast Notification */}
+      {toast.show && (
+        <div className="fixed top-4 right-4 z-50 animate-slide-in">
+          <div className={`rounded-lg shadow-lg p-4 flex items-center gap-3 ${
+            toast.type === 'success' ? 'bg-green-500' : 'bg-red-500'
+          } text-white min-w-[300px]`}>
+            {toast.type === 'success' ? (
+              <CheckCircle size={20} />
+            ) : (
+              <AlertCircle size={20} />
+            )}
+            <span>{toast.message}</span>
+          </div>
+        </div>
+      )}
+
       {/* Stats Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         {stats.map((stat, index) => (
@@ -290,16 +354,6 @@ function Inventory() {
             />
           </div>
           
-          <select 
-            value={selectedCategory}
-            onChange={(e) => setSelectedCategory(e.target.value)}
-            className="px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-pink-500"
-          >
-            {categories.map(cat => (
-              <option key={cat.id} value={cat.id}>{cat.name}</option>
-            ))}
-          </select>
-          
           <button 
             onClick={() => {
               resetForm();
@@ -313,7 +367,7 @@ function Inventory() {
         </div>
       </div>
 
-      {/* Table View */}
+      {/* Table View - Without Description */}
       {viewMode === 'table' && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
           <div className="overflow-x-auto">
@@ -322,10 +376,10 @@ function Inventory() {
                 <tr>
                   <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Product</th>
                   <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Quantity</th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Unit</th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Current Usages</th>
                   <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Reorder Level</th>
                   <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Status</th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Unit Price</th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Expiration Date</th>
                   <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
@@ -341,19 +395,19 @@ function Inventory() {
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="text-sm text-gray-600">{item.quantity}</span>
+                      <span className="text-sm text-gray-600">{item.product_quantity}</span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="text-sm text-gray-600">{item.unit}</span>
+                      <span className="text-sm text-gray-600">{item.current_usages}</span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className="text-sm text-gray-600">{item.reorder_level}</span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      {getStatusBadge(item.status, item.quantity, item.reorder_level)}
+                      {getStatusBadge(item)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="text-sm font-semibold text-gray-800">${item.unit_price}</span>
+                      <span className="text-sm text-gray-600">{item.expiration_date}</span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center gap-2">
@@ -400,7 +454,7 @@ function Inventory() {
         </div>
       )}
 
-      {/* Cards View */}
+      {/* Cards View - With Description */}
       {viewMode === 'cards' && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredInventory.map((item) => (
@@ -410,29 +464,34 @@ function Inventory() {
                   <div className="w-12 h-12 bg-gradient-to-r from-pink-500 to-pink-600 rounded-xl flex items-center justify-center shadow-lg">
                     <Package size={24} className="text-white" />
                   </div>
-                  {getStatusBadge(item.status, item.quantity, item.reorder_level)}
+                  {getStatusBadge(item)}
                 </div>
               </div>
               
               <div className="p-4">
-                <h3 className="text-lg font-semibold text-gray-800 mb-2">{item.product_name}</h3>
+                <h3 className="text-lg font-semibold text-gray-800 mb-1">{item.product_name}</h3>
+                <p className="text-sm text-gray-500 mb-3 line-clamp-2">{item.description}</p>
                 
                 <div className="grid grid-cols-2 gap-3 mb-4">
                   <div>
                     <p className="text-xs text-gray-500">Quantity</p>
-                    <p className="text-sm font-semibold text-gray-800">{item.quantity} {item.unit}</p>
+                    <p className="text-sm font-semibold text-gray-800">{item.product_quantity}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500">Current Usages</p>
+                    <p className="text-sm font-semibold text-gray-800">{item.current_usages}</p>
                   </div>
                   <div>
                     <p className="text-xs text-gray-500">Reorder Level</p>
                     <p className="text-sm font-semibold text-gray-800">{item.reorder_level}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-gray-500">Unit Price</p>
-                    <p className="text-sm font-semibold text-gray-800">${item.unit_price}</p>
+                    <p className="text-xs text-gray-500">Expiration Date</p>
+                    <p className="text-sm text-gray-600">{item.expiration_date}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-gray-500">Supplier</p>
-                    <p className="text-sm text-gray-600 truncate">{item.supplier}</p>
+                    <p className="text-xs text-gray-500">Unit</p>
+                    <p className="text-sm text-gray-600">{item.unit} ({item.unit_size})</p>
                   </div>
                 </div>
                 
@@ -458,13 +517,13 @@ function Inventory() {
         </div>
       )}
 
-      {/* Add/Edit Item Modal */}
+      {/* Add Product Modal */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden max-h-[90vh] overflow-y-auto">
             <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-6 py-4 flex items-center justify-between sticky top-0">
               <h2 className="text-xl font-bold text-white">
-                {editingItem ? 'Edit Product' : 'Add New Product'}
+                Add New Product to Inventory
               </h2>
               <button 
                 onClick={() => {
@@ -485,6 +544,11 @@ function Inventory() {
                 </div>
               )}
               
+              {/* Product Information Section */}
+              <div className="border-b border-gray-200 pb-3 mb-2">
+                <h3 className="text-md font-semibold text-gray-700">Product Information</h3>
+              </div>
+              
               <div>
                 <label className="block text-gray-700 text-sm font-semibold mb-2">
                   Product Name *
@@ -499,15 +563,81 @@ function Inventory() {
                 />
               </div>
 
+              <div>
+                <label className="block text-gray-700 text-sm font-semibold mb-2">
+                  Description *
+                </label>
+                <textarea
+                  name="description"
+                  value={formData.description}
+                  onChange={handleInputChange}
+                  rows="3"
+                  className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 resize-none"
+                  required
+                />
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-gray-700 text-sm font-semibold mb-2">
-                    Quantity *
+                    Unit *
+                  </label>
+                  <input
+                    type="text"
+                    name="unit"
+                    value={formData.unit}
+                    onChange={handleInputChange}
+                    placeholder="e.g., ml, g, pieces"
+                    className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-gray-700 text-sm font-semibold mb-2">
+                    Unit Size *
                   </label>
                   <input
                     type="number"
-                    name="quantity"
-                    value={formData.quantity}
+                    name="unit_size"
+                    value={formData.unit_size}
+                    onChange={handleInputChange}
+                    placeholder="e.g., 250, 500"
+                    className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-gray-700 text-sm font-semibold mb-2">
+                  Estimated Usages Per Unit *
+                </label>
+                <input
+                  type="number"
+                  name="estimated_usages_per_unit"
+                  value={formData.estimated_usages_per_unit}
+                  onChange={handleInputChange}
+                  placeholder="Number of usages per unit"
+                  step="0.01"
+                  className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                  required
+                />
+              </div>
+
+              {/* Inventory Information Section */}
+              <div className="border-b border-gray-200 pb-3 mb-2 mt-4">
+                <h3 className="text-md font-semibold text-gray-700">Inventory Information</h3>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-gray-700 text-sm font-semibold mb-2">
+                    Product Quantity *
+                  </label>
+                  <input
+                    type="number"
+                    name="product_quantity"
+                    value={formData.product_quantity}
                     onChange={handleInputChange}
                     className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
                     required
@@ -515,24 +645,16 @@ function Inventory() {
                 </div>
                 <div>
                   <label className="block text-gray-700 text-sm font-semibold mb-2">
-                    Unit *
+                    Current Usages *
                   </label>
-                  <select
-                    name="unit"
-                    value={formData.unit}
+                  <input
+                    type="number"
+                    name="current_usages"
+                    value={formData.current_usages}
                     onChange={handleInputChange}
                     className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
                     required
-                  >
-                    <option value="">Select Unit</option>
-                    <option value="ml">ml</option>
-                    <option value="g">g</option>
-                    <option value="kg">kg</option>
-                    <option value="boxes">Boxes</option>
-                    <option value="bottles">Bottles</option>
-                    <option value="pieces">Pieces</option>
-                    <option value="units">Units</option>
-                  </select>
+                  />
                 </div>
               </div>
 
@@ -552,46 +674,17 @@ function Inventory() {
                 </div>
                 <div>
                   <label className="block text-gray-700 text-sm font-semibold mb-2">
-                    Unit Price ($)
+                    Expiration Date *
                   </label>
                   <input
-                    type="number"
-                    name="unit_price"
-                    value={formData.unit_price}
+                    type="date"
+                    name="expiration_date"
+                    value={formData.expiration_date}
                     onChange={handleInputChange}
-                    step="0.01"
                     className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                    required
                   />
                 </div>
-              </div>
-
-              <div>
-                <label className="block text-gray-700 text-sm font-semibold mb-2">
-                  Supplier
-                </label>
-                <input
-                  type="text"
-                  name="supplier"
-                    value={formData.supplier}
-                  onChange={handleInputChange}
-                  className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-gray-700 text-sm font-semibold mb-2">
-                  Category
-                </label>
-                <select
-                  name="category"
-                  value={formData.category}
-                  onChange={handleInputChange}
-                  className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
-                >
-                  <option value="products">Products</option>
-                  <option value="tools">Tools</option>
-                  <option value="equipment">Equipment</option>
-                </select>
               </div>
 
               <div className="flex gap-3 pt-4">
@@ -610,7 +703,7 @@ function Inventory() {
                   disabled={isLoading}
                   className="flex-1 px-4 py-2 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 font-medium disabled:opacity-50"
                 >
-                  {isLoading ? 'Saving...' : (editingItem ? 'Update Product' : 'Add Product')}
+                  {isLoading ? 'Adding...' : 'Add to Inventory'}
                 </button>
               </div>
             </form>
@@ -624,8 +717,8 @@ function Inventory() {
           <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
             <Package size={32} className="text-gray-400" />
           </div>
-          <h3 className="text-lg font-semibold text-gray-800 mb-2">No products found</h3>
-          <p className="text-gray-500 text-sm mb-4">Click the "Add Product" button to add your first product</p>
+          <h3 className="text-lg font-semibold text-gray-800 mb-2">No inventory items found</h3>
+          <p className="text-gray-500 text-sm mb-4">Click the "Add Product" button to add your first product to inventory</p>
           <button 
             onClick={() => {
               resetForm();

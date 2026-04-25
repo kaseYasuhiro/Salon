@@ -19,6 +19,6 @@ class Services extends Model
 
     public function ServiceProductUsage()
     {
-        return $this->belongsTo(ServiceProductUsage::class, 'id');
+        return $this->hasMany(ServiceProductUsage::class, 'service_id');
     }
 }

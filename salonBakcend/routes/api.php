@@ -3,6 +3,8 @@
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\ServicesController;
 use App\Http\Controllers\JoinedController;
+use App\Http\Controllers\ServiceProductUsageController;
+use App\Http\Controllers\ProductsController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -35,3 +37,15 @@ Route::post('/services/delete/{id}', [ServicesController::class, 'deleteService'
 Route::get('/employees', [UserController::class, 'getEmployees']);
 Route::post('/employees/update/{id}', [UserController::class, 'updateEmployee']);
 Route::post('/employees/delete/{id}', [UserController::class, 'deleteEmployee']);
+
+Route::get('/inventory', [JoinedController::class, 'invDisplay']);
+Route::post('/inventory/add' , [JoinedController::class, 'addProductsToInventory']);
+Route::post('/inventory/update', [JoinedController::class, 'updateProductsOnInventory']);
+Route::post('/inventory/delete', [JoinedController::class, 'deleteProductsFromInventory']);
+
+Route::get('/service/usage', [JoinedController::class, 'serviceWithUsages']);
+Route::post('/service/usage/add', [ServiceProductUsageController::class, 'addProductUsagePerService']);
+Route::get('/service/usage/{serviceId}', [ServiceProductUsageController::class, 'serviceProductUsage']);
+Route::post('/service/usage/delete/{id}', [ServiceProductUsageController::class, 'deleteProductFromUsage']);
+
+Route::get('/products', [ProductsController::class, 'displayProducts']);

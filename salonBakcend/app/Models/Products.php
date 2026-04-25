@@ -25,7 +25,7 @@ class Products extends Model
 
     public function Inventory()
     {
-        return $this->belongsTo(Inventory::class, 'id');
+        return $this->belongsTo(Inventory::class, 'product_id');
     }
 
 

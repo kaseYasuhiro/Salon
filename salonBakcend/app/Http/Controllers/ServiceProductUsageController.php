@@ -7,59 +7,38 @@ use Illuminate\Http\Request;
 
 class ServiceProductUsageController extends Controller
 {
-    /**
-     * Display a listing of the resource.
-     */
-    public function index()
+    public function serviceProductUsage($serviceId)
     {
-        //
+        $serviceUsage = ServiceProductUsage::where('service_id', $serviceId)->get();
+        return response()->json($serviceUsage);
+    }
+    
+    public function addProductUsagePerService(Request $request)
+    {
+        $request->validate([
+            'service_id' => ['required', 'numeric'],
+            'product_id' => ['required', 'numeric'],
+            'estimated_usage' => ['required', 'numeric']
+        ]);
+
+        ServiceProductUsage::create([
+            'service_id' => $request->service_id,
+            'product_id' => $request->product_id,
+            'estimated_usage' => $request->estimated_usage
+        ]);
+
+        return response()->json([
+            'message' => 'Product Usage Added Successfully'
+        ], 200);
     }
 
-    /**
-     * Show the form for creating a new resource.
-     */
-    public function create()
+    public function deleteProductFromUsage($id)
     {
-        //
-    }
-
-    /**
-     * Store a newly created resource in storage.
-     */
-    public function store(Request $request)
-    {
-        //
-    }
-
-    /**
-     * Display the specified resource.
-     */
-    public function show(ServiceProductUsage $serviceProductUsage)
-    {
-        //
-    }
-
-    /**
-     * Show the form for editing the specified resource.
-     */
-    public function edit(ServiceProductUsage $serviceProductUsage)
-    {
-        //
-    }
-
-    /**
-     * Update the specified resource in storage.
-     */
-    public function update(Request $request, ServiceProductUsage $serviceProductUsage)
-    {
-        //
-    }
-
-    /**
-     * Remove the specified resource from storage.
-     */
-    public function destroy(ServiceProductUsage $serviceProductUsage)
-    {
-        //
+        $productServiceUsage = serviceProductUsage::where('id', $id)->first();
+        $productServiceUsage->delete();
+        
+        return response()->json([
+            'message' => 'Product Usage Deleted Successfully'
+        ], 200);
     }
 }

@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class Inventory extends Model
 {
-    protected $table = 'inventory';
+    protected $table = 'inventories';
     protected $fillable = [
         'product_id',
         'product_quantity',
@@ -19,6 +19,6 @@ class Inventory extends Model
 
     public function Products()
     {
-        return $this->hasMany(Products::class, 'id');
+        return $this->belongsTo(Products::class, 'product_id');
     }
 }
