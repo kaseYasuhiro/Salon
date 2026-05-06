@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Link, Outlet, useLocation } from 'react-router-dom';
+import { getToken } from '../services/auth-storage';
+
 import { 
   Calendar, Scissors, Package, Users, 
   TrendingUp, CheckCircle, Clock, XCircle,
@@ -16,6 +18,22 @@ function Dashboard() {
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { user } = useAuth();
+  const [token, setToken] = useState(null);
+
+  useEffect(() => {
+    // Get token from storage
+    const storedToken = getToken();
+    setToken(storedToken);
+    
+    console.log('User from store:', user);
+    console.log('Token from storage:', storedToken);
+    
+    // You can also check if user is authenticated
+    if (!user || !storedToken) {
+      // Redirect to login if not authenticated
+      navigate('/');
+    }
+  }, [user]);
 
   useEffect(() => {
     const token = localStorage.getItem('token');

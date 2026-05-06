@@ -18,11 +18,11 @@ class ServiceProductUsage extends Model
 
     public function Services()
     {
-        return $this->belongsTo(Services::class, 'id');
+        return $this->belongsTo(Services::class, 'service_id');
     }
 
-    public function Products()
+    public function Product()
     {
-        return $this->hasMany(Products::class, 'id');
+        return $this->hasMany(Products::class, 'product_id', 'id');
     }
 }

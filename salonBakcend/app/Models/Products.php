@@ -18,14 +18,14 @@ class Products extends Model
         'estimated_usages_per_unit'
     ];
 
-    public function ServiceProductUsage()
+    public function ServiceProductUsages()
     {
-        return $this->belongsTo(ServiceProductUsage::class, 'id');
+        return $this->hasMany(ServiceProductUsage::class, 'product_id', 'id');
     }
 
     public function Inventory()
     {
-        return $this->belongsTo(Inventory::class, 'product_id');
+        return $this->belongsTo(Inventory::class, 'product_id', 'id');
     }
 
 

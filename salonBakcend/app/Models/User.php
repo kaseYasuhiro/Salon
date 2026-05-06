@@ -3,6 +3,9 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\Models\Appointments;
+use App\Models\EmployeeCommission;
+use App\Models\Feedback;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -46,4 +49,24 @@ class User extends Authenticatable
         'email_verified_at' => 'datetime',
         'password' => 'hashed',
     ];
+
+    public function appointments()
+    {
+        return $this->hasMany(Appointments::class, 'customer_id');
+    }
+
+    public function transaction()
+    {
+        return $this->hasMany(Transaction::class, 'assigned_employee_id');
+    }
+
+    public function employeeCommission()
+    {
+        return $this->hasMany(EmployeeCommission::class, 'employee_id');
+    }
+
+    public function feedback()
+    {
+        return $this->hasMany(Feedback::class, 'customer_id');
+    }
 }

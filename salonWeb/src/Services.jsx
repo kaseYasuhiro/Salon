@@ -272,7 +272,7 @@ function Services() {
 
     setIsLoading(true);
     try {
-      await api.post('/services/update', {
+      await api.post('/services/update/{id}', {
         id: editingService.id,
         service_name: formData.service_name,
         description: formData.description,
@@ -297,7 +297,7 @@ function Services() {
   const handleDeleteService = async (id) => {
     if (window.confirm('Are you sure you want to delete this service?')) {
       try {
-        await api.post('/services/delete', { id });
+        await api.post('/services/delete/{id}', { id });
         showToast('Service deleted successfully!', 'success');
         fetchServices();
       } catch (error) {
