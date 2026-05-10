@@ -3,7 +3,7 @@ import {
   Scissors, Sparkles, Hand, Clock, DollarSign, 
   Edit, Eye, Plus, Search, Filter, Trash2,
   Star, Users, Calendar, Package, Activity, X, AlertCircle,
-  ChevronDown, CheckCircle
+  ChevronDown, CheckCircle, Tag
 } from 'lucide-react';
 import api from '../api/axios';
 
@@ -13,6 +13,7 @@ function Services() {
   const [viewMode, setViewMode] = useState('grid');
   const [services, setServices] = useState([]);
   const [allProducts, setAllProducts] = useState([]);
+  const [specialtiesList, setSpecialtiesList] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingUsages, setIsLoadingUsages] = useState(false);
   const [showModal, setShowModal] = useState(false);
@@ -25,6 +26,8 @@ function Services() {
   const [showProductDropdown, setShowProductDropdown] = useState(false);
   const [productSearchTerm, setProductSearchTerm] = useState('');
   const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
+  const [isAddingSpecialty, setIsAddingSpecialty] = useState(false);
+  const [specialtyError, setSpecialtyError] = useState('');
 
   const [usageFormData, setUsageFormData] = useState({
     service_id: '',
@@ -38,7 +41,13 @@ function Services() {
     description: '',
     price: '',
     duration_minutes: '',
-    service_status: 'active'
+    service_status: 'active',
+    is_multitaskable: false
+  });
+
+  const [serviceSpecialtyFormData, setServiceSpecialtyFormData] = useState({
+    service_id: '',
+    specialty_id: ''
   });
 
   const categories = [
@@ -63,27 +72,53 @@ function Services() {
     }, 3000);
   };
 
-  // Fetch services from /service/usage route
+  // Fetch services with their specialties
   const fetchServices = async () => {
     setIsLoading(true);
     try {
-      const response = await api.get('/service/usage');
-      console.log('Fetched services:', response.data);
+      const servicesResponse = await api.get('/services');
+      console.log('Fetched services:', servicesResponse.data);
       
-      if (Array.isArray(response.data)) {
-        setServices(response.data);
-        
-        const activeServices = response.data.filter(s => s.service_status === 'active').length;
-        const totalPrice = response.data.reduce((sum, s) => sum + parseFloat(s.price), 0);
-        const avgPrice = response.data.length > 0 ? totalPrice / response.data.length : 0;
-        
-        setStats([
-          { ...stats[0], value: response.data.length.toString() },
-          { ...stats[1], value: activeServices.toString() },
-          { ...stats[2], value: stats[2].value },
-          { ...stats[3], value: `$${avgPrice.toFixed(0)}` },
-        ]);
+      const specialtiesResponse = await api.get('/services/specialties');
+      console.log('Fetched service specialties:', specialtiesResponse.data);
+      
+      const specialtiesMap = new Map();
+      if (Array.isArray(specialtiesResponse.data)) {
+        specialtiesResponse.data.forEach(item => {
+          const serviceId = item.service_id;
+          if (!specialtiesMap.has(serviceId)) {
+            specialtiesMap.set(serviceId, []);
+          }
+          specialtiesMap.get(serviceId).push({
+            id: item.id,
+            specialty_id: item.specialty_id,
+            specialty: item.specialties
+          });
+        });
       }
+      
+      let servicesWithSpecialties = [];
+      if (Array.isArray(servicesResponse.data)) {
+        servicesWithSpecialties = servicesResponse.data.map(service => ({
+          ...service,
+          service_specialties: specialtiesMap.get(service.id) || []
+        }));
+      }
+      
+      console.log('Services with merged specialties:', servicesWithSpecialties);
+      setServices(servicesWithSpecialties);
+      
+      const activeServices = servicesWithSpecialties.filter(s => s.service_status === 'active').length;
+      const totalPrice = servicesWithSpecialties.reduce((sum, s) => sum + parseFloat(s.price), 0);
+      const avgPrice = servicesWithSpecialties.length > 0 ? totalPrice / servicesWithSpecialties.length : 0;
+      
+      setStats([
+        { ...stats[0], value: servicesWithSpecialties.length.toString() },
+        { ...stats[1], value: activeServices.toString() },
+        { ...stats[2], value: stats[2].value },
+        { ...stats[3], value: `$${avgPrice.toFixed(0)}` },
+      ]);
+      
     } catch (error) {
       console.error('Error fetching services:', error);
     } finally {
@@ -101,6 +136,19 @@ function Services() {
       }
     } catch (error) {
       console.error('Error fetching products:', error);
+    }
+  };
+
+  // Fetch all specialties from the specialties table
+  const fetchSpecialtiesList = async () => {
+    try {
+      const response = await api.get('/specialties');
+      console.log('Available specialties:', response.data);
+      if (Array.isArray(response.data)) {
+        setSpecialtiesList(response.data);
+      }
+    } catch (error) {
+      console.error('Error fetching specialties list:', error);
     }
   };
 
@@ -126,6 +174,7 @@ function Services() {
   useEffect(() => {
     fetchServices();
     fetchProducts();
+    fetchSpecialtiesList();
   }, []);
 
   const handleInputChange = (e) => {
@@ -138,6 +187,12 @@ function Services() {
     const { name, value } = e.target;
     setUsageFormData(prev => ({ ...prev, [name]: value }));
     setUsageFormError('');
+  };
+
+  const handleServiceSpecialtyChange = (e) => {
+    const { name, value } = e.target;
+    setServiceSpecialtyFormData(prev => ({ ...prev, [name]: value }));
+    setSpecialtyError('');
   };
 
   // Handle product selection from dropdown
@@ -155,6 +210,60 @@ function Services() {
   const filteredProducts = allProducts.filter(product =>
     product.product_name.toLowerCase().includes(productSearchTerm.toLowerCase())
   );
+
+  // Add service specialty
+  const handleAddServiceSpecialty = async (e) => {
+    e.preventDefault();
+    
+    if (!serviceSpecialtyFormData.specialty_id) {
+      setSpecialtyError('Please select a specialty');
+      return;
+    }
+
+    setIsAddingSpecialty(true);
+    try {
+      await api.post('/services/specialty/add', {
+        service_id: parseInt(serviceSpecialtyFormData.service_id),
+        specialty_id: parseInt(serviceSpecialtyFormData.specialty_id)
+      });
+      
+      showToast('Specialty added to service successfully!', 'success');
+      setServiceSpecialtyFormData({
+        service_id: selectedService?.id || '',
+        specialty_id: ''
+      });
+      await fetchServices();
+      if (selectedService) {
+        await fetchProductUsages(selectedService.id);
+      }
+    } catch (error) {
+      console.error('Error adding service specialty:', error);
+      setSpecialtyError(error.response?.data?.message || 'Error adding specialty');
+      showToast(error.response?.data?.message || 'Error adding specialty', 'error');
+    } finally {
+      setIsAddingSpecialty(false);
+    }
+  };
+
+  // Format specialty name for display
+  const formatSpecialtyName = (specialtyName) => {
+    if (!specialtyName) return '';
+    return specialtyName.split('_').map(word => 
+      word.charAt(0).toUpperCase() + word.slice(1)
+    ).join(' ');
+  };
+
+  // Get specialty icon
+  const getSpecialtyIcon = (specialtyName) => {
+    const name = specialtyName?.toLowerCase();
+    if (name === 'stylist') return <Scissors size={10} />;
+    if (name === 'barber') return <Scissors size={10} />;
+    if (name === 'nail_technician') return <Hand size={10} />;
+    if (name === 'massage_therapist') return <Activity size={10} />;
+    if (name === 'makeup_artist') return <Star size={10} />;
+    if (name === 'esthetician') return <Sparkles size={10} />;
+    return <Star size={10} />;
+  };
 
   // Get product name from service product usage
   const getProductNameFromUsage = (usage) => {
@@ -246,7 +355,8 @@ function Services() {
         description: formData.description,
         price: parseFloat(formData.price),
         duration_minutes: parseInt(formData.duration_minutes),
-        service_status: formData.service_status
+        service_status: formData.service_status,
+        is_multitaskable: formData.is_multitaskable
       });
       
       showToast('Service added successfully!', 'success');
@@ -278,7 +388,8 @@ function Services() {
         description: formData.description,
         price: parseFloat(formData.price),
         duration_minutes: parseInt(formData.duration_minutes),
-        service_status: formData.service_status
+        service_status: formData.service_status,
+        is_multitaskable: formData.is_multitaskable
       });
       
       showToast('Service updated successfully!', 'success');
@@ -313,7 +424,8 @@ function Services() {
       description: '',
       price: '',
       duration_minutes: '',
-      service_status: 'active'
+      service_status: 'active',
+      is_multitaskable: false
     });
     setEditingService(null);
     setFormError('');
@@ -326,7 +438,8 @@ function Services() {
       description: service.description,
       price: service.price,
       duration_minutes: service.duration_minutes,
-      service_status: service.service_status
+      service_status: service.service_status,
+      is_multitaskable: service.is_multitaskable || false
     });
     setShowModal(true);
   };
@@ -339,7 +452,12 @@ function Services() {
       product_name: '',
       estimated_usage: ''
     });
+    setServiceSpecialtyFormData({
+      service_id: service.id,
+      specialty_id: ''
+    });
     setProductSearchTerm('');
+    setSpecialtyError('');
     await fetchProductUsages(service.id);
     setShowUsageModal(true);
   };
@@ -399,25 +517,25 @@ function Services() {
         </div>
       )}
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+      {/* Stats Grid - Smaller */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {stats.map((stat, index) => (
-          <div key={index} className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 p-6 border border-gray-100">
-            <div className={`${stat.bgColor} w-12 h-12 rounded-xl flex items-center justify-center mb-3`}>
-              <stat.icon className={stat.textColor} size={22} />
+          <div key={index} className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 p-4 border border-gray-100">
+            <div className={`${stat.bgColor} w-10 h-10 rounded-xl flex items-center justify-center mb-2`}>
+              <stat.icon className={stat.textColor} size={18} />
             </div>
-            <p className="text-gray-500 text-sm mb-1">{stat.label}</p>
-            <p className="text-2xl font-bold text-gray-800">{stat.value}</p>
+            <p className="text-gray-500 text-xs mb-0.5">{stat.label}</p>
+            <p className="text-xl font-bold text-gray-800">{stat.value}</p>
           </div>
         ))}
       </div>
 
-      {/* Controls Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      {/* Controls Bar - Compact */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div className="flex gap-2">
           <button 
             onClick={() => setViewMode('grid')}
-            className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 ${
+            className={`px-3 py-1.5 rounded-lg font-medium transition-all duration-200 text-sm ${
               viewMode === 'grid' 
                 ? 'bg-pink-500 text-white shadow-md' 
                 : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
@@ -427,7 +545,7 @@ function Services() {
           </button>
           <button 
             onClick={() => setViewMode('list')}
-            className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 ${
+            className={`px-3 py-1.5 rounded-lg font-medium transition-all duration-200 text-sm ${
               viewMode === 'list' 
                 ? 'bg-pink-500 text-white shadow-md' 
                 : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
@@ -437,22 +555,22 @@ function Services() {
           </button>
         </div>
         
-        <div className="flex flex-wrap gap-3">
+        <div className="flex flex-wrap gap-2">
           <div className="relative">
-            <Search size={18} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+            <Search size={14} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
             <input 
               type="text" 
               placeholder="Search services..." 
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent text-sm w-48"
+              className="pl-9 pr-3 py-1.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent text-sm w-44"
             />
           </div>
           
           <select 
             value={selectedCategory}
             onChange={(e) => setSelectedCategory(e.target.value)}
-            className="px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-pink-500"
+            className="px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-pink-500"
           >
             {categories.map(cat => (
               <option key={cat.id} value={cat.id}>{cat.name}</option>
@@ -464,78 +582,114 @@ function Services() {
               resetForm();
               setShowModal(true);
             }}
-            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 text-sm font-medium"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 text-sm font-medium"
           >
-            <Plus size={16} />
+            <Plus size={14} />
             <span>Add Service</span>
           </button>
         </div>
       </div>
 
-      {/* Categories Tabs */}
-      <div className="flex flex-wrap gap-2 border-b border-gray-200 pb-4">
+      {/* Categories Tabs - Compact */}
+      <div className="flex flex-wrap gap-1.5 border-b border-gray-200 pb-3">
         {categories.map((category) => (
           <button
             key={category.id}
             onClick={() => setSelectedCategory(category.id)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-200 ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all duration-200 text-sm ${
               selectedCategory === category.id
                 ? 'bg-pink-500 text-white shadow-md'
                 : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
             }`}
           >
-            <category.icon size={16} />
+            <category.icon size={14} />
             <span className="text-sm font-medium">{category.name}</span>
           </button>
         ))}
       </div>
 
-      {/* Grid View */}
+      {/* Grid View - Smaller Cards */}
       {viewMode === 'grid' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {filteredServices.map((service) => (
             <div 
               key={service.id} 
               onClick={() => handleServiceClick(service)}
               className="bg-white rounded-xl shadow-sm hover:shadow-lg transition-all duration-300 border border-gray-100 overflow-hidden cursor-pointer group"
             >
-              <div className="relative h-32 bg-gradient-to-r from-pink-50 to-purple-50 flex items-center justify-center">
-                <div className="w-16 h-16 bg-gradient-to-r from-pink-500 to-pink-600 rounded-2xl flex items-center justify-center shadow-lg">
-                  <Scissors size={32} className="text-white" />
+              <div className="relative h-24 bg-gradient-to-r from-pink-50 to-purple-50 flex items-center justify-center">
+                <div className="w-12 h-12 bg-gradient-to-r from-pink-500 to-pink-600 rounded-xl flex items-center justify-center shadow-lg">
+                  <Scissors size={24} className="text-white" />
                 </div>
                 {service.service_status === 'inactive' && (
                   <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                    <span className="bg-red-500 text-white text-xs font-semibold px-2 py-1 rounded-full">Inactive</span>
+                    <span className="bg-red-500 text-white text-xs font-semibold px-2 py-0.5 rounded-full">Inactive</span>
+                  </div>
+                )}
+                {service.service_specialties && service.service_specialties.length > 0 && (
+                  <div className="absolute bottom-1.5 right-1.5 bg-white rounded-full px-1.5 py-0.5 shadow-md">
+                    <div className="flex items-center gap-0.5">
+                      <Tag size={10} className="text-pink-500" />
+                      <span className="text-[10px] font-medium text-gray-700">
+                        {service.service_specialties.length}
+                      </span>
+                    </div>
                   </div>
                 )}
               </div>
               
-              <div className="p-4">
-                <div className="mb-3">
-                  <h3 className="text-lg font-semibold text-gray-800">{service.service_name}</h3>
-                  <p className="text-sm text-gray-500 mt-1 line-clamp-2">{service.description}</p>
+              <div className="p-3">
+                <div className="mb-2">
+                  <h3 className="text-sm font-semibold text-gray-800 truncate">{service.service_name}</h3>
+                  <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{service.description}</p>
                 </div>
                 
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-1 text-green-600 font-bold">
-                    <DollarSign size={16} />
-                    <span>${parseFloat(service.price).toFixed(2)}</span>
+                <div className="mb-2 min-h-[32px]">
+                  {service.service_specialties && service.service_specialties.length > 0 ? (
+                    <div className="flex flex-wrap gap-1">
+                      {service.service_specialties.slice(0, 2).map((specialtyItem, idx) => {
+                        const specialtyName = specialtyItem.specialty?.specialty_name;
+                        return specialtyName ? (
+                          <span 
+                            key={idx} 
+                            className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-pink-100 text-pink-700 rounded text-[10px] font-medium"
+                          >
+                            {getSpecialtyIcon(specialtyName)}
+                            <span>{formatSpecialtyName(specialtyName)}</span>
+                          </span>
+                        ) : null;
+                      })}
+                      {service.service_specialties.length > 2 && (
+                        <span className="inline-flex items-center px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded text-[10px] font-medium">
+                          +{service.service_specialties.length - 2}
+                        </span>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-[10px] text-gray-400 italic">No specialties</p>
+                  )}
+                </div>
+                
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-0.5 text-green-600 font-bold">
+                    <DollarSign size={12} />
+                    <span className="text-sm">${parseFloat(service.price).toFixed(2)}</span>
                   </div>
-                  <div className="flex items-center gap-1 text-gray-500 text-sm">
-                    <Clock size={14} />
+                  <div className="flex items-center gap-0.5 text-gray-500 text-xs">
+                    <Clock size={10} />
                     <span>{service.duration_minutes} min</span>
                   </div>
                 </div>
                 
-                <div className="flex gap-2">
+                <div className="flex gap-1.5">
                   <button 
                     onClick={(e) => {
                       e.stopPropagation();
                       handleEdit(service);
                     }}
-                    className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-pink-50 text-pink-600 rounded-lg hover:bg-pink-100 transition-colors text-sm font-medium"
+                    className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 bg-pink-50 text-pink-600 rounded-lg hover:bg-pink-100 transition-colors text-xs font-medium"
                   >
-                    <Edit size={14} />
+                    <Edit size={12} />
                     Edit
                   </button>
                   <button 
@@ -543,9 +697,9 @@ function Services() {
                       e.stopPropagation();
                       handleDeleteService(service.id);
                     }}
-                    className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors text-sm font-medium"
+                    className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors text-xs font-medium"
                   >
-                    <Trash2 size={14} />
+                    <Trash2 size={12} />
                     Delete
                   </button>
                 </div>
@@ -555,20 +709,21 @@ function Services() {
         </div>
       )}
 
-      {/* List View */}
+      {/* List View - Compact */}
       {viewMode === 'list' && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead className="bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
-                <table>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Service</th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Description</th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Duration</th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Price</th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Status</th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Actions</th>
-                </table>
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Service</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Description</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Specialties</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Duration</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Price</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Status</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Actions</th>
+                </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {filteredServices.map((service) => (
@@ -577,31 +732,51 @@ function Services() {
                     onClick={() => handleServiceClick(service)}
                     className="hover:bg-pink-50/30 transition-colors duration-200 cursor-pointer"
                   >
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-gradient-to-r from-pink-500 to-pink-600 rounded-xl flex items-center justify-center">
-                          <Scissors size={18} className="text-white" />
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 bg-gradient-to-r from-pink-500 to-pink-600 rounded-lg flex items-center justify-center">
+                          <Scissors size={14} className="text-white" />
                         </div>
                         <span className="text-sm font-semibold text-gray-900">{service.service_name}</span>
                       </div>
                     </td>
-                    <td className="px-6 py-4">
-                      <p className="text-sm text-gray-600 max-w-xs truncate">{service.description}</p>
+                    <td className="px-4 py-3">
+                      <p className="text-xs text-gray-600 max-w-xs truncate">{service.description}</p>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center gap-2">
-                        <Clock size={14} className="text-gray-400" />
-                        <span className="text-sm text-gray-600">{service.duration_minutes} min</span>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-wrap gap-1">
+                        {service.service_specialties && service.service_specialties.length > 0 ? (
+                          service.service_specialties.slice(0, 2).map((specialtyItem, idx) => {
+                            const specialtyName = specialtyItem.specialty?.specialty_name;
+                            return specialtyName ? (
+                              <span 
+                                key={idx} 
+                                className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-pink-100 text-pink-700 rounded text-[10px] font-medium"
+                              >
+                                {getSpecialtyIcon(specialtyName)}
+                                <span>{formatSpecialtyName(specialtyName)}</span>
+                              </span>
+                            ) : null;
+                          })
+                        ) : (
+                          <span className="text-[10px] text-gray-400 italic">None</span>
+                        )}
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-4 py-3 whitespace-nowrap">
                       <div className="flex items-center gap-1">
-                        <DollarSign size={14} className="text-gray-400" />
-                        <span className="text-sm font-semibold text-gray-800">${parseFloat(service.price).toFixed(2)}</span>
+                        <Clock size={10} className="text-gray-400" />
+                        <span className="text-xs text-gray-600">{service.duration_minutes} min</span>
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-2 py-1 text-xs rounded-full ${
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <div className="flex items-center gap-0.5">
+                        <DollarSign size={10} className="text-gray-400" />
+                        <span className="text-xs font-semibold text-gray-800">${parseFloat(service.price).toFixed(2)}</span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <span className={`px-1.5 py-0.5 text-[10px] rounded-full ${
                         service.service_status === 'active' 
                           ? 'bg-green-100 text-green-700' 
                           : 'bg-red-100 text-red-700'
@@ -609,25 +784,25 @@ function Services() {
                         {service.service_status}
                       </span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center gap-2">
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <div className="flex items-center gap-1.5">
                         <button 
                           onClick={(e) => {
                             e.stopPropagation();
                             handleEdit(service);
                           }}
-                          className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
+                          className="p-1 hover:bg-gray-100 rounded transition-colors"
                         >
-                          <Edit size={16} className="text-gray-500" />
+                          <Edit size={14} className="text-gray-500" />
                         </button>
                         <button 
                           onClick={(e) => {
                             e.stopPropagation();
                             handleDeleteService(service.id);
                           }}
-                          className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
+                          className="p-1 hover:bg-gray-100 rounded transition-colors"
                         >
-                          <Trash2 size={16} className="text-red-500" />
+                          <Trash2 size={14} className="text-red-500" />
                         </button>
                       </div>
                     </td>
@@ -639,12 +814,12 @@ function Services() {
         </div>
       )}
 
-      {/* Service Details Modal */}
+      {/* Service Details Modal - Same as before but keep compact design */}
       {showUsageModal && selectedService && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl mx-4 overflow-hidden max-h-[90vh] overflow-y-auto">
-            <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-6 py-4 flex items-center justify-between sticky top-0">
-              <h2 className="text-xl font-bold text-white">{selectedService.service_name}</h2>
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl mx-4 overflow-hidden max-h-[85vh] overflow-y-auto">
+            <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-5 py-3 flex items-center justify-between sticky top-0">
+              <h2 className="text-lg font-bold text-white">{selectedService.service_name}</h2>
               <button 
                 onClick={() => {
                   setShowUsageModal(false);
@@ -653,20 +828,20 @@ function Services() {
                 }}
                 className="text-white hover:bg-white/20 rounded-lg p-1 transition-colors"
               >
-                <X size={24} />
+                <X size={20} />
               </button>
             </div>
 
-            <div className="p-6">
+            <div className="p-5">
               {/* Service Details */}
-              <div className="mb-6">
-                <h3 className="text-lg font-semibold text-gray-800 mb-3">Service Details</h3>
-                <div className="bg-gray-50 rounded-xl p-4 space-y-2">
-                  <p className="text-gray-600"><span className="font-semibold">Description:</span> {selectedService.description}</p>
-                  <p className="text-gray-600"><span className="font-semibold">Duration:</span> {selectedService.duration_minutes} minutes</p>
-                  <p className="text-gray-600"><span className="font-semibold">Price:</span> ${parseFloat(selectedService.price).toFixed(2)}</p>
-                  <p className="text-gray-600"><span className="font-semibold">Status:</span> 
-                    <span className={`ml-2 px-2 py-0.5 text-xs rounded-full ${
+              <div className="mb-5">
+                <h3 className="text-sm font-semibold text-gray-800 mb-2">Service Details</h3>
+                <div className="bg-gray-50 rounded-lg p-3 space-y-1.5">
+                  <p className="text-xs text-gray-600"><span className="font-semibold">Description:</span> {selectedService.description}</p>
+                  <p className="text-xs text-gray-600"><span className="font-semibold">Duration:</span> {selectedService.duration_minutes} minutes</p>
+                  <p className="text-xs text-gray-600"><span className="font-semibold">Price:</span> ${parseFloat(selectedService.price).toFixed(2)}</p>
+                  <p className="text-xs text-gray-600"><span className="font-semibold">Status:</span> 
+                    <span className={`ml-1.5 px-1.5 py-0.5 text-[10px] rounded-full ${
                       selectedService.service_status === 'active' 
                         ? 'bg-green-100 text-green-700' 
                         : 'bg-red-100 text-red-700'
@@ -674,39 +849,132 @@ function Services() {
                       {selectedService.service_status}
                     </span>
                   </p>
+                  <p className="text-xs text-gray-600"><span className="font-semibold">Multi-taskable:</span> 
+                    <span className={`ml-1.5 px-1.5 py-0.5 text-[10px] rounded-full ${
+                      selectedService.is_multitaskable 
+                        ? 'bg-green-100 text-green-700' 
+                        : 'bg-gray-100 text-gray-700'
+                    }`}>
+                      {selectedService.is_multitaskable ? 'Yes' : 'No'}
+                    </span>
+                  </p>
+                  
+                  {selectedService.service_specialties && selectedService.service_specialties.length > 0 && (
+                    <div>
+                      <p className="text-xs text-gray-600"><span className="font-semibold">Specialties:</span></p>
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {selectedService.service_specialties.map((specialtyItem, idx) => {
+                          const specialtyName = specialtyItem.specialty?.specialty_name;
+                          return specialtyName ? (
+                            <span 
+                              key={idx} 
+                              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-pink-100 text-pink-700 rounded text-[10px] font-medium"
+                            >
+                              {getSpecialtyIcon(specialtyName)}
+                              <span>{formatSpecialtyName(specialtyName)}</span>
+                            </span>
+                          ) : null;
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 
-              {/* Product Usage List with Unit beside Estimated Usage */}
-              <div className="mb-6">
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-lg font-semibold text-gray-800">Product Usage</h3>
-                  <span className="text-sm text-gray-500">{selectedServiceUsages.length} product(s) used</span>
+              {/* Add Service Specialty Form - Compact */}
+              <div className="border-t border-gray-200 pt-4 mb-5">
+                <h3 className="text-sm font-semibold text-gray-800 mb-2">Add Service Specialty</h3>
+                <form onSubmit={handleAddServiceSpecialty} className="space-y-3">
+                  {specialtyError && (
+                    <div className="bg-red-50 border border-red-200 rounded-lg p-2 flex items-center gap-1.5">
+                      <AlertCircle size={12} className="text-red-500" />
+                      <p className="text-red-600 text-xs">{specialtyError}</p>
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="block text-gray-700 text-xs font-semibold mb-1">
+                      Select Specialty *
+                    </label>
+                    <select
+                      name="specialty_id"
+                      value={serviceSpecialtyFormData.specialty_id}
+                      onChange={handleServiceSpecialtyChange}
+                      className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                      required
+                    >
+                      <option value="">Select a specialty...</option>
+                      {specialtiesList.map((specialty) => (
+                        <option key={specialty.id} value={specialty.id}>
+                          {formatSpecialtyName(specialty.specialty_name)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={isAddingSpecialty}
+                    className="w-full px-3 py-1.5 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 text-sm font-medium disabled:opacity-50"
+                  >
+                    {isAddingSpecialty ? 'Adding...' : 'Add Specialty'}
+                  </button>
+                </form>
+              </div>
+
+              {/* Current Specialties List */}
+              {selectedService.service_specialties && selectedService.service_specialties.length > 0 && (
+                <div className="border-t border-gray-200 pt-4 mb-5">
+                  <label className="block text-gray-700 text-xs font-semibold mb-2">
+                    Current Service Specialties
+                  </label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {selectedService.service_specialties.map((specialtyItem, idx) => {
+                      const specialtyName = specialtyItem.specialty?.specialty_name;
+                      return specialtyName ? (
+                        <span 
+                          key={idx} 
+                          className="inline-flex items-center gap-1 px-2 py-1 bg-pink-50 text-pink-600 rounded-md text-xs"
+                        >
+                          {getSpecialtyIcon(specialtyName)}
+                          <span>{formatSpecialtyName(specialtyName)}</span>
+                        </span>
+                      ) : null;
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Product Usage List */}
+              <div className="mb-5">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-sm font-semibold text-gray-800">Product Usage</h3>
+                  <span className="text-[10px] text-gray-500">{selectedServiceUsages.length} product(s)</span>
                 </div>
                 
                 {isLoadingUsages ? (
-                  <div className="flex justify-center py-8">
-                    <div className="w-8 h-8 border-4 border-pink-500 border-t-transparent rounded-full animate-spin"></div>
+                  <div className="flex justify-center py-6">
+                    <div className="w-6 h-6 border-3 border-pink-500 border-t-transparent rounded-full animate-spin"></div>
                   </div>
                 ) : selectedServiceUsages.length > 0 ? (
-                  <div className="space-y-2">
+                  <div className="space-y-1.5">
                     {selectedServiceUsages.map((usage, index) => {
                       const productUnit = getProductUnit(usage);
                       const productUnitSize = getProductUnitSize(usage);
                       const unitDisplay = productUnit && productUnitSize ? `${productUnit}` : productUnit ? productUnit : '';
                       
                       return (
-                        <div key={index} className="bg-gray-50 rounded-lg p-3 flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 bg-pink-100 rounded-lg flex items-center justify-center">
-                              <Package size={16} className="text-pink-600" />
+                        <div key={index} className="bg-gray-50 rounded-lg p-2 flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <div className="w-6 h-6 bg-pink-100 rounded-lg flex items-center justify-center">
+                              <Package size={12} className="text-pink-600" />
                             </div>
                             <div>
-                              <p className="text-sm font-semibold text-gray-800">
+                              <p className="text-xs font-semibold text-gray-800">
                                 {getProductNameFromUsage(usage)}
                               </p>
-                              <p className="text-xs text-gray-500">
-                                Estimated Usage: {usage.estimated_usage} {unitDisplay} per service
+                              <p className="text-[10px] text-gray-500">
+                                Usage: {usage.estimated_usage} {unitDisplay}
                               </p>
                             </div>
                           </div>
@@ -715,33 +983,33 @@ function Services() {
                     })}
                   </div>
                 ) : (
-                  <div className="text-center py-8 bg-gray-50 rounded-lg">
-                    <Package size={32} className="text-gray-400 mx-auto mb-2" />
-                    <p className="text-gray-500">No products linked to this service yet</p>
+                  <div className="text-center py-6 bg-gray-50 rounded-lg">
+                    <Package size={24} className="text-gray-400 mx-auto mb-1" />
+                    <p className="text-xs text-gray-500">No products linked</p>
                   </div>
                 )}
               </div>
 
-              {/* Add Product Usage Form */}
-              <div className="border-t border-gray-200 pt-6">
-                <h3 className="text-lg font-semibold text-gray-800 mb-3">Add Product Usage</h3>
-                <form onSubmit={handleAddProductUsage} className="space-y-4">
+              {/* Add Product Usage Form - Compact */}
+              <div className="border-t border-gray-200 pt-4">
+                <h3 className="text-sm font-semibold text-gray-800 mb-2">Add Product Usage</h3>
+                <form onSubmit={handleAddProductUsage} className="space-y-3">
                   {usageFormError && (
-                    <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center gap-2">
-                      <AlertCircle size={16} className="text-red-500" />
-                      <p className="text-red-600 text-sm">{usageFormError}</p>
+                    <div className="bg-red-50 border border-red-200 rounded-lg p-2 flex items-center gap-1.5">
+                      <AlertCircle size={12} className="text-red-500" />
+                      <p className="text-red-600 text-xs">{usageFormError}</p>
                     </div>
                   )}
 
                   <input type="hidden" name="service_id" value={usageFormData.service_id} />
                   
                   <div>
-                    <label className="block text-gray-700 text-sm font-semibold mb-2">
+                    <label className="block text-gray-700 text-xs font-semibold mb-1">
                       Select Product *
                     </label>
                     <div className="relative">
                       <div className="relative">
-                        <Package size={18} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                        <Package size={14} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
                         <input
                           type="text"
                           value={productSearchTerm}
@@ -752,22 +1020,22 @@ function Services() {
                           }}
                           onFocus={() => setShowProductDropdown(true)}
                           placeholder="Search for a product..."
-                          className="w-full pl-10 pr-10 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                          className="w-full pl-9 pr-8 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
                         />
                         <ChevronDown 
-                          size={18} 
+                          size={14} 
                           className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 cursor-pointer"
                           onClick={() => setShowProductDropdown(!showProductDropdown)}
                         />
                       </div>
                       
                       {showProductDropdown && filteredProducts.length > 0 && (
-                        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-40 overflow-y-auto">
                           {filteredProducts.map(product => (
                             <div
                               key={product.id}
                               onClick={() => handleSelectProduct(product)}
-                              className="px-4 py-2 hover:bg-pink-50 cursor-pointer transition-colors"
+                              className="px-3 py-1.5 hover:bg-pink-50 cursor-pointer transition-colors text-sm"
                             >
                               <div className="flex items-center justify-between">
                                 <span className="font-medium text-gray-800">{product.product_name}</span>
@@ -779,15 +1047,15 @@ function Services() {
                       )}
                       
                       {showProductDropdown && filteredProducts.length === 0 && productSearchTerm && (
-                        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg p-4 text-center">
-                          <p className="text-gray-500 text-sm">No products found. Please add the product first in Inventory.</p>
+                        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg p-3 text-center">
+                          <p className="text-gray-500 text-xs">No products found.</p>
                         </div>
                       )}
                     </div>
                   </div>
 
                   <div>
-                    <label className="block text-gray-700 text-sm font-semibold mb-2">
+                    <label className="block text-gray-700 text-xs font-semibold mb-1">
                       Estimated Usage *
                     </label>
                     <input
@@ -797,12 +1065,12 @@ function Services() {
                       onChange={handleUsageInputChange}
                       step="0.01"
                       placeholder="Amount used per service"
-                      className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                      className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
                       required
                     />
                   </div>
 
-                  <div className="flex gap-3 pt-2">
+                  <div className="flex gap-2 pt-1">
                     <button
                       type="button"
                       onClick={() => {
@@ -810,16 +1078,16 @@ function Services() {
                         setSelectedService(null);
                         setSelectedServiceUsages([]);
                       }}
-                      className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+                      className="flex-1 px-3 py-1.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium"
                     >
                       Close
                     </button>
                     <button
                       type="submit"
                       disabled={isLoadingUsages}
-                      className="flex-1 px-4 py-2 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 font-medium disabled:opacity-50"
+                      className="flex-1 px-3 py-1.5 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 text-sm font-medium disabled:opacity-50"
                     >
-                      {isLoadingUsages ? 'Adding...' : 'Add Product Usage'}
+                      {isLoadingUsages ? 'Adding...' : 'Add Product'}
                     </button>
                   </div>
                 </form>
@@ -829,12 +1097,12 @@ function Services() {
         </div>
       )}
 
-      {/* Add/Edit Service Modal */}
+      {/* Add/Edit Service Modal - Compact */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
-            <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-6 py-4 flex items-center justify-between">
-              <h2 className="text-xl font-bold text-white">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
+            <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-5 py-3 flex items-center justify-between">
+              <h2 className="text-lg font-bold text-white">
                 {editingService ? 'Edit Service' : 'Add New Service'}
               </h2>
               <button 
@@ -844,20 +1112,20 @@ function Services() {
                 }}
                 className="text-white hover:bg-white/20 rounded-lg p-1 transition-colors"
               >
-                <X size={24} />
+                <X size={20} />
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="p-6 space-y-4">
+            <form onSubmit={handleSubmit} className="p-5 space-y-3">
               {formError && (
-                <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center gap-2">
-                  <AlertCircle size={16} className="text-red-500" />
-                  <p className="text-red-600 text-sm">{formError}</p>
+                <div className="bg-red-50 border border-red-200 rounded-lg p-2 flex items-center gap-1.5">
+                  <AlertCircle size={12} className="text-red-500" />
+                  <p className="text-red-600 text-xs">{formError}</p>
                 </div>
               )}
               
               <div>
-                <label className="block text-gray-700 text-sm font-semibold mb-2">
+                <label className="block text-gray-700 text-xs font-semibold mb-1">
                   Service Name *
                 </label>
                 <input
@@ -865,28 +1133,28 @@ function Services() {
                   name="service_name"
                   value={formData.service_name}
                   onChange={handleInputChange}
-                  className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                  className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
                   required
                 />
               </div>
 
               <div>
-                <label className="block text-gray-700 text-sm font-semibold mb-2">
+                <label className="block text-gray-700 text-xs font-semibold mb-1">
                   Description *
                 </label>
                 <textarea
                   name="description"
                   value={formData.description}
                   onChange={handleInputChange}
-                  rows="3"
-                  className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 resize-none"
+                  rows="2"
+                  className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 resize-none"
                   required
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-gray-700 text-sm font-semibold mb-2">
+                  <label className="block text-gray-700 text-xs font-semibold mb-1">
                     Price ($) *
                   </label>
                   <input
@@ -896,14 +1164,14 @@ function Services() {
                     onChange={handleInputChange}
                     step="0.01"
                     min="0"
-                    className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                    className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
                     required
                   />
                 </div>
 
                 <div>
-                  <label className="block text-gray-700 text-sm font-semibold mb-2">
-                    Duration (minutes) *
+                  <label className="block text-gray-700 text-xs font-semibold mb-1">
+                    Duration (min) *
                   </label>
                   <input
                     type="number"
@@ -912,44 +1180,62 @@ function Services() {
                     onChange={handleInputChange}
                     step="15"
                     min="15"
-                    className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                    className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
                     required
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-gray-700 text-sm font-semibold mb-2">
+                <label className="block text-gray-700 text-xs font-semibold mb-1">
                   Status
                 </label>
                 <select
                   name="service_status"
                   value={formData.service_status}
                   onChange={handleInputChange}
-                  className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                  className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
                 >
                   <option value="active">Active</option>
                   <option value="inactive">Inactive</option>
                 </select>
               </div>
 
-              <div className="flex gap-3 pt-4">
+              <div>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    name="is_multitaskable"
+                    checked={formData.is_multitaskable}
+                    onChange={(e) => setFormData(prev => ({ ...prev, is_multitaskable: e.target.checked }))}
+                    className="w-3.5 h-3.5 text-pink-500 border-gray-300 rounded focus:ring-pink-500"
+                  />
+                  <span className="text-gray-700 text-xs font-semibold">
+                    Allow Multi-tasking
+                  </span>
+                </label>
+                <p className="text-[10px] text-gray-500 mt-0.5 ml-5">
+                  Enable if this service can be performed simultaneously
+                </p>
+              </div>
+
+              <div className="flex gap-2 pt-2">
                 <button
                   type="button"
                   onClick={() => {
                     setShowModal(false);
                     resetForm();
                   }}
-                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+                  className="flex-1 px-3 py-1.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isLoading}
-                  className="flex-1 px-4 py-2 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 font-medium disabled:opacity-50"
+                  className="flex-1 px-3 py-1.5 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 text-sm font-medium disabled:opacity-50"
                 >
-                  {isLoading ? 'Saving...' : (editingService ? 'Update Service' : 'Add Service')}
+                  {isLoading ? 'Saving...' : (editingService ? 'Update' : 'Add')}
                 </button>
               </div>
             </form>
@@ -957,22 +1243,22 @@ function Services() {
         </div>
       )}
 
-      {/* Empty State */}
+      {/* Empty State - Smaller */}
       {filteredServices.length === 0 && !isLoading && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center">
-          <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <Scissors size={32} className="text-gray-400" />
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 text-center">
+          <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
+            <Scissors size={28} className="text-gray-400" />
           </div>
-          <h3 className="text-lg font-semibold text-gray-800 mb-2">No services found</h3>
-          <p className="text-gray-500 text-sm mb-4">Click the "Add Service" button to create your first service</p>
+          <h3 className="text-base font-semibold text-gray-800 mb-1">No services found</h3>
+          <p className="text-sm text-gray-500 mb-3">Click "Add Service" to create your first service</p>
           <button 
             onClick={() => {
               resetForm();
               setShowModal(true);
             }}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-pink-500 text-white rounded-lg hover:bg-pink-600 transition-colors"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-pink-500 text-white rounded-lg hover:bg-pink-600 transition-colors text-sm"
           >
-            <Plus size={16} />
+            <Plus size={14} />
             <span>Add Service</span>
           </button>
         </div>

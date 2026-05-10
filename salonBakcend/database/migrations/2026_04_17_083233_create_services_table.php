@@ -17,6 +17,7 @@ return new class extends Migration
             $table->string('description', 200);
             $table->decimal('price', 10,2);
             $table->integer('duration_minutes');
+            $table->boolean('is_multitaskable')->default(true);
             $table->enum('service_status', ['active', 'inactive'])->default('active');
             $table->timestamps();
         });

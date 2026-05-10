@@ -11,12 +11,9 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('billings', function (Blueprint $table) {
+        Schema::create('specialties', function (Blueprint $table) {
             $table->id();
-            $table->unsignedBigInteger('appointment_id');
-            $table->decimal('total_amount', 10,2);
-            $table->enum('payment_type', ['downpayment', 'full payment']);
-            $table->foreign('appointment_id')->references('id')->on('appointments')->cascadeOnDelete()->cascadeOnUpdate();
+            $table->string('specialty_name');
             $table->timestamps();
         });
     }
@@ -26,6 +23,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::dropIfExists('billings');
+        Schema::dropIfExists('specialties');
     }
 };

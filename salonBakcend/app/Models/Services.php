@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Models\ServiceProductUsage;
 use App\Models\Transaction;
+use App\Models\ServiceSpecialties;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
@@ -15,6 +16,7 @@ class Services extends Model
         'description',
         'price',
         'duration_minutes',
+        'is_multitaskable',
         'service_status'
     ];
 
@@ -26,5 +28,10 @@ class Services extends Model
     public function transaction()
     {
         return $this->hasMany(Transaction::class, 'service_id');
+    }
+
+    public function serviceSpecialties()
+    {
+        return $this->hasMany(ServiceSpecialties::class, 'service_id');
     }
 }

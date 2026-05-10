@@ -6,6 +6,7 @@ namespace App\Models;
 use App\Models\Appointments;
 use App\Models\EmployeeCommission;
 use App\Models\Feedback;
+use App\Models\StaffSpecialties;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -69,4 +70,10 @@ class User extends Authenticatable
     {
         return $this->hasMany(Feedback::class, 'customer_id');
     }
+
+    public function staffSpecialties()
+    {
+        return $this->hasMany(StaffSpecialties::class, 'staff_id');
+    }
+
 }

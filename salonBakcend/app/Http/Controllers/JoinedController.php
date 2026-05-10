@@ -11,20 +11,25 @@ use App\Models\User;
 use App\Models\Billing;
 use App\Models\Payments;
 use App\Models\InventoryTransaction;
+use App\Models\Specialties;
+use App\Models\StaffSpecialties;
+use App\Models\ServiceSpecialties;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Http\Request;
 
 class JoinedController extends Controller
 {
+
+    //display functions involving multiple tables
     public function serviceWithUsages()
     {
         return Services::with('ServiceProductUsage')->get();
     }
 
     public function serviceWithUsage()
-{
-    return Services::with('serviceProductUsage.Products')->get();
-}
+    {
+        return Services::with('serviceProductUsage.Products')->get();
+    }
 
     public function invDisplay()
     {
@@ -36,6 +41,23 @@ class JoinedController extends Controller
         return ServiceProductUsage::with('Products')->get();
     }
 
+    public function staffWithSpecialties()
+    {
+        return User::where('role', ['staff'])->with(['staffSpecialties.specialties'])->get();
+    }
+
+    public function serviceWithSpecialties()
+    {
+        return ServiceSpecialties::with('specialties')->get();
+    }
+
+
+
+
+
+
+
+    //CRUD functions involving multiple tables
     public function addProductsToInventory(Request $request)
     {
         $request->validate([
@@ -161,11 +183,13 @@ class JoinedController extends Controller
 
         $request->validate([
             'appointment_date' => ['required', 'date', 'date_format:Y-m-d'],
+            'appointment_time' => ['required', 'date_format:H:i'],
             'status' => ['required', 'string'],
             'service_id' => ['required', 'numeric'],
+            'assigned_employee_id' => ['required', 'numeric'],
             'service_status' => ['required', 'string'],
             'total_amount' => ['required', 'numeric'],
-            'payment_type' => ['required', 'string', 'in:downpayment,remaining'],
+            'payment_type' => ['required', 'string', 'in:downpayment,full payment'],
             'payment_method' => ['required', 'string', 'in:gcash,cash']
         ]);
 
@@ -176,6 +200,7 @@ class JoinedController extends Controller
             'customer_phone' => $user->phone_number,
             'customer_email' => $user->email,
             'appointment_date' => $request->appointment_date,
+            'appointment_time' => $request->appointment_time,
             'status' => $request->status,
         ]);
 
@@ -183,6 +208,7 @@ class JoinedController extends Controller
         $transaction = Transaction::create([
             'appointment_id' => $appointment->id,
             'service_id' => $request->service_id,
+            'assigned_employee_id' => $request->assigned_employee_id,
             'service_status' => $request->service_status,
         ]);
 
@@ -217,7 +243,7 @@ class JoinedController extends Controller
             return response()->json(['message' => 'Unauthorized'], 403);
         }
         
-        $transactions = Transaction::with(['appointments', 'services'])
+        $transactions = Transaction::with(['appointments', 'services', 'user'])
             ->orderBy('created_at', 'desc')
             ->get();
         
@@ -241,6 +267,7 @@ class JoinedController extends Controller
                 'appointment_time' => $appointment->appointment_time ?? null,
                 'status' => $appointment->status ?? null,
                 'service_status' => $transaction->service_status,
+                'assigned_employee_id' => $transaction->assigned_employee_id ?? null,
                 'service_name' => $transaction->services->service_name ?? null,
                 'duration_minutes' => $transaction->services->duration_minutes ?? 0,
                 'price' => $transaction->services->price ?? '0',
@@ -248,6 +275,20 @@ class JoinedController extends Controller
         });
         
         return response()->json($result);
+    }
+
+    // In your controller
+    public function staffList()
+    {
+        return User::where('role', 'staff')
+            ->select('id', 'first_name', 'last_name')
+            ->get()
+            ->map(function($staff) {
+                return [
+                    'id' => $staff->id,
+                    'name' => $staff->first_name . ' ' . $staff->last_name
+                ];
+            });
     }
 
     public function updateAppointment(Request $request, $id)

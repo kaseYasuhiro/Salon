@@ -27,6 +27,7 @@ class ServicesController extends Controller
             'description' => ['required', 'string'],
             'price' => ['required', 'numeric'],
             'duration_minutes' => ['required', 'numeric'],
+            'is_multitaskable' => ['required', 'boolean'],
             'service_status' => ['required', 'string']
         ]);
 
@@ -35,6 +36,7 @@ class ServicesController extends Controller
             'description' => $request->description,
             'price' => $request->price,
             'duration_minutes' => $request->duration_minutes,
+            'is_multitaskable' => $request->is_multitaskable,
             'service_status' => $request->service_status
         ]);
 
@@ -53,6 +55,7 @@ class ServicesController extends Controller
             'description' => ['required', 'string'],
             'price' => ['required', 'numeric'],
             'duration_minutes' => ['required', 'numeric'],
+            'is_multitaskable' => ['required', 'string'],
             'service_status' => ['required', 'string']
         ]);
 
@@ -67,6 +70,7 @@ class ServicesController extends Controller
             'description' => $request->description,
             'price' => $request->price,
             'duration_minutes' => $request->duration_minutes,
+            'is_multitaskable' => $request->is_multitaskable,
             'service_status' => $request->service_status  
         ]);
 

@@ -21,16 +21,13 @@ function Dashboard() {
   const [token, setToken] = useState(null);
 
   useEffect(() => {
-    // Get token from storage
     const storedToken = getToken();
     setToken(storedToken);
     
     console.log('User from store:', user);
     console.log('Token from storage:', storedToken);
     
-    // You can also check if user is authenticated
     if (!user || !storedToken) {
-      // Redirect to login if not authenticated
       navigate('/');
     }
   }, [user]);
@@ -38,7 +35,6 @@ function Dashboard() {
   useEffect(() => {
     const token = localStorage.getItem('token');
     
-    // Check if user is not authenticated
     if (!token || !user || (user.role !== 'admin' && user.role !== 'owner')) {
       navigate('/');
     }
@@ -51,7 +47,6 @@ function Dashboard() {
   const isEmployeesRoute = location.pathname === '/dashboard/employees';
   const isInventoryRoute = location.pathname === '/dashboard/inventory';
 
-  // Check if we should show the nested route content
   const isNestedRoute = isAppointmentsRoute || isServicesRoute || isEmployeesRoute || isInventoryRoute;
 
   const stats = [
@@ -106,104 +101,100 @@ function Dashboard() {
         <div className="fixed inset-0 z-20 bg-black/50 lg:hidden" onClick={() => setSidebarOpen(false)} />
       )}
 
-      {/* Sidebar */}
-      <aside className={`fixed top-0 left-0 z-30 h-full w-72 bg-white shadow-2xl transform transition-transform duration-300 lg:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+      {/* Sidebar - Compact */}
+      <aside className={`fixed top-0 left-0 z-30 h-full w-64 bg-white shadow-xl transform transition-transform duration-300 lg:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="flex flex-col h-full">
-          {/* Sidebar Header */}
-          <div className="p-6 border-b border-gray-100">
+          <div className="p-5 border-b border-gray-100">
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-2xl font-bold bg-gradient-to-r from-pink-600 to-pink-500 bg-clip-text text-transparent">
+                <h2 className="text-xl font-bold bg-gradient-to-r from-pink-600 to-pink-500 bg-clip-text text-transparent">
                   Salon Pro
                 </h2>
-                <p className="text-xs text-gray-500 mt-1">Salon Management System</p>
+                <p className="text-[10px] text-gray-500 mt-0.5">Salon Management System</p>
               </div>
               <button onClick={() => setSidebarOpen(false)} className="lg:hidden">
-                <X size={24} className="text-gray-400" />
+                <X size={20} className="text-gray-400" />
               </button>
             </div>
-            <div className="mt-4 p-3 bg-gradient-to-r from-pink-50 to-purple-50 rounded-lg">
+            <div className="mt-3 p-2.5 bg-gradient-to-r from-pink-50 to-purple-50 rounded-lg">
               <div className="flex items-center gap-2">
-                <div className="w-8 h-8 bg-gradient-to-r from-pink-500 to-pink-600 rounded-lg flex items-center justify-center">
-                  <Crown size={16} className="text-white" />
+                <div className="w-7 h-7 bg-gradient-to-r from-pink-500 to-pink-600 rounded-lg flex items-center justify-center">
+                  <Crown size={14} className="text-white" />
                 </div>
                 <div>
-                  <p className="text-xs text-gray-500">Logged in as</p>
-                  <p className="text-sm font-semibold text-gray-800">Super Admin</p>
+                  <p className="text-[10px] text-gray-500">Logged in as</p>
+                  <p className="text-xs font-semibold text-gray-800">Super Admin</p>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Sidebar Navigation */}
-          <nav className="flex-1 p-4 space-y-1">
+          <nav className="flex-1 p-3 space-y-0.5">
             <Link 
               to="/dashboard"
               onClick={() => setSidebarOpen(false)}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${
+              className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg transition-all text-sm ${
                 isDashboardRoute 
                   ? 'bg-gradient-to-r from-pink-50 to-pink-100 text-pink-600 font-semibold' 
                   : 'text-gray-600 hover:bg-gray-50'
               }`}
             >
-              <Activity size={20} />
+              <Activity size={18} />
               <span>Dashboard</span>
             </Link>
             <Link 
               to="/dashboard/appointments"
               onClick={() => setSidebarOpen(false)}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${
+              className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg transition-all text-sm ${
                 isAppointmentsRoute 
                   ? 'bg-gradient-to-r from-pink-50 to-pink-100 text-pink-600 font-semibold' 
                   : 'text-gray-600 hover:bg-gray-50'
               }`}
             >
-              <Calendar size={20} />
+              <Calendar size={18} />
               <span>Appointments</span>
             </Link>
             <Link 
               to="/dashboard/services"
               onClick={() => setSidebarOpen(false)}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${
+              className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg transition-all text-sm ${
                 isServicesRoute
                   ? 'bg-gradient-to-r from-pink-50 to-pink-100 text-pink-600 font-semibold' 
                   : 'text-gray-600 hover:bg-gray-50'
               }`}
             >
-              <Scissors size={20} />
+              <Scissors size={18} />
               <span>Services</span>
             </Link>
             <Link 
               to="/dashboard/inventory"
               onClick={() => setSidebarOpen(false)}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${
+              className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg transition-all text-sm ${
                 location.pathname === '/dashboard/inventory'
                   ? 'bg-gradient-to-r from-pink-50 to-pink-100 text-pink-600 font-semibold'
                   : 'text-gray-600 hover:bg-gray-50'
               }`}
             >
-              <Package size={20} />
+              <Package size={18} />
               <span>Inventory</span>
             </Link>
             <Link 
               to="/dashboard/employees"
               onClick={() => setSidebarOpen(false)}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${
+              className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg transition-all text-sm ${
                 location.pathname === '/dashboard/employees'
                   ? 'bg-gradient-to-r from-pink-50 to-pink-100 text-pink-600 font-semibold' 
                   : 'text-gray-600 hover:bg-gray-50'
               }`}
             >
-              <Users size={20} />
+              <Users size={18} />
               <span>Employees</span>
             </Link>
-
           </nav>
 
-          {/* Sidebar Footer */}
-          <div className="p-4 border-t border-gray-100">
-            <button onClick={handleLogout} className="w-full flex items-center gap-3 px-4 py-3 text-red-600 hover:bg-red-50 rounded-lg transition-all">
-              <LogOut size={20} />
+          <div className="p-3 border-t border-gray-100">
+            <button onClick={handleLogout} className="w-full flex items-center gap-2.5 px-3 py-2.5 text-red-600 hover:bg-red-50 rounded-lg transition-all text-sm">
+              <LogOut size={18} />
               <span>Logout</span>
             </button>
           </div>
@@ -211,44 +202,44 @@ function Dashboard() {
       </aside>
 
       {/* Main Content */}
-      <div className="lg:pl-72">
-        {/* Header */}
+      <div className="lg:pl-64">
+        {/* Header - Compact */}
         <header className="bg-white/80 backdrop-blur-md shadow-sm sticky top-0 z-10 border-b border-gray-100">
           <div className="px-4 sm:px-6 lg:px-8">
-            <div className="flex items-center justify-between h-16">
-              <div className="flex items-center gap-4">
+            <div className="flex items-center justify-between h-14">
+              <div className="flex items-center gap-3">
                 <button onClick={() => setSidebarOpen(true)} className="lg:hidden">
-                  <Menu size={24} className="text-gray-600" />
+                  <Menu size={20} className="text-gray-600" />
                 </button>
                 <div>
-                  <h1 className="text-xl font-bold text-gray-800">
+                  <h1 className="text-lg font-bold text-gray-800">
                     {isAppointmentsRoute && 'Appointments'}
                     {isServicesRoute && 'Services'}
                     {isEmployeesRoute && 'Employees'}
                     {isInventoryRoute && 'Inventory'}
                     {isDashboardRoute && 'Dashboard'}
                   </h1>
-                  <p className="text-sm text-gray-500 hidden sm:block">
+                  <p className="text-xs text-gray-500 hidden sm:block">
                     {isAppointmentsRoute && 'Manage and schedule client appointments'}
                     {isServicesRoute && 'Browse and manage salon services'}
                     {isEmployeesRoute && 'Manage your team members'}
                     {isInventoryRoute && 'Track and manage salon inventory'}
-                    {isDashboardRoute && 'Welcome Back! Here\'s Your Salon Overview'}
+                    {isDashboardRoute && 'Welcome back! Here\'s your overview'}
                   </p>
                 </div>
               </div>
-              <div className="flex items-center gap-3">
-                <button className="relative p-2 text-gray-400 hover:text-gray-600 transition-colors">
-                  <Bell size={20} />
-                  <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
+              <div className="flex items-center gap-2">
+                <button className="relative p-1.5 text-gray-400 hover:text-gray-600 transition-colors">
+                  <Bell size={18} />
+                  <span className="absolute top-0.5 right-0.5 w-1.5 h-1.5 bg-red-500 rounded-full"></span>
                 </button>
-                <div className="flex items-center gap-3 pl-3 border-l border-gray-200">
-                  <div className="w-8 h-8 bg-gradient-to-r from-pink-500 to-pink-600 rounded-full flex items-center justify-center">
-                    <span className="text-white text-sm font-semibold">SA</span>
+                <div className="flex items-center gap-2 pl-2 border-l border-gray-200">
+                  <div className="w-7 h-7 bg-gradient-to-r from-pink-500 to-pink-600 rounded-full flex items-center justify-center">
+                    <span className="text-white text-xs font-semibold">SA</span>
                   </div>
                   <div className="hidden sm:block">
-                    <p className="text-sm font-semibold text-gray-800">Super Admin</p>
-                    <p className="text-xs text-gray-500">Owner</p>
+                    <p className="text-xs font-semibold text-gray-800">Super Admin</p>
+                    <p className="text-[10px] text-gray-500">Owner</p>
                   </div>
                 </div>
               </div>
@@ -256,56 +247,55 @@ function Dashboard() {
           </div>
         </header>
 
-        {/* Main Content Area - This is where nested routes will render */}
-        <main className="p-4 sm:p-6 lg:p-8">
+        {/* Main Content Area */}
+        <main className="p-4 sm:p-5 lg:p-6">
           {isNestedRoute ? (
             <Outlet />
           ) : (
-            // Dashboard Content (only show when on /dashboard)
             <>
-              {/* Stats Grid */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+              {/* Stats Grid - Smaller Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
                 {stats.map((stat, index) => (
-                  <div key={index} className="bg-white rounded-2xl shadow-sm hover:shadow-lg transition-all duration-300 p-6 border border-gray-100">
-                    <div className="flex items-center justify-between mb-4">
-                      <div className={`${stat.bgColor} p-3 rounded-xl`}>
-                        <stat.icon className={`${stat.textColor}`} size={24} />
+                  <div key={index} className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 p-4 border border-gray-100">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className={`${stat.bgColor} p-2 rounded-lg`}>
+                        <stat.icon className={`${stat.textColor}`} size={16} />
                       </div>
-                      <span className={`text-xs font-semibold ${stat.trend.startsWith('+') ? 'text-green-600' : 'text-red-600'} bg-green-50 px-2 py-1 rounded-full`}>
+                      <span className={`text-[10px] font-semibold ${stat.trend.startsWith('+') ? 'text-green-600' : 'text-red-600'} bg-green-50 px-1.5 py-0.5 rounded-full`}>
                         {stat.trend}
                       </span>
                     </div>
-                    <h3 className="text-gray-500 text-sm font-medium">{stat.label}</h3>
-                    <p className="text-3xl font-bold text-gray-800 mt-1">{stat.value}</p>
+                    <h3 className="text-gray-500 text-xs font-medium">{stat.label}</h3>
+                    <p className="text-xl font-bold text-gray-800 mt-0.5">{stat.value}</p>
                   </div>
                 ))}
               </div>
 
               {/* Charts Row */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-                {/* Weekly Revenue */}
-                <div className="bg-white rounded-2xl shadow-sm hover:shadow-lg transition-all duration-300 p-6 border border-gray-100">
-                  <div className="flex items-center justify-between mb-6">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6">
+                {/* Weekly Revenue - Compact */}
+                <div className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 p-4 border border-gray-100">
+                  <div className="flex items-center justify-between mb-4">
                     <div>
-                      <h3 className="text-lg font-semibold text-gray-800">Weekly Revenue</h3>
-                      <p className="text-sm text-gray-500 mt-1">Last 7 days performance</p>
+                      <h3 className="text-sm font-semibold text-gray-800">Weekly Revenue</h3>
+                      <p className="text-[10px] text-gray-500 mt-0.5">Last 7 days performance</p>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <DollarSign className="text-green-500" size={20} />
-                      <span className="text-sm font-semibold text-gray-700">Total: ₱132,500</span>
+                    <div className="flex items-center gap-1">
+                      <DollarSign className="text-green-500" size={16} />
+                      <span className="text-xs font-semibold text-gray-700">₱132.5k</span>
                     </div>
                   </div>
-                  <div className="space-y-4">
+                  <div className="space-y-3">
                     {weekDays.map((day, index) => (
-                      <div key={day} className="space-y-2">
-                        <div className="flex justify-between text-sm">
+                      <div key={day} className="space-y-1">
+                        <div className="flex justify-between text-xs">
                           <span className="font-medium text-gray-600">{day}</span>
                           <span className="font-bold text-gray-800">₱{weeklyRevenue[index].toLocaleString()}</span>
                         </div>
                         <div className="relative">
-                          <div className="w-full bg-gray-100 rounded-full h-3 overflow-hidden">
+                          <div className="w-full bg-gray-100 rounded-full h-2 overflow-hidden">
                             <div 
-                              className="bg-gradient-to-r from-pink-500 to-pink-600 h-3 rounded-full transition-all duration-1000 ease-out"
+                              className="bg-gradient-to-r from-pink-500 to-pink-600 h-2 rounded-full transition-all duration-1000 ease-out"
                               style={{ width: `${(weeklyRevenue[index] / maxRevenue) * 100}%` }}
                             />
                           </div>
@@ -315,30 +305,30 @@ function Dashboard() {
                   </div>
                 </div>
 
-                {/* Appointment Status */}
-                <div className="bg-white rounded-2xl shadow-sm hover:shadow-lg transition-all duration-300 p-6 border border-gray-100">
-                  <div className="flex items-center justify-between mb-6">
+                {/* Appointment Status - Compact */}
+                <div className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 p-4 border border-gray-100">
+                  <div className="flex items-center justify-between mb-4">
                     <div>
-                      <h3 className="text-lg font-semibold text-gray-800">Appointment Status</h3>
-                      <p className="text-sm text-gray-500 mt-1">Current overview</p>
+                      <h3 className="text-sm font-semibold text-gray-800">Appointment Status</h3>
+                      <p className="text-[10px] text-gray-500 mt-0.5">Current overview</p>
                     </div>
-                    <PieChart size={20} className="text-gray-400" />
+                    <PieChart size={16} className="text-gray-400" />
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-2 gap-3">
                     {appointmentStatus.map((status, index) => (
                       <div 
                         key={index} 
                         onClick={() => navigate('/dashboard/appointments')}
-                        className={`${status.bgColor} rounded-xl p-4 transition-all hover:scale-105 duration-300 cursor-pointer`}
+                        className={`${status.bgColor} rounded-lg p-3 transition-all hover:scale-105 duration-300 cursor-pointer`}
                       >
-                        <div className="flex items-center justify-between mb-2">
-                          <div className={`${status.color} p-2 rounded-lg text-white`}>
-                            <status.icon size={16} />
+                        <div className="flex items-center justify-between mb-1.5">
+                          <div className={`${status.color} p-1.5 rounded-lg text-white`}>
+                            <status.icon size={12} />
                           </div>
-                          <span className="text-2xl font-bold text-gray-800">{status.count}</span>
+                          <span className="text-lg font-bold text-gray-800">{status.count}</span>
                         </div>
-                        <p className={`${status.textColor} font-semibold text-sm`}>{status.label}</p>
-                        <p className="text-xs text-gray-500 mt-1">
+                        <p className={`${status.textColor} font-semibold text-xs`}>{status.label}</p>
+                        <p className="text-[10px] text-gray-500 mt-0.5">
                           {Math.round((status.count / 179) * 100)}% of total
                         </p>
                       </div>
@@ -347,27 +337,27 @@ function Dashboard() {
                 </div>
               </div>
 
-              {/* Recent Appointments Table */}
-              <div className="bg-white rounded-2xl shadow-sm hover:shadow-lg transition-all duration-300 border border-gray-100 overflow-hidden">
-                <div className="px-6 py-4 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              {/* Recent Appointments Table - Compact */}
+              <div className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 border border-gray-100 overflow-hidden">
+                <div className="px-4 py-3 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                   <div>
-                    <h3 className="text-lg font-semibold text-gray-800">Recent Appointments</h3>
-                    <p className="text-sm text-gray-500 mt-1">Latest customer bookings</p>
+                    <h3 className="text-sm font-semibold text-gray-800">Recent Appointments</h3>
+                    <p className="text-[10px] text-gray-500 mt-0.5">Latest customer bookings</p>
                   </div>
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2">
                     <div className="relative">
-                      <Search size={18} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                      <Search size={14} className="absolute left-2.5 top-1/2 transform -translate-y-1/2 text-gray-400" />
                       <input 
                         type="text" 
-                        placeholder="Search appointments..." 
-                        className="pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent text-sm"
+                        placeholder="Search..." 
+                        className="pl-8 pr-3 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent w-36"
                       />
                     </div>
                     <Link 
                       to="/dashboard/appointments"
-                      className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 text-sm font-medium"
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-md transition-all duration-300 text-xs font-medium"
                     >
-                      <Eye size={16} />
+                      <Eye size={12} />
                       <span>View All</span>
                     </Link>
                   </div>
@@ -376,12 +366,12 @@ function Dashboard() {
                   <table className="w-full">
                     <thead className="bg-gradient-to-r from-gray-50 to-gray-100">
                       <tr>
-                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Customer</th>
-                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Service</th>
-                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Time</th>
-                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Staff</th>
-                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Status</th>
-                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Rating</th>
+                        <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Customer</th>
+                        <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Service</th>
+                        <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Time</th>
+                        <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Staff</th>
+                        <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Status</th>
+                        <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Rating</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
@@ -391,41 +381,41 @@ function Dashboard() {
                           onClick={() => navigate('/dashboard/appointments')}
                           className="hover:bg-pink-50/30 transition-colors duration-200 group cursor-pointer"
                         >
-                          <td className="px-6 py-4 whitespace-nowrap">
+                          <td className="px-4 py-2.5 whitespace-nowrap">
                             <div className="flex items-center">
-                              <div className="w-8 h-8 bg-gradient-to-br from-pink-100 to-pink-200 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
-                                <User size={14} className="text-pink-600" />
+                              <div className="w-6 h-6 bg-gradient-to-br from-pink-100 to-pink-200 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+                                <User size={11} className="text-pink-600" />
                               </div>
-                              <div className="ml-3">
-                                <p className="text-sm font-semibold text-gray-900">{appointment.customer}</p>
+                              <div className="ml-2">
+                                <p className="text-xs font-semibold text-gray-900">{appointment.customer}</p>
                               </div>
                             </div>
-                           </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="flex items-center gap-2">
-                              <Scissors size={14} className="text-gray-400" />
-                              <span className="text-sm text-gray-600">{appointment.service}</span>
+                          </td>
+                          <td className="px-4 py-2.5 whitespace-nowrap">
+                            <div className="flex items-center gap-1.5">
+                              <Scissors size={11} className="text-gray-400" />
+                              <span className="text-xs text-gray-600">{appointment.service}</span>
                             </div>
                           </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="flex items-center gap-2">
-                              <Clock size={14} className="text-gray-400" />
-                              <span className="text-sm text-gray-600">{appointment.time}</span>
+                          <td className="px-4 py-2.5 whitespace-nowrap">
+                            <div className="flex items-center gap-1.5">
+                              <Clock size={11} className="text-gray-400" />
+                              <span className="text-xs text-gray-600">{appointment.time}</span>
                             </div>
                           </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <span className="text-sm text-gray-600">{appointment.staff}</span>
+                          <td className="px-4 py-2.5 whitespace-nowrap">
+                            <span className="text-xs text-gray-600">{appointment.staff}</span>
                           </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <span className={`px-3 py-1 text-xs font-semibold rounded-full border ${getStatusColor(appointment.status)}`}>
+                          <td className="px-4 py-2.5 whitespace-nowrap">
+                            <span className={`px-2 py-0.5 text-[10px] font-semibold rounded-full border ${getStatusColor(appointment.status)}`}>
                               {appointment.status}
                             </span>
                           </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
+                          <td className="px-4 py-2.5 whitespace-nowrap">
                             {appointment.rating && (
-                              <div className="flex items-center gap-1">
-                                <Star size={14} className="text-yellow-400 fill-yellow-400" />
-                                <span className="text-sm font-semibold text-gray-700">{appointment.rating}</span>
+                              <div className="flex items-center gap-0.5">
+                                <Star size={11} className="text-yellow-400 fill-yellow-400" />
+                                <span className="text-xs font-semibold text-gray-700">{appointment.rating}</span>
                               </div>
                             )}
                           </td>
@@ -434,15 +424,15 @@ function Dashboard() {
                     </tbody>
                   </table>
                 </div>
-                <div className="px-6 py-4 border-t border-gray-100 bg-gray-50/50">
+                <div className="px-4 py-2.5 border-t border-gray-100 bg-gray-50/50">
                   <div className="flex items-center justify-between">
-                    <p className="text-sm text-gray-500">Showing 5 of 179 appointments</p>
+                    <p className="text-[10px] text-gray-500">Showing 5 of 179 appointments</p>
                     <Link 
                       to="/dashboard/appointments"
-                      className="flex items-center gap-1 text-sm text-pink-600 hover:text-pink-700 font-medium"
+                      className="flex items-center gap-0.5 text-[10px] text-pink-600 hover:text-pink-700 font-medium"
                     >
-                      <span>View All Appointments</span>
-                      <ChevronRight size={16} />
+                      <span>View All</span>
+                      <ChevronRight size={12} />
                     </Link>
                   </div>
                 </div>

@@ -41,7 +41,7 @@ interface Appointment {
 
 interface StaffAppointment {
   id: number;
-  service_id?: number;  // Add this
+  service_id?: number;
   customer_name: string;
   customer_phone: string;
   appointment_date: string;
@@ -62,8 +62,29 @@ interface Services {
   price: number;
   duration_minutes: number;
   service_status?: string;
+  is_multitaskable: number;
+  service_specialties?: any[];
   created_at?: string;
   updated_at?: string;
+}
+
+interface StaffMember {
+  id: number;
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone_number: string;
+  role: string;
+  staff_specialties: Array<{
+    id: number;
+    staff_id: number;
+    specialty_id: number;
+    is_active: number;
+    specialties?: {
+      id: number;
+      specialty_name: string;
+    };
+  }>;
 }
 
 interface BookingData {
@@ -100,6 +121,8 @@ interface AuthState {
   appointments: Appointment[];
   staffAppointments: StaffAppointment[];
   services: Services[];
+  staff: StaffMember[];
+  serviceSpecialties: any[];
   isLoading: boolean;
   
   // User methods
@@ -128,6 +151,14 @@ interface AuthState {
   getServiceById: (id: number) => Services | undefined;
   getTotalServices: () => number;
   
+  // Staff methods
+  fetchStaff: () => Promise<StaffMember[]>;
+  getStaffBySpecialty: (specialtyName: string) => StaffMember[];
+  
+  // Service Specialty methods
+  fetchServiceSpecialties: () => Promise<any[]>;
+  getServiceSpecialties: (serviceId: number) => any[];
+  
   // Booking methods
   bookAppointment: (data: BookingData) => Promise<{ appointment_id: number }>;
   addPayment: (data: PaymentData) => Promise<void>;
@@ -136,7 +167,7 @@ interface AuthState {
   // Update appointment
   updateAppointment: (id: number, data: UpdateAppointmentData) => Promise<void>;
 
-  //complete appointment/transaciton
+  //complete appointment/transaction
   completeService: (transactionId: number) => Promise<void>;
   updateServiceWithInventory: (transactionId: number, data: any) => Promise<void>;
 }
@@ -146,6 +177,8 @@ export const useAuth = create<AuthState>((set, get) => ({
   appointments: [],
   staffAppointments: [],
   services: [],
+  staff: [],
+  serviceSpecialties: [],
   isLoading: false,
 
   getUser: async () => {
@@ -172,6 +205,8 @@ export const useAuth = create<AuthState>((set, get) => ({
         await get().fetchUserAppointments();
       }
       await get().fetchServices();
+      await get().fetchStaff();
+      await get().fetchServiceSpecialties();
     } catch (error) {
       console.log("Login error:", error);
       throw error;
@@ -193,7 +228,7 @@ export const useAuth = create<AuthState>((set, get) => ({
     try {
       await axios.post("/logout");
       await setToken(null);
-      set({ user: null, appointments: [], staffAppointments: [], services: [] });
+      set({ user: null, appointments: [], staffAppointments: [], services: [], staff: [], serviceSpecialties: [] });
     } catch (error) {
       console.log("Logout error:", error);
     }
@@ -275,7 +310,7 @@ export const useAuth = create<AuthState>((set, get) => ({
       if (Array.isArray(response.data)) {
         appointmentsData = response.data.map((item: any) => ({
           id: item.id,
-          service_id: item.service_id,  // Add this line
+          service_id: item.service_id,
           customer_name: item.customer_name || 'Walk-in Customer',
           customer_phone: item.customer_phone || 'N/A',
           appointment_date: item.appointment_date,
@@ -351,7 +386,6 @@ export const useAuth = create<AuthState>((set, get) => ({
       });
       console.log("Service status updated:", response.data);
       
-      // Update local state
       set(state => ({
         staffAppointments: state.staffAppointments.map(app =>
           app.transaction_id === transactionId
@@ -379,6 +413,7 @@ export const useAuth = create<AuthState>((set, get) => ({
           service_name: service.service_name,
           description: service.description,
           price: parseFloat(service.price),
+          is_multitaskable: service.is_multitaskable,
           duration_minutes: service.duration_minutes,
           service_status: service.service_status,
           created_at: service.created_at,
@@ -409,6 +444,64 @@ export const useAuth = create<AuthState>((set, get) => ({
   getTotalServices: () => {
     const { services } = get();
     return services.length;
+  },
+
+  // Staff methods
+  fetchStaff: async () => {
+    set({ isLoading: true });
+    try {
+      const response = await axios.get("/employee/specialties");
+      console.log("Fetched staff with specialties:", response.data);
+      
+      let staffData: StaffMember[] = [];
+      if (Array.isArray(response.data)) {
+        staffData = response.data;
+      }
+      
+      set({ staff: staffData });
+      return staffData;
+    } catch (error) {
+      console.log("Error fetching staff:", error);
+      return [];
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+
+  getStaffBySpecialty: (specialtyName: string) => {
+    const { staff } = get();
+    return staff.filter(staffMember => {
+      if (!staffMember.staff_specialties || staffMember.staff_specialties.length === 0) {
+        return false;
+      }
+      return staffMember.staff_specialties.some(
+        (specialty) => specialty.specialties?.specialty_name?.toLowerCase() === specialtyName.toLowerCase() && specialty.is_active === 1
+      );
+    });
+  },
+
+  // Service Specialty methods
+  fetchServiceSpecialties: async () => {
+    try {
+      const response = await axios.get("/services/specialties");
+      console.log("Fetched service specialties:", response.data);
+      
+      let specialtiesData: any[] = [];
+      if (Array.isArray(response.data)) {
+        specialtiesData = response.data;
+      }
+      
+      set({ serviceSpecialties: specialtiesData });
+      return specialtiesData;
+    } catch (error) {
+      console.log("Error fetching service specialties:", error);
+      return [];
+    }
+  },
+
+  getServiceSpecialties: (serviceId: number) => {
+    const { serviceSpecialties } = get();
+    return serviceSpecialties.filter(item => item.service_id === serviceId);
   },
 
   // Booking methods
@@ -450,7 +543,6 @@ export const useAuth = create<AuthState>((set, get) => ({
       const response = await axios.put(`/appointments/update/${id}`, data);
       console.log("Appointment updated:", response.data);
       
-      // Refresh appointments based on user role
       const user = get().user;
       if (user?.role === 'staff') {
         await get().fetchStaffAppointments();
@@ -469,8 +561,6 @@ export const useAuth = create<AuthState>((set, get) => ({
         service_status: 'completed'
       });
       console.log("Service completed:", response.data);
-      
-      // Refresh staff appointments to update UI
       await get().fetchStaffAppointments();
     } catch (error) {
       console.log("Error completing service:", error);
@@ -479,21 +569,14 @@ export const useAuth = create<AuthState>((set, get) => ({
   },
 
   updateServiceWithInventory: async (transactionId: number, data: any) => {
-  try {
-    const response = await axios.put(`/staff/transaction/${transactionId}/update`, data);
-    console.log("Service updated:", response.data);
-    
-    // Refresh staff appointments to update UI
-    await get().fetchStaffAppointments();
-    
-    return response.data;
-  } catch (error) {
-    console.log("Error updating service:", error);
-    throw error;
-  }
-},
-
-
-
-
+    try {
+      const response = await axios.put(`/staff/transaction/${transactionId}/update`, data);
+      console.log("Service updated:", response.data);
+      await get().fetchStaffAppointments();
+      return response.data;
+    } catch (error) {
+      console.log("Error updating service:", error);
+      throw error;
+    }
+  },
 }));

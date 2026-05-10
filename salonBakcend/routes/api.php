@@ -7,6 +7,9 @@ use App\Http\Controllers\ServiceProductUsageController;
 use App\Http\Controllers\ProductsController;
 use App\Http\Controllers\AppointmentsController;
 use App\Http\Controllers\TransactionController;
+use App\Http\Controllers\StaffSpecialtiesController;
+use App\Http\Controllers\SpecialtiesController;
+use App\Http\Controllers\ServiceSpecialtiesController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -40,6 +43,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/employees', [UserController::class, 'getEmployees']);
     Route::post('/employees/update/{id}', [UserController::class, 'updateEmployee']);
     Route::post('/employees/delete/{id}', [UserController::class, 'deleteEmployee']);
+    Route::post('/employees/specialty/add', [StaffSpecialtiesController::class, 'addStaffSpecialty']);
+    Route::get('/employee/specialties', [JoinedController::class, 'staffWithSpecialties']);
+
+    Route::get('/specialties', [SpecialtiesController::class, 'displaySpecialties']);
 
     Route::get('/inventory', [JoinedController::class, 'invDisplay']);
     Route::post('/inventory/add' , [JoinedController::class, 'addProductsToInventory']);
@@ -50,17 +57,23 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/service/usage/add', [ServiceProductUsageController::class, 'addProductUsagePerService']);
     Route::get('/service/usage/{serviceId}', [ServiceProductUsageController::class, 'serviceProductUsage']);
     Route::post('/service/usage/delete/{id}', [ServiceProductUsageController::class, 'deleteProductFromUsage']);
+    Route::post('/services/specialty/add', [ServiceSpecialtiesController::class, 'addServiceSpecialty']);
+    Route::get('/services/specialties', [JoinedController::class, 'serviceWithSpecialties']);
     Route::get('/products', [ProductsController::class, 'displayProducts']);
 
-    Route::get('/all-appointments', [JoinedController::class, 'allAppointments'])->middleware('auth:sanctum');
+    Route::get('/all-appointments', [JoinedController::class, 'allAppointments']);
     Route::put('/appointments/update/{id}', [JoinedController::class, 'updateAppointment']);
     Route::get('/staff', [JoinedController::class, 'getStaff']);
+
+    Route::post('/specialty/add', [SpecialtiesController::class, 'addSpecialty']);
+    Route::get('/specialties', [SpecialtiesController::class, 'displaySpecialties']);
 
     //customer side
     Route::get('/appointments', [JoinedController::class, 'userAppointments']);
     Route::get('/services', [ServicesController::class, 'services']);
     Route::get('/services/usages', [JoinedController::class, 'serviceWithUsage']);
     Route::post('/booking/complete', [JoinedController::class, 'completeBooking']);
+    Route::get('/staff-list', [JoinedController::class, 'staffList']);
 
     //staff side
     Route::get('/staff/{staffId}/appointments', [JoinedController::class, 'getStaffAppointments']);

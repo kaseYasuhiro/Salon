@@ -1,87 +1,230 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { View, Text, TouchableOpacity, ScrollView, Alert, RefreshControl, Modal, Platform } from "react-native";
+import { View, Text, TouchableOpacity, ScrollView, Alert, RefreshControl, Modal } from "react-native";
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "@/contexts/auth-context";
 import { router } from "expo-router";
-import DateTimePicker from '@react-native-community/datetimepicker';
+
+interface ReceiptData {
+  bookingId: string;
+  serviceName: string;
+  date: string;
+  time: string;
+  stylistName: string;
+  totalAmount: number;
+  paymentType: string;
+  paymentMethod: string;
+  amountPaid: number;
+  remainingBalance: number;
+  status: string;
+  bookingDate: string;
+}
 
 export default function CustomerDashboard() {
   const [activeTab, setActiveTab] = useState('home');
   const [refreshing, setRefreshing] = useState(false);
   const [selectedServiceId, setSelectedServiceId] = useState<number | null>(null);
-  const [showDatePicker, setShowDatePicker] = useState(false);
   const [selectedDate, setSelectedDate] = useState(new Date());
-  const [showTimePicker, setShowTimePicker] = useState(false);
-  const [bookingStep, setBookingStep] = useState<'service' | 'datetime' | 'paymentType' | 'paymentMethod'>('service');
+  const [selectedTime, setSelectedTime] = useState(new Date());
+  const [showTimePickerModal, setShowTimePickerModal] = useState(false);
+  const [selectedDateForModal, setSelectedDateForModal] = useState<Date | null>(null);
+  const [bookingStep, setBookingStep] = useState<'service' | 'datetime' | 'stylist' | 'paymentType' | 'paymentMethod'>('service');
   const [selectedPaymentType, setSelectedPaymentType] = useState<string | null>(null);
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [currentMonth, setCurrentMonth] = useState(new Date());
+  const [selectedStaffId, setSelectedStaffId] = useState<number | null>(null);
+  const [showStaffModal, setShowStaffModal] = useState(false);
+  const [showReceipt, setShowReceipt] = useState(false);
+  const [receiptData, setReceiptData] = useState<ReceiptData | null>(null);
+  
+  const availableTimes = ['09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00'];
   
   const { 
     user, 
     appointments,
-    services,
     isLoading, 
     fetchUserAppointments,
     fetchServices,
     getUpcomingAppointments,
     getTotalSpent,
     getActiveServices,
-    getTotalServices,
     completeBooking,
-    logout 
+    logout,
+    fetchStaff,
+    staff,
+    getStaffBySpecialty,
+    fetchServiceSpecialties,
+    getServiceSpecialties
   } = useAuth();
+
+  // Get required specialty for a service from the service_specialties table
+  const getRequiredSpecialtyForService = (serviceId: number): string | null => {
+    const serviceSpecialties = getServiceSpecialties(serviceId);
+    if (serviceSpecialties && serviceSpecialties.length > 0) {
+      return serviceSpecialties[0]?.specialties?.specialty_name || null;
+    }
+    return null;
+  };
+
+  // Filter staff based on service requirement
+  const getFilteredStaff = () => {
+    if (!selectedServiceId) return [];
+    
+    const requiredSpecialty = getRequiredSpecialtyForService(selectedServiceId);
+    console.log(`Service ID: ${selectedServiceId}, Required specialty: ${requiredSpecialty}`);
+    
+    if (!requiredSpecialty) {
+      return staff.filter(staffMember => {
+        const hasActiveRole = staffMember.staff_specialties && 
+          staffMember.staff_specialties.length > 0 &&
+          staffMember.staff_specialties.some((specialty: any) => specialty.is_active === 1);
+        return hasActiveRole;
+      });
+    }
+    
+    return getStaffBySpecialty(requiredSpecialty);
+  };
+
+  // Get staff name by ID
+  const getStaffName = (staffId: number | null) => {
+    if (!staffId) return '';
+    const staffMember = staff.find(s => s.id === staffId);
+    return staffMember ? `${staffMember.first_name} ${staffMember.last_name}` : '';
+  };
+
+  // Get staff specialties as string
+  const getStaffSpecialties = (staffMember: any) => {
+    if (!staffMember.staff_specialties || staffMember.staff_specialties.length === 0) {
+      return 'No specialties assigned';
+    }
+    return staffMember.staff_specialties
+      .map((specialty: any) => {
+        const name = specialty.specialties?.specialty_name;
+        return name ? name.charAt(0).toUpperCase() + name.slice(1) : '';
+      })
+      .filter(Boolean)
+      .join(', ');
+  };
+
+  // Generate receipt number
+  const generateReceiptNumber = () => {
+    const date = new Date();
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const random = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
+    return `RCP-${year}${month}${day}-${random}`;
+  };
 
   // Get computed data
   const upcomingAppointments = getUpcomingAppointments();
   const totalSpent = getTotalSpent();
   const upcomingCount = upcomingAppointments.length;
   const activeServices = getActiveServices();
-  const totalServices = getTotalServices();
   const selectedService = selectedServiceId ? activeServices.find(s => s.id === selectedServiceId) : null;
   
-  // Safe function to get price
   const getServicePrice = () => {
     return selectedService?.price || 0;
   };
 
-  // Calculate amount based on payment type (always half)
   const getAmount = () => {
     const totalPrice = getServicePrice();
-    return totalPrice / 2;
+    if (selectedPaymentType === 'downpayment') {
+      return totalPrice / 2;
+    }
+    return totalPrice; // Full payment
   };
 
   const getPaymentTypeLabel = () => {
     if (selectedPaymentType === 'downpayment') {
       return 'Downpayment (50%)';
-    } else if (selectedPaymentType === 'remaining') {
-      return 'Remaining Balance (50%)';
+    } else if (selectedPaymentType === 'full payment') {
+      return 'Full Payment (100%)';
     }
     return '';
   };
 
-  // Helper function to format date
   const formatDate = (date: string) => {
     if (!date) return '';
     const d = new Date(date);
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   };
 
+  const getDaysInMonth = (date: Date) => {
+    const year = date.getFullYear();
+    const month = date.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const startingDayOfWeek = firstDay.getDay();
+    
+    const days = [];
+    for (let i = 0; i < startingDayOfWeek; i++) {
+      days.push(null);
+    }
+    for (let i = 1; i <= daysInMonth; i++) {
+      days.push(new Date(year, month, i));
+    }
+    return days;
+  };
+
+  const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  const changeMonth = (increment: number) => {
+    setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + increment, 1));
+  };
+
+  const isToday = (date: Date) => {
+    const today = new Date();
+    return date.toDateString() === today.toDateString();
+  };
+
+  const isPastDate = (date: Date) => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return date < today;
+  };
+
+  const handleDateSelect = (date: Date) => {
+    if (isPastDate(date)) {
+      Alert.alert("Invalid Date", "Cannot select past dates. Please choose today or a future date.");
+      return;
+    }
+    setSelectedDateForModal(date);
+    setShowTimePickerModal(true);
+  };
+
+  const handleTimeSelect = (time: string) => {
+    const [hours, minutes] = time.split(':');
+    const newDateTime = new Date(selectedDateForModal!);
+    newDateTime.setHours(parseInt(hours), parseInt(minutes), 0);
+    setSelectedDate(newDateTime);
+    setSelectedTime(newDateTime);
+    setShowTimePickerModal(false);
+    setSelectedDateForModal(null);
+    
+    setBookingStep('stylist');
+  };
+
   // Fetch data on mount
   useEffect(() => {
     fetchUserAppointments();
     fetchServices();
+    fetchStaff();
+    fetchServiceSpecialties();
   }, []);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await Promise.all([
       fetchUserAppointments(),
-      fetchServices()
+      fetchServices(),
+      fetchStaff(),
+      fetchServiceSpecialties()
     ]);
     setRefreshing(false);
-  }, [fetchUserAppointments, fetchServices]);
+  }, [fetchUserAppointments, fetchServices, fetchStaff, fetchServiceSpecialties]);
 
   const handleLogout = async () => {
     try {
@@ -105,9 +248,17 @@ export default function CustomerDashboard() {
     setBookingStep('datetime');
   };
 
-  const handleContinueToPaymentType = () => {
+  const handleContinueToStylist = () => {
     if (!selectedDate) {
-      Alert.alert("Selection Required", "Please select a date first.");
+      Alert.alert("Selection Required", "Please select a date and time first.");
+      return;
+    }
+    setBookingStep('stylist');
+  };
+
+  const handleContinueToPaymentType = () => {
+    if (!selectedStaffId) {
+      Alert.alert("Selection Required", "Please select a preferred stylist.");
       return;
     }
     setBookingStep('paymentType');
@@ -127,48 +278,75 @@ export default function CustomerDashboard() {
       return;
     }
 
+    // Double check that we have a staff ID selected
+    if (!selectedStaffId) {
+      Alert.alert("Selection Required", "Please select a stylist first.");
+      return;
+    }
+
     setIsProcessing(true);
 
     try {
-      // Single API call for complete booking
-      const result = await completeBooking({
-        // Appointment details
-        customer_id: user?.id || 0,
+      const formattedTime = selectedTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+      
+      // Prepare the booking data with all required fields
+      const bookingData = {
         appointment_date: selectedDate.toISOString().split('T')[0],
+        appointment_time: formattedTime,
         status: 'pending',
         service_id: selectedServiceId || 0,
+        assigned_employee_id: selectedStaffId, // Make sure this is the correct staff ID
         service_status: 'pending',
-        
-        // Payment details
         total_amount: getServicePrice(),
         payment_type: selectedPaymentType || '',
-        payment_method: selectedPaymentMethod || ''
-      });
-
-      console.log("Booking result:", result);
+        payment_method: selectedPaymentMethod || '',
+        customer_id: user?.id || 0
+      };
+      
+      console.log("Submitting booking with data:", bookingData);
+      console.log("Selected Staff ID being sent:", selectedStaffId);
+      
+      const result = await completeBooking(bookingData);
 
       const amount = getAmount();
       const paymentTypeLabel = getPaymentTypeLabel();
       const totalPrice = getServicePrice();
       const paymentMethodLabel = selectedPaymentMethod === 'gcash' ? 'GCash' : 'Cash';
+      const staffName = getStaffName(selectedStaffId);
+      const receiptNumber = generateReceiptNumber();
+      const remainingBalance = selectedPaymentType === 'downpayment' ? totalPrice - amount : 0;
 
-      Alert.alert(
-        "Booking Confirmed",
-        `Service: ${selectedService?.service_name}\nDate: ${selectedDate.toLocaleDateString()}\nPayment Type: ${paymentTypeLabel}\nPayment Method: ${paymentMethodLabel}\nAmount Due: ₱${amount.toLocaleString()}\nTotal Amount: ₱${totalPrice.toLocaleString()}\n\nThank you for booking!`,
-        [
-          { 
-            text: "OK", 
-            onPress: () => {
-              setBookingStep('service');
-              setSelectedServiceId(null);
-              setSelectedPaymentType(null);
-              setSelectedPaymentMethod(null);
-              setActiveTab('home');
-              fetchUserAppointments();
-            }
-          }
-        ]
-      );
+      // Prepare receipt data
+      const receipt: ReceiptData = {
+        bookingId: result.appointment_id?.toString() || receiptNumber,
+        serviceName: selectedService?.service_name || '',
+        date: selectedDate.toLocaleDateString('en-US', { 
+          weekday: 'long', 
+          year: 'numeric', 
+          month: 'long', 
+          day: 'numeric' 
+        }),
+        time: formattedTime,
+        stylistName: staffName,
+        totalAmount: totalPrice,
+        paymentType: paymentTypeLabel,
+        paymentMethod: paymentMethodLabel,
+        amountPaid: amount,
+        remainingBalance: remainingBalance,
+        status: 'Pending Confirmation',
+        bookingDate: new Date().toLocaleDateString('en-US', {
+          weekday: 'long',
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit'
+        })
+      };
+
+      setReceiptData(receipt);
+      setShowReceipt(true);
+
     } catch (error: any) {
       console.error("Booking error:", error);
       const errorMessage = error.response?.data?.message || error.message || "Failed to complete booking. Please try again.";
@@ -178,12 +356,27 @@ export default function CustomerDashboard() {
     }
   };
 
+  const handleCloseReceipt = () => {
+    setShowReceipt(false);
+    setBookingStep('service');
+    setSelectedServiceId(null);
+    setSelectedStaffId(null);
+    setSelectedPaymentType(null);
+    setSelectedPaymentMethod(null);
+    setActiveTab('home');
+    fetchUserAppointments();
+  };
+
   const handleBackToServices = () => {
     setBookingStep('service');
   };
 
   const handleBackToDateTime = () => {
     setBookingStep('datetime');
+  };
+
+  const handleBackToStylist = () => {
+    setBookingStep('stylist');
   };
 
   const handleBackToPaymentType = () => {
@@ -200,11 +393,263 @@ export default function CustomerDashboard() {
     }
   };
 
-  const canBookToday = (date: Date) => {
-    const today = new Date();
-    const selected = new Date(date);
-    return selected >= new Date(today.setHours(0, 0, 0, 0));
+  // Receipt Modal Component
+  const ReceiptModal = () => {
+    if (!receiptData) return null;
+
+    return (
+      <Modal
+        transparent={true}
+        animationType="slide"
+        visible={showReceipt}
+        onRequestClose={handleCloseReceipt}
+      >
+        <View className="flex-1 justify-center items-center bg-black/50 p-4">
+          <ScrollView className="max-h-[90%]" showsVerticalScrollIndicator={false}>
+            <View className="bg-white rounded-2xl overflow-hidden w-full" style={{ minWidth: 320 }}>
+              {/* Receipt Header */}
+              <View className="bg-gradient-to-r from-pink-500 to-pink-600 px-6 py-4 items-center">
+                <Text className="text-white text-2xl font-bold mb-1">💇‍♀️ Salon Bliss</Text>
+                <Text className="text-white opacity-90 text-sm">Official Receipt</Text>
+                <View className="bg-white/20 rounded-full px-3 py-1 mt-2">
+                  <Text className="text-white text-xs font-mono">{receiptData.bookingId}</Text>
+                </View>
+              </View>
+
+              {/* Receipt Body */}
+              <View className="p-6">
+                {/* Booking Status */}
+                <View className="bg-yellow-50 rounded-xl p-3 mb-4 items-center border border-yellow-200">
+                  <Text className="text-yellow-700 font-semibold text-sm">{receiptData.status}</Text>
+                  <Text className="text-gray-500 text-xs mt-1">Thank you for booking with us!</Text>
+                </View>
+
+                {/* Booking Details */}
+                <View className="border-b border-gray-200 pb-3 mb-3">
+                  <Text className="text-gray-500 text-xs font-semibold uppercase tracking-wider mb-2">Booking Details</Text>
+                  <View className="space-y-2">
+                    <View className="flex-row justify-between">
+                      <Text className="text-gray-600 text-sm">Service</Text>
+                      <Text className="text-gray-800 font-semibold text-sm">{receiptData.serviceName}</Text>
+                    </View>
+                    <View className="flex-row justify-between">
+                      <Text className="text-gray-600 text-sm">Date</Text>
+                      <Text className="text-gray-800 text-sm">{receiptData.date}</Text>
+                    </View>
+                    <View className="flex-row justify-between">
+                      <Text className="text-gray-600 text-sm">Time</Text>
+                      <Text className="text-gray-800 text-sm">{receiptData.time}</Text>
+                    </View>
+                    <View className="flex-row justify-between">
+                      <Text className="text-gray-600 text-sm">Stylist</Text>
+                      <Text className="text-gray-800 text-sm">{receiptData.stylistName}</Text>
+                    </View>
+                  </View>
+                </View>
+
+                {/* Payment Details */}
+                <View className="border-b border-gray-200 pb-3 mb-3">
+                  <Text className="text-gray-500 text-xs font-semibold uppercase tracking-wider mb-2">Payment Details</Text>
+                  <View className="space-y-2">
+                    <View className="flex-row justify-between">
+                      <Text className="text-gray-600 text-sm">Total Amount</Text>
+                      <Text className="text-gray-800 font-semibold text-sm">₱{receiptData.totalAmount.toLocaleString()}</Text>
+                    </View>
+                    <View className="flex-row justify-between">
+                      <Text className="text-gray-600 text-sm">Payment Type</Text>
+                      <Text className="text-gray-800 text-sm">{receiptData.paymentType}</Text>
+                    </View>
+                    <View className="flex-row justify-between">
+                      <Text className="text-gray-600 text-sm">Payment Method</Text>
+                      <Text className="text-gray-800 text-sm">{receiptData.paymentMethod}</Text>
+                    </View>
+                    <View className="flex-row justify-between pt-2 border-t border-dashed border-gray-200">
+                      <Text className="text-gray-600 text-sm font-semibold">Amount Paid</Text>
+                      <Text className="text-green-600 font-bold text-base">₱{receiptData.amountPaid.toLocaleString()}</Text>
+                    </View>
+                    {receiptData.remainingBalance > 0 && (
+                      <View className="flex-row justify-between">
+                        <Text className="text-gray-600 text-sm">Remaining Balance</Text>
+                        <Text className="text-orange-600 font-semibold text-sm">₱{receiptData.remainingBalance.toLocaleString()}</Text>
+                      </View>
+                    )}
+                  </View>
+                </View>
+
+                {/* Additional Info */}
+                <View className="bg-gray-50 rounded-xl p-3 mb-4">
+                  <View className="flex-row items-start gap-2">
+                    <Ionicons name="information-circle-outline" size={16} color="#ec4899" />
+                    <Text className="text-gray-500 text-xs flex-1">
+                      Please arrive 10 minutes before your scheduled time. 
+                      {receiptData.remainingBalance > 0 && ' The remaining balance can be paid at the salon.'}
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Booking Date */}
+                <Text className="text-gray-400 text-center text-xs border-t border-gray-100 pt-3">
+                  Booked on {receiptData.bookingDate}
+                </Text>
+              </View>
+
+              {/* Receipt Footer */}
+              <View className="border-t border-pink-100 px-6 py-4 flex-row gap-3">
+                <TouchableOpacity 
+                  className="flex-1 py-3 rounded-xl border border-pink-500"
+                  onPress={handleCloseReceipt}
+                >
+                  <Text className="text-pink-500 text-center font-semibold">Close</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  className="flex-1 py-3 rounded-xl bg-pink-500"
+                  onPress={handleCloseReceipt}
+                >
+                  <Text className="text-white text-center font-semibold">View My Bookings</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </ScrollView>
+        </View>
+      </Modal>
+    );
   };
+
+  // Stylist Selection Modal
+  const StylistModal = () => {
+    const filteredStaff = getFilteredStaff();
+    const requiredSpecialty = selectedServiceId ? getRequiredSpecialtyForService(selectedServiceId) : null;
+    
+    return (
+      <Modal
+        transparent={true}
+        animationType="slide"
+        visible={showStaffModal}
+        onRequestClose={() => setShowStaffModal(false)}
+      >
+        <View className="flex-1 justify-end bg-black/50">
+          <View className="bg-white rounded-t-3xl p-6" style={{ maxHeight: '80%' }}>
+            <View className="flex-row justify-between items-center mb-4">
+              <Text className="text-lg font-semibold text-gray-800">
+                Select Stylist
+              </Text>
+              <TouchableOpacity onPress={() => setShowStaffModal(false)}>
+                <Ionicons name="close" size={24} color="#9ca3af" />
+              </TouchableOpacity>
+            </View>
+            
+            {requiredSpecialty && (
+              <View className="bg-pink-50 p-3 rounded-xl mb-4">
+                <Text className="text-sm text-pink-600">
+                  Required: {requiredSpecialty.charAt(0).toUpperCase() + requiredSpecialty.slice(1)}
+                </Text>
+              </View>
+            )}
+            
+            <ScrollView showsVerticalScrollIndicator={false} className="max-h-96">
+              {filteredStaff.length === 0 ? (
+                <View className="py-8 items-center">
+                  <Ionicons name="alert-circle-outline" size={48} color="#d1d5db" />
+                  <Text className="text-gray-500 text-center mt-3">
+                    No {requiredSpecialty ? requiredSpecialty + 's' : 'stylists'} available for this service
+                  </Text>
+                </View>
+              ) : (
+                filteredStaff.map((staffMember) => {
+                  const specialties = getStaffSpecialties(staffMember);
+                  
+                  return (
+                    <TouchableOpacity
+                      key={staffMember.id}
+                      className={`flex-row items-center justify-between p-4 mb-3 rounded-xl border-2 ${
+                        selectedStaffId === staffMember.id ? 'border-pink-500 bg-pink-50' : 'border-gray-200 bg-white'
+                      }`}
+                      onPress={() => {
+                        console.log("Selected staff ID:", staffMember.id); // Debug log
+                        setSelectedStaffId(staffMember.id);
+                        setShowStaffModal(false);
+                      }}
+                    >
+                      <View className="flex-row items-center flex-1">
+                        <View className="w-12 h-12 bg-gradient-to-r from-pink-500 to-pink-600 rounded-full items-center justify-center mr-3">
+                          <Text className="text-white font-bold text-lg">
+                            {staffMember.first_name?.charAt(0)}{staffMember.last_name?.charAt(0)}
+                          </Text>
+                        </View>
+                        <View className="flex-1">
+                          <Text className="text-gray-800 font-semibold">
+                            {staffMember.first_name} {staffMember.last_name}
+                          </Text>
+                          <Text className="text-gray-500 text-xs">
+                            {specialties}
+                          </Text>
+                        </View>
+                      </View>
+                      <View className={`w-6 h-6 rounded-full border-2 items-center justify-center ${
+                        selectedStaffId === staffMember.id ? 'bg-pink-500 border-pink-500' : 'border-gray-300'
+                      }`}>
+                        {selectedStaffId === staffMember.id && (
+                          <Ionicons name="checkmark" size={14} color="white" />
+                        )}
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+    );
+  };
+
+  // Time Picker Modal
+  const TimePickerModal = () => (
+    <Modal
+      transparent={true}
+      animationType="slide"
+      visible={showTimePickerModal}
+      onRequestClose={() => {
+        setShowTimePickerModal(false);
+        setSelectedDateForModal(null);
+      }}
+    >
+      <View className="flex-1 justify-end bg-black/50">
+        <View className="bg-white rounded-t-3xl p-6" style={{ maxHeight: '80%' }}>
+          <View className="flex-row justify-between items-center mb-4">
+            <Text className="text-lg font-semibold text-gray-800">
+              Select Time for {selectedDateForModal?.toLocaleDateString()}
+            </Text>
+            <TouchableOpacity onPress={() => {
+              setShowTimePickerModal(false);
+              setSelectedDateForModal(null);
+            }}>
+              <Ionicons name="close" size={24} color="#9ca3af" />
+            </TouchableOpacity>
+          </View>
+          
+          <ScrollView showsVerticalScrollIndicator={false} className="max-h-96">
+            <View className="flex-row flex-wrap justify-between">
+              {availableTimes.map((time) => (
+                <TouchableOpacity
+                  key={time}
+                  className="w-[30%] py-3 mb-3 rounded-xl border border-gray-200 items-center"
+                  style={{
+                    backgroundColor: selectedTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }) === time ? '#ec4899' : 'white'
+                  }}
+                  onPress={() => handleTimeSelect(time)}
+                >
+                  <Text className={selectedTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }) === time ? 'text-white font-semibold' : 'text-gray-700'}>
+                    {time}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
 
   const renderContent = () => {
     switch(activeTab) {
@@ -318,7 +763,9 @@ export default function CustomerDashboard() {
       
       case 'book':
         const totalPrice = getServicePrice();
-        const halfPrice = totalPrice / 2;
+        const downpaymentAmount = totalPrice / 2;
+        const fullPaymentAmount = totalPrice;
+        const requiredSpecialty = selectedServiceId ? getRequiredSpecialtyForService(selectedServiceId) : null;
         
         return (
           <ScrollView 
@@ -330,12 +777,13 @@ export default function CustomerDashboard() {
           >
             <View className="px-5 pt-6">
               {/* Back Button */}
-              {(bookingStep === 'datetime' || bookingStep === 'paymentType' || bookingStep === 'paymentMethod') && (
+              {(bookingStep === 'datetime' || bookingStep === 'stylist' || bookingStep === 'paymentType' || bookingStep === 'paymentMethod') && (
                 <TouchableOpacity 
                   className="flex-row items-center mb-4"
                   onPress={
                     bookingStep === 'paymentMethod' ? handleBackToPaymentType :
-                    bookingStep === 'paymentType' ? handleBackToDateTime : 
+                    bookingStep === 'paymentType' ? handleBackToStylist :
+                    bookingStep === 'stylist' ? handleBackToDateTime : 
                     handleBackToServices
                   }
                   disabled={isProcessing}
@@ -343,20 +791,23 @@ export default function CustomerDashboard() {
                   <Ionicons name="arrow-back" size={24} color="#ec4899" />
                   <Text className="text-pink-500 font-semibold ml-2">
                     {bookingStep === 'paymentMethod' ? 'Back to Payment Type' : 
-                     bookingStep === 'paymentType' ? 'Back to Date Selection' : 'Back to Services'}
+                     bookingStep === 'paymentType' ? 'Back to Stylist' :
+                     bookingStep === 'stylist' ? 'Back to Calendar' : 'Back to Services'}
                   </Text>
                 </TouchableOpacity>
               )}
               
               <Text className="text-3xl font-bold text-gray-800 mb-2">
                 {bookingStep === 'service' ? 'Book Appointment' : 
-                 bookingStep === 'datetime' ? 'Select Date' : 
+                 bookingStep === 'datetime' ? 'Select Date & Time' :
+                 bookingStep === 'stylist' ? 'Select Preferred Stylist' :
                  bookingStep === 'paymentType' ? 'Select Payment Type' : 'Select Payment Method'}
               </Text>
               <Text className="text-gray-500 mb-6">
                 {bookingStep === 'service' ? 'Choose a service to get started' : 
-                 bookingStep === 'datetime' ? `Selected: ${selectedService?.service_name}` : 
-                 bookingStep === 'paymentType' ? `Selected Date: ${selectedDate.toLocaleDateString()}` :
+                 bookingStep === 'datetime' ? `Selected: ${selectedService?.service_name}` :
+                 bookingStep === 'stylist' ? `Selected Date: ${selectedDate.toLocaleDateString()} at ${selectedTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}` :
+                 bookingStep === 'paymentType' ? `Selected Stylist: ${getStaffName(selectedStaffId)}` :
                  `Complete your booking`}
               </Text>
               
@@ -422,7 +873,7 @@ export default function CustomerDashboard() {
                 </>
               )}
               
-              {/* Step 2: Date Selection */}
+              {/* Step 2: Calendar + Time Selection */}
               {bookingStep === 'datetime' && (
                 <View className="bg-white rounded-2xl p-5 shadow-sm" style={{ elevation: 2 }}>
                   <View className="bg-pink-50 rounded-xl p-4 mb-6">
@@ -434,73 +885,179 @@ export default function CustomerDashboard() {
                     </View>
                   </View>
                   
-                  <View className="mb-6">
-                    <Text className="text-gray-700 font-semibold mb-3">Select Date</Text>
-                    <TouchableOpacity 
-                      className="flex-row items-center justify-between bg-gray-50 rounded-xl p-4 border border-gray-200"
-                      onPress={() => setShowDatePicker(true)}
-                      disabled={isProcessing}
-                    >
-                      <View className="flex-row items-center">
-                        <Ionicons name="calendar-outline" size={22} color="#ec4899" />
-                        <Text className="text-gray-700 ml-3">{selectedDate.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</Text>
-                      </View>
-                      <Ionicons name="chevron-down" size={20} color="#9ca3af" />
+                  {/* Calendar Header */}
+                  <View className="flex-row justify-between items-center mb-4">
+                    <TouchableOpacity onPress={() => changeMonth(-1)} className="p-2">
+                      <Ionicons name="chevron-back" size={24} color="#ec4899" />
+                    </TouchableOpacity>
+                    <Text className="text-lg font-semibold text-gray-800">
+                      {monthNames[currentMonth.getMonth()]} {currentMonth.getFullYear()}
+                    </Text>
+                    <TouchableOpacity onPress={() => changeMonth(1)} className="p-2">
+                      <Ionicons name="chevron-forward" size={24} color="#ec4899" />
                     </TouchableOpacity>
                   </View>
-                  
-                  {showDatePicker && (
-                    <Modal
-                      transparent={true}
-                      animationType="slide"
-                      visible={showDatePicker}
-                      onRequestClose={() => setShowDatePicker(false)}
-                    >
-                      <View className="flex-1 justify-end bg-black/50">
-                        <View className="bg-white rounded-t-3xl p-4">
-                          <View className="flex-row justify-between items-center mb-4">
-                            <Text className="text-lg font-semibold text-gray-800">Select Date</Text>
-                            <TouchableOpacity onPress={() => setShowDatePicker(false)}>
-                              <Text className="text-pink-500 font-semibold">Done</Text>
-                            </TouchableOpacity>
-                          </View>
-                          <DateTimePicker
-                            value={selectedDate}
-                            mode="date"
-                            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                            onChange={(event, date) => {
-                              if (date && canBookToday(date)) {
-                                setSelectedDate(date);
-                              } else if (date && !canBookToday(date)) {
-                                Alert.alert("Invalid Date", "Please select today or a future date.");
-                              }
-                              setShowDatePicker(false);
-                            }}
-                            minimumDate={new Date()}
-                          />
-                        </View>
+
+                  {/* Week Days Header */}
+                  <View className="flex-row mb-2">
+                    {weekDays.map((day, index) => (
+                      <View key={index} className="flex-1 items-center py-2">
+                        <Text className="text-gray-500 text-sm font-medium">{day}</Text>
                       </View>
-                    </Modal>
+                    ))}
+                  </View>
+
+                  {/* Calendar Grid */}
+                  <View className="flex-row flex-wrap">
+                    {getDaysInMonth(currentMonth).map((date, index) => {
+                      if (!date) {
+                        return <View key={`empty-${index}`} className="w-[14.28%] aspect-square p-1" />;
+                      }
+                      
+                      const isSelected = selectedDate && date.toDateString() === selectedDate.toDateString();
+                      const isTodayDate = isToday(date);
+                      const isPast = isPastDate(date);
+                      
+                      return (
+                        <TouchableOpacity
+                          key={date.toISOString()}
+                          className={`w-[14.28%] aspect-square p-1 ${isPast ? 'opacity-40' : ''}`}
+                          onPress={() => !isPast && handleDateSelect(date)}
+                          disabled={isPast}
+                        >
+                          <View className={`flex-1 items-center justify-center rounded-full ${
+                            isSelected ? 'bg-pink-500' : isTodayDate ? 'bg-pink-100' : ''
+                          }`}>
+                            <Text className={`text-base ${
+                              isSelected ? 'text-white font-bold' : isTodayDate ? 'text-pink-600 font-semibold' : 'text-gray-700'
+                            }`}>
+                              {date.getDate()}
+                            </Text>
+                          </View>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+
+                  {/* Selected Date Display */}
+                  {selectedDate && (
+                    <View className="mt-6 p-4 bg-gray-50 rounded-xl">
+                      <Text className="text-gray-600 text-sm">Selected Date</Text>
+                      <Text className="text-lg font-bold text-gray-800">
+                        {selectedDate.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                      </Text>
+                      {selectedTime && (
+                        <View className="flex-row items-center mt-2">
+                          <Ionicons name="time-outline" size={16} color="#ec4899" />
+                          <Text className="text-pink-600 font-semibold ml-1">
+                            {selectedTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                  )}
+
+                  {/* Change Time Button */}
+                  {selectedDate && (
+                    <TouchableOpacity 
+                      className="flex-row items-center justify-center py-3 mt-3 border border-pink-500 rounded-xl"
+                      onPress={() => {
+                        setSelectedDateForModal(selectedDate);
+                        setShowTimePickerModal(true);
+                      }}
+                    >
+                      <Ionicons name="time-outline" size={20} color="#ec4899" />
+                      <Text className="text-pink-500 font-semibold ml-2">Change Time</Text>
+                    </TouchableOpacity>
                   )}
                   
                   <TouchableOpacity 
-                    className="bg-pink-500 py-4 rounded-xl mt-2"
-                    onPress={handleContinueToPaymentType}
-                    disabled={isProcessing}
+                    className="bg-pink-500 py-4 rounded-xl mt-4"
+                    onPress={handleContinueToStylist}
+                    disabled={!selectedDate || isProcessing}
                   >
-                    <Text className="text-white text-center font-semibold text-lg">Continue to Payment Type</Text>
+                    <Text className="text-white text-center font-semibold text-lg">
+                      Continue to Stylist Selection
+                    </Text>
                   </TouchableOpacity>
                 </View>
               )}
               
-              {/* Step 3: Payment Type Selection */}
-              {bookingStep === 'paymentType' && (
+              {/* Step 3: Stylist Selection */}
+              {bookingStep === 'stylist' && (
                 <View className="bg-white rounded-2xl p-5 shadow-sm" style={{ elevation: 2 }}>
                   <View className="bg-pink-50 rounded-xl p-4 mb-6">
                     <Text className="text-gray-500 text-sm">Appointment Summary</Text>
                     <Text className="text-lg font-bold text-gray-800">{selectedService?.service_name}</Text>
-                    <View className="flex-row justify-between mt-2">
+                    <View className="flex-row justify-between mt-1">
                       <Text className="text-gray-500 text-sm">Date: {selectedDate.toLocaleDateString()}</Text>
+                    </View>
+                    <View className="flex-row justify-between mt-1">
+                      <Text className="text-gray-500 text-sm">Time: {selectedTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</Text>
+                      <Text className="text-pink-500 font-bold">₱{totalPrice.toLocaleString()}</Text>
+                    </View>
+                  </View>
+
+                  <Text className="text-lg font-semibold text-gray-800 mb-3">Select Preferred Stylist</Text>
+                  
+                  {requiredSpecialty && (
+                    <View className="bg-blue-50 p-3 rounded-xl mb-4">
+                      <Text className="text-sm text-blue-600">
+                        This service requires a {requiredSpecialty.charAt(0).toUpperCase() + requiredSpecialty.slice(1)}
+                      </Text>
+                    </View>
+                  )}
+                  
+                  <TouchableOpacity 
+                    className="flex-row items-center justify-between p-4 border border-gray-200 rounded-xl"
+                    onPress={() => setShowStaffModal(true)}
+                  >
+                    <View className="flex-row items-center">
+                      <Ionicons name="person-outline" size={20} color="#ec4899" />
+                      <Text className="ml-3 text-gray-700">
+                        {selectedStaffId ? getStaffName(selectedStaffId) : 'Select a stylist...'}
+                      </Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
+                  </TouchableOpacity>
+                  
+                  {selectedStaffId && (
+                    <View className="mt-4 p-3 bg-green-50 rounded-xl">
+                      <View className="flex-row items-center">
+                        <Ionicons name="checkmark-circle" size={16} color="#10b981" />
+                        <Text className="text-green-600 text-sm ml-2">
+                          {getStaffName(selectedStaffId)} will be your stylist (ID: {selectedStaffId})
+                        </Text>
+                      </View>
+                    </View>
+                  )}
+
+                  <TouchableOpacity 
+                    className="bg-pink-500 py-4 rounded-xl mt-6"
+                    onPress={handleContinueToPaymentType}
+                    disabled={!selectedStaffId || isProcessing}
+                  >
+                    <Text className="text-white text-center font-semibold text-lg">
+                      Continue to Payment Type
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+              
+              {/* Step 4: Payment Type Selection */}
+              {bookingStep === 'paymentType' && (
+                <View className="bg-white rounded-2xl p-5 shadow-sm" style={{ elevation: 2 }}>
+                  <View className="bg-pink-50 rounded-xl p-4 mb-6">
+                    <Text className="text-gray-500 text-sm">Booking Summary</Text>
+                    <Text className="text-lg font-bold text-gray-800">{selectedService?.service_name}</Text>
+                    <View className="flex-row justify-between mt-1">
+                      <Text className="text-gray-500 text-sm">Date: {selectedDate.toLocaleDateString()}</Text>
+                    </View>
+                    <View className="flex-row justify-between mt-1">
+                      <Text className="text-gray-500 text-sm">Time: {selectedTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</Text>
+                    </View>
+                    <View className="flex-row justify-between mt-1">
+                      <Text className="text-gray-500 text-sm">Stylist: {getStaffName(selectedStaffId)}</Text>
                       <Text className="text-pink-500 font-bold">₱{totalPrice.toLocaleString()}</Text>
                     </View>
                   </View>
@@ -522,7 +1079,7 @@ export default function CustomerDashboard() {
                       </View>
                       <View>
                         <Text className="text-gray-800 font-semibold">Downpayment (50%)</Text>
-                        <Text className="text-gray-500 text-xs">Pay ₱{halfPrice.toLocaleString()} now</Text>
+                        <Text className="text-gray-500 text-xs">Pay ₱{downpaymentAmount.toLocaleString()} now</Text>
                       </View>
                     </View>
                     <View className={`w-6 h-6 rounded-full border-2 items-center justify-center ${
@@ -534,12 +1091,12 @@ export default function CustomerDashboard() {
                     </View>
                   </TouchableOpacity>
 
-                  {/* Remaining Balance Option */}
+                  {/* Full Payment Option */}
                   <TouchableOpacity 
                     className={`flex-row items-center justify-between p-4 rounded-xl border-2 ${
-                      selectedPaymentType === 'remaining' ? 'border-pink-500 bg-pink-50' : 'border-gray-200 bg-white'
+                      selectedPaymentType === 'full payment' ? 'border-pink-500 bg-pink-50' : 'border-gray-200 bg-white'
                     }`}
-                    onPress={() => setSelectedPaymentType('remaining')}
+                    onPress={() => setSelectedPaymentType('full payment')}
                     disabled={isProcessing}
                   >
                     <View className="flex-row items-center">
@@ -547,14 +1104,14 @@ export default function CustomerDashboard() {
                         <Ionicons name="cash-outline" size={20} color="#10b981" />
                       </View>
                       <View>
-                        <Text className="text-gray-800 font-semibold">Remaining Balance (50%)</Text>
-                        <Text className="text-gray-500 text-xs">Pay ₱{halfPrice.toLocaleString()} at salon</Text>
+                        <Text className="text-gray-800 font-semibold">Full Payment (100%)</Text>
+                        <Text className="text-gray-500 text-xs">Pay ₱{fullPaymentAmount.toLocaleString()} now</Text>
                       </View>
                     </View>
                     <View className={`w-6 h-6 rounded-full border-2 items-center justify-center ${
-                      selectedPaymentType === 'remaining' ? 'bg-pink-500 border-pink-500' : 'border-gray-300'
+                      selectedPaymentType === 'full payment' ? 'bg-pink-500 border-pink-500' : 'border-gray-300'
                     }`}>
-                      {selectedPaymentType === 'remaining' && (
+                      {selectedPaymentType === 'full payment' && (
                         <Ionicons name="checkmark" size={14} color="white" />
                       )}
                     </View>
@@ -576,7 +1133,7 @@ export default function CustomerDashboard() {
                 </View>
               )}
               
-              {/* Step 4: Payment Method Selection (GCash or Cash only) */}
+              {/* Step 5: Payment Method Selection */}
               {bookingStep === 'paymentMethod' && (
                 <View className="bg-white rounded-2xl p-5 shadow-sm" style={{ elevation: 2 }}>
                   <View className="bg-pink-50 rounded-xl p-4 mb-6">
@@ -584,6 +1141,12 @@ export default function CustomerDashboard() {
                     <Text className="text-lg font-bold text-gray-800">{selectedService?.service_name}</Text>
                     <View className="flex-row justify-between mt-1">
                       <Text className="text-gray-500 text-sm">Date: {selectedDate.toLocaleDateString()}</Text>
+                    </View>
+                    <View className="flex-row justify-between mt-1">
+                      <Text className="text-gray-500 text-sm">Time: {selectedTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</Text>
+                    </View>
+                    <View className="flex-row justify-between mt-1">
+                      <Text className="text-gray-500 text-sm">Stylist: {getStaffName(selectedStaffId)}</Text>
                     </View>
                     <View className="flex-row justify-between mt-1">
                       <Text className="text-gray-500 text-sm">Payment Type: {getPaymentTypeLabel()}</Text>
@@ -857,6 +1420,10 @@ export default function CustomerDashboard() {
           </Text>
         </TouchableOpacity>
       </View>
+
+      <TimePickerModal />
+      <StylistModal />
+      <ReceiptModal />
     </SafeAreaView>
   );
 }
