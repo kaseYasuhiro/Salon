@@ -17,6 +17,8 @@ return new class extends Migration
             $table->unsignedBigInteger('appointment_id');
             $table->decimal('rating', 5,2);
             $table->string('comments', 100);
+            $table->foreign('customer_id')->references('id')->on('users')->cascadeOnDelete()->cascadeonUpdate();
+            $table->foreign('appointment_id')->references('id')->on('appointments')->cascadeOnDelete()->cascadeOnUpdate();
             $table->timestamps();
         });
     }

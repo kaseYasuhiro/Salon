@@ -87,6 +87,18 @@ interface StaffMember {
   }>;
 }
 
+interface Feedback {
+  id: number;
+  customer_id: number;
+  appointment_id: number;
+  rating: number;
+  comments: string;
+  created_at?: string;
+  updated_at?: string;
+  customer_name?: string;
+  service_name?: string;
+}
+
 interface BookingData {
   customer_id: number;
   appointment_date: string;
@@ -116,6 +128,19 @@ interface UpdateAppointmentData {
   notes?: string;
 }
 
+interface SubmitFeedbackData {
+  appointment_id: number;
+  customer_id: number;
+  rating: number;
+  comments: string;
+}
+
+interface UpdatePasswordData {
+  current_password: string;
+  new_password: string;
+  new_password_confirmation: string;
+}
+
 interface AuthState {
   user: User | null;
   appointments: Appointment[];
@@ -123,6 +148,7 @@ interface AuthState {
   services: Services[];
   staff: StaffMember[];
   serviceSpecialties: any[];
+  feedbacks: Feedback[];
   isLoading: boolean;
   
   // User methods
@@ -130,6 +156,7 @@ interface AuthState {
   login: (data: LoginData) => Promise<void>;
   register: (data: RegisterData) => Promise<void>;
   logout: () => Promise<void>;
+  updatePassword: (id: number, data: UpdatePasswordData) => Promise<void>;
   
   // Customer appointment methods
   fetchUserAppointments: () => Promise<Appointment[]>;
@@ -159,6 +186,11 @@ interface AuthState {
   fetchServiceSpecialties: () => Promise<any[]>;
   getServiceSpecialties: (serviceId: number) => any[];
   
+  // Feedback methods
+  fetchFeedbacks: () => Promise<Feedback[]>;
+  submitFeedback: (data: SubmitFeedbackData) => Promise<any>;
+  getFeedbacksForAppointment: (appointmentId: number) => Feedback[];
+  
   // Booking methods
   bookAppointment: (data: BookingData) => Promise<{ appointment_id: number }>;
   addPayment: (data: PaymentData) => Promise<void>;
@@ -179,6 +211,7 @@ export const useAuth = create<AuthState>((set, get) => ({
   services: [],
   staff: [],
   serviceSpecialties: [],
+  feedbacks: [],
   isLoading: false,
 
   getUser: async () => {
@@ -207,6 +240,7 @@ export const useAuth = create<AuthState>((set, get) => ({
       await get().fetchServices();
       await get().fetchStaff();
       await get().fetchServiceSpecialties();
+      await get().fetchFeedbacks();
     } catch (error) {
       console.log("Login error:", error);
       throw error;
@@ -228,9 +262,24 @@ export const useAuth = create<AuthState>((set, get) => ({
     try {
       await axios.post("/logout");
       await setToken(null);
-      set({ user: null, appointments: [], staffAppointments: [], services: [], staff: [], serviceSpecialties: [] });
+      set({ user: null, appointments: [], staffAppointments: [], services: [], staff: [], serviceSpecialties: [], feedbacks: [] });
     } catch (error) {
       console.log("Logout error:", error);
+    }
+  },
+
+  updatePassword: async (id: number, data: UpdatePasswordData) => {
+    try {
+      const response = await axios.post(`/user/${id}/password`, {
+        current_password: data.current_password,
+        new_password: data.new_password,
+        new_password_confirmation: data.new_password_confirmation
+      });
+      console.log("Password updated successfully:", response.data);
+      return response.data;
+    } catch (error) {
+      console.log("Error updating password:", error);
+      throw error;
     }
   },
 
@@ -502,6 +551,52 @@ export const useAuth = create<AuthState>((set, get) => ({
   getServiceSpecialties: (serviceId: number) => {
     const { serviceSpecialties } = get();
     return serviceSpecialties.filter(item => item.service_id === serviceId);
+  },
+
+  // Feedback methods
+  fetchFeedbacks: async () => {
+    set({ isLoading: true });
+    try {
+      const response = await axios.get("/feedbacks");
+      console.log("Fetched feedbacks:", response.data);
+      
+      let feedbacksData: Feedback[] = [];
+      if (Array.isArray(response.data)) {
+        feedbacksData = response.data;
+      }
+      
+      set({ feedbacks: feedbacksData });
+      return feedbacksData;
+    } catch (error) {
+      console.log("Error fetching feedbacks:", error);
+      return [];
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+
+  submitFeedback: async (data: SubmitFeedbackData) => {
+    try {
+      const response = await axios.post("/feedbacks/submit", {
+        appointment_id: data.appointment_id,
+        customer_id: data.customer_id,
+        rating: data.rating,
+        comments: data.comments
+      });
+      console.log("Feedback submitted:", response.data);
+      
+      await get().fetchFeedbacks();
+      
+      return response.data;
+    } catch (error) {
+      console.log("Error submitting feedback:", error);
+      throw error;
+    }
+  },
+
+  getFeedbacksForAppointment: (appointmentId: number) => {
+    const { feedbacks } = get();
+    return feedbacks.filter(feedback => feedback.appointment_id === appointmentId);
   },
 
   // Booking methods

@@ -135,4 +135,21 @@ class UserController extends Controller
             'message' => 'Employee Deleted Successfully'
         ], 200);
     }
+
+    public function updatePassword(Request $request, $id)
+    {
+        $request->validate([
+            'password' => ['required', 'confirmed', Password::defaults()]
+        ]);
+
+        $user = User::findOrFail($id);
+
+        $user->update([
+            'password' => Hash::make($request->password)
+        ]);
+
+        return response()->json([
+            'message' => 'Password updated successfully'
+        ], 200);
+    }
 }

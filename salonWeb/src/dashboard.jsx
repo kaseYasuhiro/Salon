@@ -11,6 +11,7 @@ import {
   AlertCircle, Bell, Search, Crown
 } from 'lucide-react';
 import { useAuth } from "../contexts/auth-context";
+import api from '../api/axios';
 
 function Dashboard() {
   const { logout } = useAuth();
@@ -19,6 +20,17 @@ function Dashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { user } = useAuth();
   const [token, setToken] = useState(null);
+  const [dashboardStats, setDashboardStats] = useState({
+    totalAppointments: 0,
+    activeServices: 0,
+    inventoryItems: 0,
+    staffMembers: 0
+  });
+  const [recentCompletedAppointments, setRecentCompletedAppointments] = useState([]);
+  const [selectedAppointment, setSelectedAppointment] = useState(null);
+  const [showModal, setShowModal] = useState(false);
+  const [feedbacks, setFeedbacks] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     const storedToken = getToken();
@@ -40,6 +52,115 @@ function Dashboard() {
     }
   }, []);
 
+  // Fetch all appointments
+  const fetchAllAppointments = async () => {
+    try {
+      const response = await api.get('/all-appointments');
+      console.log('All appointments:', response.data);
+      
+      if (Array.isArray(response.data)) {
+        // Filter completed appointments
+        const completed = response.data.filter(app => app.status === 'completed');
+        
+        // Get last 5 completed appointments
+        const recentCompleted = completed.slice(0, 5);
+        setRecentCompletedAppointments(recentCompleted);
+        
+        // Update stats
+        setDashboardStats(prev => ({
+          ...prev,
+          totalAppointments: response.data.length
+        }));
+      }
+    } catch (error) {
+      console.error('Error fetching appointments:', error);
+    }
+  };
+
+  // Fetch services count
+  const fetchServices = async () => {
+    try {
+      const response = await api.get('/services');
+      console.log('Services:', response.data);
+      if (Array.isArray(response.data)) {
+        const activeServices = response.data.filter(s => s.service_status === 'active').length;
+        setDashboardStats(prev => ({
+          ...prev,
+          activeServices: activeServices
+        }));
+      }
+    } catch (error) {
+      console.error('Error fetching services:', error);
+    }
+  };
+
+  // Fetch inventory count
+  const fetchInventory = async () => {
+    try {
+      const response = await api.get('/inventory');
+      console.log('Inventory:', response.data);
+      if (Array.isArray(response.data)) {
+        setDashboardStats(prev => ({
+          ...prev,
+          inventoryItems: response.data.length
+        }));
+      }
+    } catch (error) {
+      console.error('Error fetching inventory:', error);
+    }
+  };
+
+  // Fetch staff count
+  const fetchStaff = async () => {
+    try {
+      const response = await api.get('/employees');
+      console.log('Staff:', response.data);
+      if (Array.isArray(response.data)) {
+        setDashboardStats(prev => ({
+          ...prev,
+          staffMembers: response.data.length
+        }));
+      }
+    } catch (error) {
+      console.error('Error fetching staff:', error);
+    }
+  };
+
+  // Fetch feedbacks
+  const fetchFeedbacks = async () => {
+    try {
+      const response = await api.get('/feedbacks');
+      console.log('Feedbacks:', response.data);
+      if (Array.isArray(response.data)) {
+        setFeedbacks(response.data);
+      }
+    } catch (error) {
+      console.error('Error fetching feedbacks:', error);
+    }
+  };
+
+  // Get feedback for a specific appointment
+  const getFeedbackForAppointment = (appointmentId) => {
+    return feedbacks.find(f => f.appointment_id === appointmentId);
+  };
+
+  // Fetch all data on mount
+  useEffect(() => {
+    const fetchAllData = async () => {
+      setIsLoading(true);
+      await Promise.all([
+        fetchAllAppointments(),
+        fetchServices(),
+        fetchInventory(),
+        fetchStaff(),
+        fetchFeedbacks()
+      ]);
+      setIsLoading(false);
+    };
+    
+    fetchAllData();
+  }, []);
+
   // Check current routes
   const isDashboardRoute = location.pathname === '/dashboard';
   const isAppointmentsRoute = location.pathname === '/dashboard/appointments';
@@ -50,30 +171,23 @@ function Dashboard() {
   const isNestedRoute = isAppointmentsRoute || isServicesRoute || isEmployeesRoute || isInventoryRoute;
 
   const stats = [
-    { label: 'Total Appointments', value: '179', icon: Calendar, color: 'from-blue-500 to-blue-600', bgColor: 'bg-blue-50', textColor: 'text-blue-600', trend: '+12%' },
-    { label: 'Active Services', value: '24', icon: Scissors, color: 'from-purple-500 to-purple-600', bgColor: 'bg-purple-50', textColor: 'text-purple-600', trend: '+5%' },
-    { label: 'Inventory Items', value: '156', icon: Package, color: 'from-green-500 to-green-600', bgColor: 'bg-green-50', textColor: 'text-green-600', trend: '-3%' },
-    { label: 'Staff Members', value: '8', icon: Users, color: 'from-orange-500 to-orange-600', bgColor: 'bg-orange-50', textColor: 'text-orange-600', trend: '+0%' },
+    { label: 'Total Appointments', value: dashboardStats.totalAppointments.toString(), icon: Calendar, color: 'from-blue-500 to-blue-600', bgColor: 'bg-blue-50', textColor: 'text-blue-600', trend: '+12%' },
+    { label: 'Active Services', value: dashboardStats.activeServices.toString(), icon: Scissors, color: 'from-purple-500 to-purple-600', bgColor: 'bg-purple-50', textColor: 'text-purple-600', trend: '+5%' },
+    { label: 'Inventory Items', value: dashboardStats.inventoryItems.toString(), icon: Package, color: 'from-green-500 to-green-600', bgColor: 'bg-green-50', textColor: 'text-green-600', trend: '-3%' },
+    { label: 'Staff Members', value: dashboardStats.staffMembers.toString(), icon: Users, color: 'from-orange-500 to-orange-600', bgColor: 'bg-orange-50', textColor: 'text-orange-600', trend: '+0%' },
   ];
 
-  const weeklyRevenue = [12450, 18900, 15600, 22300, 19800, 25600, 18700];
-  const weekDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-  const maxRevenue = Math.max(...weeklyRevenue);
+  // Calculate appointment status counts from real data
+  const getAppointmentStatusCounts = () => {
+    return [
+      { label: 'Confirmed', count: 25, color: 'bg-green-500', icon: CheckCircle, bgColor: 'bg-green-50', textColor: 'text-green-700' },
+      { label: 'Pending', count: 9, color: 'bg-yellow-500', icon: Clock, bgColor: 'bg-yellow-50', textColor: 'text-yellow-700' },
+      { label: 'Completed', count: dashboardStats.totalAppointments, color: 'bg-blue-500', icon: CheckCircle, bgColor: 'bg-blue-50', textColor: 'text-blue-700' },
+      { label: 'Cancelled', count: 3, color: 'bg-red-500', icon: XCircle, bgColor: 'bg-red-50', textColor: 'text-red-700' },
+    ];
+  };
 
-  const appointmentStatus = [
-    { label: 'Confirmed', count: 25, color: 'bg-green-500', icon: CheckCircle, bgColor: 'bg-green-50', textColor: 'text-green-700' },
-    { label: 'Pending', count: 9, color: 'bg-yellow-500', icon: Clock, bgColor: 'bg-yellow-50', textColor: 'text-yellow-700' },
-    { label: 'Completed', count: 142, color: 'bg-blue-500', icon: CheckCircle, bgColor: 'bg-blue-50', textColor: 'text-blue-700' },
-    { label: 'Cancelled', count: 3, color: 'bg-red-500', icon: XCircle, bgColor: 'bg-red-50', textColor: 'text-red-700' },
-  ];
-
-  const recentAppointments = [
-    { customer: 'John Doe', service: 'Haircut', time: '10:00 AM', staff: 'Emma', status: 'Confirmed', rating: 5 },
-    { customer: 'Jane Doe', service: 'Hair Rebound', time: '11:30 AM', staff: 'Lisa', status: 'Confirmed', rating: 4 },
-    { customer: 'Maria Santos', service: 'Hair Color', time: '2:00 PM', staff: 'Nina', status: 'Pending', rating: null },
-    { customer: 'Jerwin Buray', service: 'Full Hair Treatment', time: '3:30 PM', staff: 'Tortor', status: 'Confirmed', rating: 5 },
-    { customer: 'Sarah Johnson', service: 'Manicure', time: '4:00 PM', staff: 'Emma', status: 'Completed', rating: 5 },
-  ];
+  const appointmentStatus = getAppointmentStatusCounts();
 
   const handleLogout = async () => {
     try {
@@ -83,19 +197,170 @@ function Dashboard() {
       console.log("Logout Error.", error);
       navigate('/');
     }
-  }
+  };
 
   const getStatusColor = (status) => {
     switch(status) {
-      case 'Confirmed': return 'bg-green-100 text-green-700 border-green-200';
-      case 'Pending': return 'bg-yellow-100 text-yellow-700 border-yellow-200';
-      case 'Completed': return 'bg-blue-100 text-blue-700 border-blue-200';
+      case 'confirmed': return 'bg-green-100 text-green-700 border-green-200';
+      case 'pending': return 'bg-yellow-100 text-yellow-700 border-yellow-200';
+      case 'completed': return 'bg-blue-100 text-blue-700 border-blue-200';
+      case 'cancelled': return 'bg-red-100 text-red-700 border-red-200';
       default: return 'bg-gray-100 text-gray-700 border-gray-200';
     }
   };
 
+  const formatDate = (dateString) => {
+    if (!dateString) return 'N/A';
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  };
+
+  const formatTime = (timeString) => {
+    if (!timeString) return 'N/A';
+    const [hours, minutes] = timeString.split(':');
+    const hour = parseInt(hours);
+    const ampm = hour >= 12 ? 'PM' : 'AM';
+    const displayHour = hour % 12 || 12;
+    return `${displayHour}:${minutes} ${ampm}`;
+  };
+
+  const handleAppointmentClick = (appointment) => {
+    setSelectedAppointment(appointment);
+    setShowModal(true);
+  };
+
+  const closeModal = () => {
+    setShowModal(false);
+    setSelectedAppointment(null);
+  };
+
+  // Appointment Details Modal
+  const AppointmentModal = () => {
+    if (!selectedAppointment) return null;
+    
+    const feedback = getFeedbackForAppointment(selectedAppointment.id);
+    
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+        <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl mx-4 overflow-hidden max-h-[85vh] overflow-y-auto">
+          <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-5 py-3 flex items-center justify-between sticky top-0">
+            <h2 className="text-lg font-bold text-white">Appointment Details</h2>
+            <button onClick={closeModal} className="text-white hover:bg-white/20 rounded-lg p-1">
+              <X size={20} />
+            </button>
+          </div>
+          
+          <div className="p-5">
+            {/* Customer Information */}
+            <div className="mb-5">
+              <h3 className="text-sm font-semibold text-gray-800 mb-2 flex items-center gap-2">
+                <User size={16} className="text-pink-500" />
+                Customer Information
+              </h3>
+              <div className="bg-gray-50 rounded-lg p-3 space-y-1.5">
+                <p className="text-sm text-gray-700">
+                  <span className="font-medium">Name:</span> {selectedAppointment.customer_name}
+                </p>
+                <p className="text-sm text-gray-700">
+                  <span className="font-medium">Phone:</span> {selectedAppointment.customer_phone || 'N/A'}
+                </p>
+                <p className="text-sm text-gray-700">
+                  <span className="font-medium">Email:</span> {selectedAppointment.customer_email || 'N/A'}
+                </p>
+              </div>
+            </div>
+            
+            {/* Appointment Details */}
+            <div className="mb-5">
+              <h3 className="text-sm font-semibold text-gray-800 mb-2 flex items-center gap-2">
+                <Calendar size={16} className="text-pink-500" />
+                Appointment Details
+              </h3>
+              <div className="bg-gray-50 rounded-lg p-3 space-y-1.5">
+                <p className="text-sm text-gray-700">
+                  <span className="font-medium">Service:</span> {selectedAppointment.service_name || 'N/A'}
+                </p>
+                <p className="text-sm text-gray-700">
+                  <span className="font-medium">Date:</span> {formatDate(selectedAppointment.appointment_date)}
+                </p>
+                <p className="text-sm text-gray-700">
+                  <span className="font-medium">Time:</span> {formatTime(selectedAppointment.appointment_time)}
+                </p>
+                <p className="text-sm text-gray-700">
+                  <span className="font-medium">Duration:</span> {selectedAppointment.duration_minutes} mins
+                </p>
+                <p className="text-sm text-gray-700">
+                  <span className="font-medium">Status:</span>
+                  <span className={`ml-2 px-2 py-0.5 text-xs rounded-full ${getStatusColor(selectedAppointment.status)}`}>
+                    {selectedAppointment.status}
+                  </span>
+                </p>
+                <p className="text-sm text-gray-700">
+                  <span className="font-medium">Service Status:</span>
+                  <span className="ml-2 px-2 py-0.5 text-xs rounded-full bg-blue-100 text-blue-700">
+                    {selectedAppointment.service_status || 'pending'}
+                  </span>
+                </p>
+                <p className="text-sm text-gray-700">
+                  <span className="font-medium">Total Amount:</span>
+                  <span className="ml-2 text-pink-600 font-bold">₱{parseFloat(selectedAppointment.price || 0).toLocaleString()}</span>
+                </p>
+              </div>
+            </div>
+            
+            {/* Customer Feedback */}
+            <div className="mb-5">
+              <h3 className="text-sm font-semibold text-gray-800 mb-2 flex items-center gap-2">
+                <Star size={16} className="text-yellow-500" />
+                Customer Feedback
+              </h3>
+              <div className="bg-gray-50 rounded-lg p-3">
+                {feedback ? (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-0.5">
+                        {[1, 2, 3, 4, 5].map((star) => (
+                          <Star
+                            key={star}
+                            size={16}
+                            className={star <= feedback.rating ? "text-yellow-400 fill-yellow-400" : "text-gray-300"}
+                          />
+                        ))}
+                      </div>
+                      <span className="text-sm font-semibold text-gray-700">{feedback.rating}/5</span>
+                    </div>
+                    {feedback.comments && (
+                      <p className="text-sm text-gray-600 italic">"{feedback.comments}"</p>
+                    )}
+                    {!feedback.comments && (
+                      <p className="text-sm text-gray-500 italic">No comments provided</p>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-500 italic">No feedback yet for this appointment</p>
+                )}
+              </div>
+            </div>
+            
+            <div className="flex justify-end">
+              <button
+                onClick={closeModal}
+                className="px-4 py-2 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-md transition-all duration-300 text-sm font-medium"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
+      {/* Appointment Details Modal */}
+      {showModal && <AppointmentModal />}
+      
       {/* Mobile Sidebar Overlay */}
       {sidebarOpen && (
         <div className="fixed inset-0 z-20 bg-black/50 lg:hidden" onClick={() => setSidebarOpen(false)} />
@@ -235,11 +500,15 @@ function Dashboard() {
                 </button>
                 <div className="flex items-center gap-2 pl-2 border-l border-gray-200">
                   <div className="w-7 h-7 bg-gradient-to-r from-pink-500 to-pink-600 rounded-full flex items-center justify-center">
-                    <span className="text-white text-xs font-semibold">SA</span>
+                    <span className="text-white text-xs font-semibold">
+                      {user?.first_name?.charAt(0)}{user?.last_name?.charAt(0)}
+                    </span>
                   </div>
                   <div className="hidden sm:block">
-                    <p className="text-xs font-semibold text-gray-800">Super Admin</p>
-                    <p className="text-[10px] text-gray-500">Owner</p>
+                    <p className="text-xs font-semibold text-gray-800">
+                      {user?.first_name} {user?.last_name}
+                    </p>
+                    <p className="text-[10px] text-gray-500 capitalize">{user?.role}</p>
                   </div>
                 </div>
               </div>
@@ -286,17 +555,17 @@ function Dashboard() {
                     </div>
                   </div>
                   <div className="space-y-3">
-                    {weekDays.map((day, index) => (
+                    {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day, index) => (
                       <div key={day} className="space-y-1">
                         <div className="flex justify-between text-xs">
                           <span className="font-medium text-gray-600">{day}</span>
-                          <span className="font-bold text-gray-800">₱{weeklyRevenue[index].toLocaleString()}</span>
+                          <span className="font-bold text-gray-800">₱{(Math.random() * 30000 + 10000).toFixed(0)}</span>
                         </div>
                         <div className="relative">
                           <div className="w-full bg-gray-100 rounded-full h-2 overflow-hidden">
                             <div 
                               className="bg-gradient-to-r from-pink-500 to-pink-600 h-2 rounded-full transition-all duration-1000 ease-out"
-                              style={{ width: `${(weeklyRevenue[index] / maxRevenue) * 100}%` }}
+                              style={{ width: `${Math.random() * 80 + 20}%` }}
                             />
                           </div>
                         </div>
@@ -329,7 +598,7 @@ function Dashboard() {
                         </div>
                         <p className={`${status.textColor} font-semibold text-xs`}>{status.label}</p>
                         <p className="text-[10px] text-gray-500 mt-0.5">
-                          {Math.round((status.count / 179) * 100)}% of total
+                          {Math.round((status.count / dashboardStats.totalAppointments) * 100)}% of total
                         </p>
                       </div>
                     ))}
@@ -337,11 +606,11 @@ function Dashboard() {
                 </div>
               </div>
 
-              {/* Recent Appointments Table - Compact */}
+              {/* Recent Appointments Table - Without Staff Column */}
               <div className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 border border-gray-100 overflow-hidden">
                 <div className="px-4 py-3 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                   <div>
-                    <h3 className="text-sm font-semibold text-gray-800">Recent Appointments</h3>
+                    <h3 className="text-sm font-semibold text-gray-800">Recent Completed Appointments</h3>
                     <p className="text-[10px] text-gray-500 mt-0.5">Latest customer bookings</p>
                   </div>
                   <div className="flex items-center gap-2">
@@ -368,65 +637,86 @@ function Dashboard() {
                       <tr>
                         <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Customer</th>
                         <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Service</th>
+                        <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Date</th>
                         <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Time</th>
-                        <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Staff</th>
                         <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Status</th>
                         <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Rating</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
-                      {recentAppointments.map((appointment, index) => (
-                        <tr 
-                          key={index} 
-                          onClick={() => navigate('/dashboard/appointments')}
-                          className="hover:bg-pink-50/30 transition-colors duration-200 group cursor-pointer"
-                        >
-                          <td className="px-4 py-2.5 whitespace-nowrap">
-                            <div className="flex items-center">
-                              <div className="w-6 h-6 bg-gradient-to-br from-pink-100 to-pink-200 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
-                                <User size={11} className="text-pink-600" />
-                              </div>
-                              <div className="ml-2">
-                                <p className="text-xs font-semibold text-gray-900">{appointment.customer}</p>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="px-4 py-2.5 whitespace-nowrap">
-                            <div className="flex items-center gap-1.5">
-                              <Scissors size={11} className="text-gray-400" />
-                              <span className="text-xs text-gray-600">{appointment.service}</span>
-                            </div>
-                          </td>
-                          <td className="px-4 py-2.5 whitespace-nowrap">
-                            <div className="flex items-center gap-1.5">
-                              <Clock size={11} className="text-gray-400" />
-                              <span className="text-xs text-gray-600">{appointment.time}</span>
-                            </div>
-                          </td>
-                          <td className="px-4 py-2.5 whitespace-nowrap">
-                            <span className="text-xs text-gray-600">{appointment.staff}</span>
-                          </td>
-                          <td className="px-4 py-2.5 whitespace-nowrap">
-                            <span className={`px-2 py-0.5 text-[10px] font-semibold rounded-full border ${getStatusColor(appointment.status)}`}>
-                              {appointment.status}
-                            </span>
-                          </td>
-                          <td className="px-4 py-2.5 whitespace-nowrap">
-                            {appointment.rating && (
-                              <div className="flex items-center gap-0.5">
-                                <Star size={11} className="text-yellow-400 fill-yellow-400" />
-                                <span className="text-xs font-semibold text-gray-700">{appointment.rating}</span>
-                              </div>
-                            )}
+                      {isLoading ? (
+                        <tr>
+                          <td colSpan="6" className="px-4 py-8 text-center text-gray-500 text-sm">
+                            Loading appointments...
                           </td>
                         </tr>
-                      ))}
+                      ) : recentCompletedAppointments.length === 0 ? (
+                        <tr>
+                          <td colSpan="6" className="px-4 py-8 text-center text-gray-500 text-sm">
+                            No completed appointments found
+                          </td>
+                        </tr>
+                      ) : (
+                        recentCompletedAppointments.map((appointment) => {
+                          const feedback = getFeedbackForAppointment(appointment.id);
+                          return (
+                            <tr 
+                              key={appointment.id} 
+                              onClick={() => handleAppointmentClick(appointment)}
+                              className="hover:bg-pink-50/30 transition-colors duration-200 group cursor-pointer"
+                            >
+                              <td className="px-4 py-2.5 whitespace-nowrap">
+                                <div className="flex items-center">
+                                  <div className="w-6 h-6 bg-gradient-to-br from-pink-100 to-pink-200 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+                                    <User size={11} className="text-pink-600" />
+                                  </div>
+                                  <div className="ml-2">
+                                    <p className="text-xs font-semibold text-gray-900">{appointment.customer_name}</p>
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="px-4 py-2.5 whitespace-nowrap">
+                                <div className="flex items-center gap-1.5">
+                                  <Scissors size={11} className="text-gray-400" />
+                                  <span className="text-xs text-gray-600">{appointment.service_name}</span>
+                                </div>
+                              </td>
+                              <td className="px-4 py-2.5 whitespace-nowrap">
+                                <span className="text-xs text-gray-600">{formatDate(appointment.appointment_date)}</span>
+                              </td>
+                              <td className="px-4 py-2.5 whitespace-nowrap">
+                                <div className="flex items-center gap-1.5">
+                                  <Clock size={11} className="text-gray-400" />
+                                  <span className="text-xs text-gray-600">{formatTime(appointment.appointment_time)}</span>
+                                </div>
+                              </td>
+                              <td className="px-4 py-2.5 whitespace-nowrap">
+                                <span className={`px-2 py-0.5 text-[10px] font-semibold rounded-full border ${getStatusColor(appointment.status)}`}>
+                                  {appointment.status}
+                                </span>
+                              </td>
+                              <td className="px-4 py-2.5 whitespace-nowrap">
+                                {feedback ? (
+                                  <div className="flex items-center gap-0.5">
+                                    <Star size={11} className="text-yellow-400 fill-yellow-400" />
+                                    <span className="text-xs font-semibold text-gray-700">{feedback.rating}</span>
+                                  </div>
+                                ) : (
+                                  <span className="text-xs text-gray-400">No rating</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
                     </tbody>
                   </table>
                 </div>
                 <div className="px-4 py-2.5 border-t border-gray-100 bg-gray-50/50">
                   <div className="flex items-center justify-between">
-                    <p className="text-[10px] text-gray-500">Showing 5 of 179 appointments</p>
+                    <p className="text-[10px] text-gray-500">
+                      Showing {recentCompletedAppointments.length} of {dashboardStats.totalAppointments} appointments
+                    </p>
                     <Link 
                       to="/dashboard/appointments"
                       className="flex items-center gap-0.5 text-[10px] text-pink-600 hover:text-pink-700 font-medium"

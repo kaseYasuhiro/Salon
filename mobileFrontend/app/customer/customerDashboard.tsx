@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { View, Text, TouchableOpacity, ScrollView, Alert, RefreshControl, Modal } from "react-native";
+import { View, Text, TouchableOpacity, ScrollView, Alert, RefreshControl, Modal, TextInput } from "react-native";
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "@/contexts/auth-context";
 import { router } from "expo-router";
+import axios from "@/api/axios";
 
 interface ReceiptData {
   bookingId: string;
@@ -18,6 +19,14 @@ interface ReceiptData {
   remainingBalance: number;
   status: string;
   bookingDate: string;
+}
+
+interface BusinessSchedule {
+  id: number;
+  business_date: string;
+  open_time: string;
+  close_time: string;
+  is_open: number;
 }
 
 export default function CustomerDashboard() {
@@ -37,6 +46,17 @@ export default function CustomerDashboard() {
   const [showStaffModal, setShowStaffModal] = useState(false);
   const [showReceipt, setShowReceipt] = useState(false);
   const [receiptData, setReceiptData] = useState<ReceiptData | null>(null);
+  const [businessSchedules, setBusinessSchedules] = useState<BusinessSchedule[]>([]);
+  const [isLoadingSchedules, setIsLoadingSchedules] = useState(false);
+  const [showFeedbackPage, setShowFeedbackPage] = useState(false);
+  const [showChangePasswordPage, setShowChangePasswordPage] = useState(false);
+  const [selectedAppointmentForFeedback, setSelectedAppointmentForFeedback] = useState<any>(null);
+  const [feedbackRating, setFeedbackRating] = useState<number>(0);
+  const [feedbackComment, setFeedbackComment] = useState<string>('');
+  const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
   
   const availableTimes = ['09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00'];
   
@@ -55,8 +75,53 @@ export default function CustomerDashboard() {
     staff,
     getStaffBySpecialty,
     fetchServiceSpecialties,
-    getServiceSpecialties
+    getServiceSpecialties,
+    fetchFeedbacks,
+    submitFeedback,
+    getFeedbacksForAppointment,
+    updatePassword
   } = useAuth();
+
+  // Fetch business schedules
+  const fetchBusinessSchedules = async () => {
+    setIsLoadingSchedules(true);
+    try {
+      const response = await axios.get('/daysched');
+      console.log('Fetched business schedules:', response.data);
+      if (Array.isArray(response.data)) {
+        setBusinessSchedules(response.data);
+      }
+    } catch (error) {
+      console.error('Error fetching business schedules:', error);
+    } finally {
+      setIsLoadingSchedules(false);
+    }
+  };
+
+  // Get schedule for a specific date
+  const getScheduleForDate = (dateStr: string): BusinessSchedule | null => {
+    return businessSchedules.find(schedule => schedule.business_date === dateStr) || null;
+  };
+
+  // Check if a date is bookable (has schedule and is open)
+  const isDateBookable = (date: Date): boolean => {
+    const dateStr = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
+    const schedule = getScheduleForDate(dateStr);
+    
+    if (!schedule) return false;
+    if (schedule.is_open !== 1) return false;
+    return true;
+  };
+
+  // Get schedule status for display
+  const getScheduleStatus = (date: Date): { status: 'open' | 'closed' | 'no_schedule'; schedule: BusinessSchedule | null } => {
+    const dateStr = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
+    const schedule = getScheduleForDate(dateStr);
+    
+    if (!schedule) return { status: 'no_schedule', schedule: null };
+    if (schedule.is_open === 1) return { status: 'open', schedule };
+    return { status: 'closed', schedule };
+  };
 
   // Get required specialty for a service from the service_specialties table
   const getRequiredSpecialtyForService = (serviceId: number): string | null => {
@@ -133,7 +198,7 @@ export default function CustomerDashboard() {
     if (selectedPaymentType === 'downpayment') {
       return totalPrice / 2;
     }
-    return totalPrice; // Full payment
+    return totalPrice;
   };
 
   const getPaymentTypeLabel = () => {
@@ -154,16 +219,17 @@ export default function CustomerDashboard() {
   const getDaysInMonth = (date: Date) => {
     const year = date.getFullYear();
     const month = date.getMonth();
-    const firstDay = new Date(year, month, 1);
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    const startingDayOfWeek = firstDay.getDay();
+    const firstDay = new Date(Date.UTC(year, month, 1));
+    const lastDay = new Date(Date.UTC(year, month + 1, 0));
+    const daysInMonth = lastDay.getUTCDate();
+    const startingDayOfWeek = firstDay.getUTCDay();
     
     const days = [];
     for (let i = 0; i < startingDayOfWeek; i++) {
       days.push(null);
     }
     for (let i = 1; i <= daysInMonth; i++) {
-      days.push(new Date(year, month, i));
+      days.push(new Date(Date.UTC(year, month, i)));
     }
     return days;
   };
@@ -175,15 +241,35 @@ export default function CustomerDashboard() {
     setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + increment, 1));
   };
 
-  const isToday = (date: Date) => {
+  const isToday = (date: Date): boolean => {
     const today = new Date();
-    return date.toDateString() === today.toDateString();
+    const dateUTC = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+    const todayUTC = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()));
+    return dateUTC.getTime() === todayUTC.getTime();
   };
 
-  const isPastDate = (date: Date) => {
+  const isPastDate = (date: Date): boolean => {
     const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    return date < today;
+    const dateUTC = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+    const todayUTC = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()));
+    return dateUTC < todayUTC;
+  };
+
+  const getTimeSlotsForDate = (date: Date): string[] => {
+    const scheduleStatus = getScheduleStatus(date);
+    if (scheduleStatus.status !== 'open' || !scheduleStatus.schedule) {
+      return [];
+    }
+    
+    const { open_time, close_time } = scheduleStatus.schedule;
+    const allTimeSlots = [...availableTimes];
+    const openHour = parseInt(open_time.split(':')[0]);
+    const closeHour = parseInt(close_time.split(':')[0]);
+    
+    return allTimeSlots.filter(time => {
+      const hour = parseInt(time.split(':')[0]);
+      return hour >= openHour && hour < closeHour;
+    });
   };
 
   const handleDateSelect = (date: Date) => {
@@ -191,6 +277,17 @@ export default function CustomerDashboard() {
       Alert.alert("Invalid Date", "Cannot select past dates. Please choose today or a future date.");
       return;
     }
+    
+    if (!isDateBookable(date)) {
+      const scheduleStatus = getScheduleStatus(date);
+      if (scheduleStatus.status === 'no_schedule') {
+        Alert.alert("No Schedule", "This date has no business schedule set. Please select another date.");
+      } else if (scheduleStatus.status === 'closed') {
+        Alert.alert("Salon Closed", "The salon is closed on this date. Please select another date.");
+      }
+      return;
+    }
+    
     setSelectedDateForModal(date);
     setShowTimePickerModal(true);
   };
@@ -213,6 +310,8 @@ export default function CustomerDashboard() {
     fetchServices();
     fetchStaff();
     fetchServiceSpecialties();
+    fetchBusinessSchedules();
+    fetchFeedbacks();
   }, []);
 
   const onRefresh = useCallback(async () => {
@@ -221,7 +320,9 @@ export default function CustomerDashboard() {
       fetchUserAppointments(),
       fetchServices(),
       fetchStaff(),
-      fetchServiceSpecialties()
+      fetchServiceSpecialties(),
+      fetchBusinessSchedules(),
+      fetchFeedbacks()
     ]);
     setRefreshing(false);
   }, [fetchUserAppointments, fetchServices, fetchStaff, fetchServiceSpecialties]);
@@ -278,7 +379,6 @@ export default function CustomerDashboard() {
       return;
     }
 
-    // Double check that we have a staff ID selected
     if (!selectedStaffId) {
       Alert.alert("Selection Required", "Please select a stylist first.");
       return;
@@ -288,14 +388,14 @@ export default function CustomerDashboard() {
 
     try {
       const formattedTime = selectedTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+      const appointmentDate = `${selectedDate.getUTCFullYear()}-${String(selectedDate.getUTCMonth() + 1).padStart(2, '0')}-${String(selectedDate.getUTCDate()).padStart(2, '0')}`;
       
-      // Prepare the booking data with all required fields
       const bookingData = {
-        appointment_date: selectedDate.toISOString().split('T')[0],
+        appointment_date: appointmentDate,
         appointment_time: formattedTime,
         status: 'pending',
         service_id: selectedServiceId || 0,
-        assigned_employee_id: selectedStaffId, // Make sure this is the correct staff ID
+        assigned_employee_id: selectedStaffId,
         service_status: 'pending',
         total_amount: getServicePrice(),
         payment_type: selectedPaymentType || '',
@@ -304,7 +404,6 @@ export default function CustomerDashboard() {
       };
       
       console.log("Submitting booking with data:", bookingData);
-      console.log("Selected Staff ID being sent:", selectedStaffId);
       
       const result = await completeBooking(bookingData);
 
@@ -316,7 +415,6 @@ export default function CustomerDashboard() {
       const receiptNumber = generateReceiptNumber();
       const remainingBalance = selectedPaymentType === 'downpayment' ? totalPrice - amount : 0;
 
-      // Prepare receipt data
       const receipt: ReceiptData = {
         bookingId: result.appointment_id?.toString() || receiptNumber,
         serviceName: selectedService?.service_name || '',
@@ -383,6 +481,112 @@ export default function CustomerDashboard() {
     setBookingStep('paymentType');
   };
 
+  const handleOpenFeedbackPage = (appointment: any) => {
+    setSelectedAppointmentForFeedback(appointment);
+    setFeedbackRating(0);
+    setFeedbackComment('');
+    setShowFeedbackPage(true);
+  };
+
+  const handleCloseFeedbackPage = () => {
+    setShowFeedbackPage(false);
+    setSelectedAppointmentForFeedback(null);
+    setFeedbackRating(0);
+    setFeedbackComment('');
+  };
+
+  const handleSubmitFeedback = async () => {
+    if (feedbackRating === 0) {
+      Alert.alert("Rating Required", "Please select a rating before submitting.");
+      return;
+    }
+
+    const customerId = user?.id;
+    
+    if (!customerId || customerId === 0) {
+      Alert.alert("Error", "Please log in again to submit feedback.");
+      return;
+    }
+
+    setIsSubmittingFeedback(true);
+    try {
+      await submitFeedback({
+        appointment_id: selectedAppointmentForFeedback.id,
+        customer_id: customerId,
+        rating: feedbackRating,
+        comments: feedbackComment
+      });
+      
+      Alert.alert("Thank You!", "Your feedback has been submitted successfully.");
+      handleCloseFeedbackPage();
+      await fetchUserAppointments();
+    } catch (error: any) {
+      console.error("Error submitting feedback:", error);
+      Alert.alert("Error", error.response?.data?.message || "Failed to submit feedback. Please try again.");
+    } finally {
+      setIsSubmittingFeedback(false);
+    }
+  };
+
+  const handleOpenChangePasswordPage = () => {
+    setPassword('');
+    setConfirmPassword('');
+    setShowChangePasswordPage(true);
+  };
+
+  const handleCloseChangePasswordPage = () => {
+    setShowChangePasswordPage(false);
+    setPassword('');
+    setConfirmPassword('');
+  };
+
+  const handleUpdatePassword = async () => {
+    if (!password || !confirmPassword) {
+      Alert.alert("Error", "Please fill in all fields.");
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      Alert.alert("Error", "Passwords do not match.");
+      return;
+    }
+
+    if (password.length < 6) {
+      Alert.alert("Error", "Password must be at least 6 characters long.");
+      return;
+    }
+
+    setIsUpdatingPassword(true);
+    try {
+      await updatePassword(user?.id || 0, {
+        current_password: '', // Note: You may want to add current password field
+        new_password: password,
+        new_password_confirmation: confirmPassword
+      });
+      
+      Alert.alert("Success", "Password updated successfully!");
+      handleCloseChangePasswordPage();
+    } catch (error: any) {
+      console.error("Error updating password:", error);
+      Alert.alert("Error", error.response?.data?.message || "Failed to update password. Please try again.");
+    } finally {
+      setIsUpdatingPassword(false);
+    }
+  };
+
+  const hasFeedback = (appointmentId: number) => {
+    const feedbacks = getFeedbacksForAppointment(appointmentId);
+    return feedbacks.length > 0;
+  };
+
+  const getFeedbackRating = (appointmentId: number) => {
+    const feedbacks = getFeedbacksForAppointment(appointmentId);
+    if (feedbacks.length > 0) {
+      return feedbacks[0].rating;
+    }
+    return null;
+  };
+
   const getStatusColor = (status: string) => {
     switch(status) {
       case 'confirmed': return 'bg-green-100 text-green-700';
@@ -393,123 +597,245 @@ export default function CustomerDashboard() {
     }
   };
 
-  // Receipt Modal Component
-  const ReceiptModal = () => {
-    if (!receiptData) return null;
+  // Change Password Page Component - Moved outside to prevent re-renders
+  const ChangePasswordPage = () => {
+    return (
+      <View className="flex-1 bg-gray-50">
+        <View className="bg-gradient-to-r from-pink-500 to-pink-600 px-5 pt-12 pb-4">
+          <View className="flex-row items-center justify-between">
+            <TouchableOpacity onPress={handleCloseChangePasswordPage} className="p-1">
+              <Ionicons name="arrow-back" size={24} color="white" />
+            </TouchableOpacity>
+            <Text className="text-white text-lg font-semibold">Change Password</Text>
+            <View style={{ width: 32 }} />
+          </View>
+        </View>
 
+        <ScrollView className="flex-1 p-5">
+          <View className="bg-white rounded-2xl p-6 shadow-sm mb-5">
+            <View className="items-center mb-6">
+              <View className="w-20 h-20 bg-pink-100 rounded-full items-center justify-center mb-3">
+                <Ionicons name="lock-closed-outline" size={40} color="#ec4899" />
+              </View>
+              <Text className="text-gray-800 text-lg font-semibold text-center">
+                Update Your Password
+              </Text>
+              <Text className="text-gray-500 text-sm text-center mt-1">
+                Choose a strong password to keep your account secure
+              </Text>
+            </View>
+
+            <View className="space-y-4">
+              <View>
+                <Text className="text-gray-700 text-sm font-semibold mb-2">New Password *</Text>
+                <View className="flex-row items-center border border-gray-200 rounded-lg px-3 bg-gray-50">
+                  <Ionicons name="lock-closed-outline" size={18} color="#9ca3af" />
+                  <TextInput
+                    secureTextEntry
+                    value={password}
+                    onChangeText={setPassword}
+                    placeholder="Enter new password"
+                    placeholderTextColor="#9ca3af"
+                    className="flex-1 py-3 ml-2 text-gray-800"
+                  />
+                </View>
+                <Text className="text-xs text-gray-500 mt-1">Minimum 6 characters</Text>
+              </View>
+
+              <View>
+                <Text className="text-gray-700 text-sm font-semibold mb-2">Confirm Password *</Text>
+                <View className="flex-row items-center border border-gray-200 rounded-lg px-3 bg-gray-50">
+                  <Ionicons name="lock-closed-outline" size={18} color="#9ca3af" />
+                  <TextInput
+                    secureTextEntry
+                    value={confirmPassword}
+                    onChangeText={setConfirmPassword}
+                    placeholder="Confirm your new password"
+                    placeholderTextColor="#9ca3af"
+                    className="flex-1 py-3 ml-2 text-gray-800"
+                  />
+                </View>
+              </View>
+
+              {password !== confirmPassword && confirmPassword !== '' && (
+                <View className="bg-red-50 border border-red-200 rounded-lg p-3 flex-row items-center gap-2">
+                  <Ionicons name="alert-circle" size={16} color="#ef4444" />
+                  <Text className="text-red-600 text-sm">Passwords do not match</Text>
+                </View>
+              )}
+
+              {password.length > 0 && password.length < 6 && (
+                <View className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 flex-row items-center gap-2">
+                  <Ionicons name="alert-circle" size={16} color="#eab308" />
+                  <Text className="text-yellow-600 text-sm">Password must be at least 6 characters</Text>
+                </View>
+              )}
+            </View>
+          </View>
+
+          <View className="flex-row gap-3 mb-5">
+            <TouchableOpacity
+              onPress={handleCloseChangePasswordPage}
+              className="flex-1 py-3 rounded-xl border border-gray-300 bg-white"
+            >
+              <Text className="text-gray-700 text-center font-semibold">Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={handleUpdatePassword}
+              disabled={isUpdatingPassword || !password || !confirmPassword || password !== confirmPassword || password.length < 6}
+              className="flex-1 py-3 rounded-xl bg-gradient-to-r from-pink-500 to-pink-600"
+            >
+              <Text className="text-white text-center font-semibold">
+                {isUpdatingPassword ? 'Updating...' : 'Update Password'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </View>
+    );
+  };
+
+  // Feedback Page Component - Moved outside to prevent re-renders
+  const FeedbackPage = () => {
+    if (!selectedAppointmentForFeedback) return null;
+
+    return (
+      <View className="flex-1 bg-gray-50">
+        <View className="bg-gradient-to-r from-pink-500 to-pink-600 px-5 pt-12 pb-4">
+          <View className="flex-row items-center justify-between">
+            <TouchableOpacity onPress={handleCloseFeedbackPage} className="p-1">
+              <Ionicons name="arrow-back" size={24} color="white" />
+            </TouchableOpacity>
+            <Text className="text-white text-lg font-semibold">Leave Feedback</Text>
+            <View style={{ width: 32 }} />
+          </View>
+        </View>
+
+        <ScrollView className="flex-1 p-5">
+          <View className="bg-white rounded-2xl p-6 shadow-sm mb-5">
+            <Text className="text-gray-800 text-lg font-bold text-center mb-2">
+              {selectedAppointmentForFeedback.service_name}
+            </Text>
+            <Text className="text-gray-500 text-sm text-center">
+              {formatDate(selectedAppointmentForFeedback.appointment_date)} at {selectedAppointmentForFeedback.appointment_time}
+            </Text>
+          </View>
+
+          <View className="bg-white rounded-2xl p-6 shadow-sm mb-5">
+            <Text className="text-gray-800 text-lg font-semibold text-center mb-4">
+              How was your experience?
+            </Text>
+            
+            <View className="flex-row justify-center gap-3 mb-5">
+              {[1, 2, 3, 4, 5].map((star) => (
+                <TouchableOpacity
+                  key={star}
+                  onPress={() => setFeedbackRating(star)}
+                  className="p-1"
+                >
+                  <Ionicons 
+                    name={star <= feedbackRating ? "star" : "star-outline"} 
+                    size={44} 
+                    color={star <= feedbackRating ? "#fbbf24" : "#d1d5db"} 
+                  />
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <View className="border-t border-gray-100 pt-4">
+              <Text className="text-gray-700 text-sm font-semibold mb-3">
+                Share your thoughts (Optional)
+              </Text>
+              <TextInput
+                multiline
+                numberOfLines={5}
+                value={feedbackComment}
+                onChangeText={setFeedbackComment}
+                placeholder="Tell us about your experience with the service and staff..."
+                className="border border-gray-200 rounded-xl p-4 text-gray-700 min-h-[120px] text-base"
+                textAlignVertical="top"
+              />
+            </View>
+          </View>
+
+          <View className="flex-row gap-3 mb-5">
+            <TouchableOpacity
+              onPress={handleCloseFeedbackPage}
+              className="flex-1 py-3 rounded-xl border border-gray-300 bg-white"
+            >
+              <Text className="text-gray-700 text-center font-semibold">Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={handleSubmitFeedback}
+              disabled={isSubmittingFeedback}
+              className="flex-1 py-3 rounded-xl bg-gradient-to-r from-pink-500 to-pink-600"
+            >
+              <Text className="text-white text-center font-semibold">
+                {isSubmittingFeedback ? 'Submitting...' : 'Submit Feedback'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </View>
+    );
+  };
+
+  // Time Picker Modal
+  const TimePickerModal = () => {
+    const availableTimeSlots = selectedDateForModal ? getTimeSlotsForDate(selectedDateForModal) : [];
+    
     return (
       <Modal
         transparent={true}
         animationType="slide"
-        visible={showReceipt}
-        onRequestClose={handleCloseReceipt}
+        visible={showTimePickerModal}
+        onRequestClose={() => {
+          setShowTimePickerModal(false);
+          setSelectedDateForModal(null);
+        }}
       >
-        <View className="flex-1 justify-center items-center bg-black/50 p-4">
-          <ScrollView className="max-h-[90%]" showsVerticalScrollIndicator={false}>
-            <View className="bg-white rounded-2xl overflow-hidden w-full" style={{ minWidth: 320 }}>
-              {/* Receipt Header */}
-              <View className="bg-gradient-to-r from-pink-500 to-pink-600 px-6 py-4 items-center">
-                <Text className="text-white text-2xl font-bold mb-1">💇‍♀️ Salon Bliss</Text>
-                <Text className="text-white opacity-90 text-sm">Official Receipt</Text>
-                <View className="bg-white/20 rounded-full px-3 py-1 mt-2">
-                  <Text className="text-white text-xs font-mono">{receiptData.bookingId}</Text>
-                </View>
-              </View>
-
-              {/* Receipt Body */}
-              <View className="p-6">
-                {/* Booking Status */}
-                <View className="bg-yellow-50 rounded-xl p-3 mb-4 items-center border border-yellow-200">
-                  <Text className="text-yellow-700 font-semibold text-sm">{receiptData.status}</Text>
-                  <Text className="text-gray-500 text-xs mt-1">Thank you for booking with us!</Text>
-                </View>
-
-                {/* Booking Details */}
-                <View className="border-b border-gray-200 pb-3 mb-3">
-                  <Text className="text-gray-500 text-xs font-semibold uppercase tracking-wider mb-2">Booking Details</Text>
-                  <View className="space-y-2">
-                    <View className="flex-row justify-between">
-                      <Text className="text-gray-600 text-sm">Service</Text>
-                      <Text className="text-gray-800 font-semibold text-sm">{receiptData.serviceName}</Text>
-                    </View>
-                    <View className="flex-row justify-between">
-                      <Text className="text-gray-600 text-sm">Date</Text>
-                      <Text className="text-gray-800 text-sm">{receiptData.date}</Text>
-                    </View>
-                    <View className="flex-row justify-between">
-                      <Text className="text-gray-600 text-sm">Time</Text>
-                      <Text className="text-gray-800 text-sm">{receiptData.time}</Text>
-                    </View>
-                    <View className="flex-row justify-between">
-                      <Text className="text-gray-600 text-sm">Stylist</Text>
-                      <Text className="text-gray-800 text-sm">{receiptData.stylistName}</Text>
-                    </View>
-                  </View>
-                </View>
-
-                {/* Payment Details */}
-                <View className="border-b border-gray-200 pb-3 mb-3">
-                  <Text className="text-gray-500 text-xs font-semibold uppercase tracking-wider mb-2">Payment Details</Text>
-                  <View className="space-y-2">
-                    <View className="flex-row justify-between">
-                      <Text className="text-gray-600 text-sm">Total Amount</Text>
-                      <Text className="text-gray-800 font-semibold text-sm">₱{receiptData.totalAmount.toLocaleString()}</Text>
-                    </View>
-                    <View className="flex-row justify-between">
-                      <Text className="text-gray-600 text-sm">Payment Type</Text>
-                      <Text className="text-gray-800 text-sm">{receiptData.paymentType}</Text>
-                    </View>
-                    <View className="flex-row justify-between">
-                      <Text className="text-gray-600 text-sm">Payment Method</Text>
-                      <Text className="text-gray-800 text-sm">{receiptData.paymentMethod}</Text>
-                    </View>
-                    <View className="flex-row justify-between pt-2 border-t border-dashed border-gray-200">
-                      <Text className="text-gray-600 text-sm font-semibold">Amount Paid</Text>
-                      <Text className="text-green-600 font-bold text-base">₱{receiptData.amountPaid.toLocaleString()}</Text>
-                    </View>
-                    {receiptData.remainingBalance > 0 && (
-                      <View className="flex-row justify-between">
-                        <Text className="text-gray-600 text-sm">Remaining Balance</Text>
-                        <Text className="text-orange-600 font-semibold text-sm">₱{receiptData.remainingBalance.toLocaleString()}</Text>
-                      </View>
-                    )}
-                  </View>
-                </View>
-
-                {/* Additional Info */}
-                <View className="bg-gray-50 rounded-xl p-3 mb-4">
-                  <View className="flex-row items-start gap-2">
-                    <Ionicons name="information-circle-outline" size={16} color="#ec4899" />
-                    <Text className="text-gray-500 text-xs flex-1">
-                      Please arrive 10 minutes before your scheduled time. 
-                      {receiptData.remainingBalance > 0 && ' The remaining balance can be paid at the salon.'}
-                    </Text>
-                  </View>
-                </View>
-
-                {/* Booking Date */}
-                <Text className="text-gray-400 text-center text-xs border-t border-gray-100 pt-3">
-                  Booked on {receiptData.bookingDate}
+        <View className="flex-1 justify-end bg-black/50">
+          <View className="bg-white rounded-t-3xl p-6" style={{ maxHeight: '80%' }}>
+            <View className="flex-row justify-between items-center mb-4">
+              <Text className="text-lg font-semibold text-gray-800">
+                Select Time for {selectedDateForModal?.toLocaleDateString()}
+              </Text>
+              <TouchableOpacity onPress={() => {
+                setShowTimePickerModal(false);
+                setSelectedDateForModal(null);
+              }}>
+                <Ionicons name="close" size={24} color="#9ca3af" />
+              </TouchableOpacity>
+            </View>
+            
+            {availableTimeSlots.length === 0 ? (
+              <View className="py-8 items-center">
+                <Ionicons name="alert-circle-outline" size={48} color="#d1d5db" />
+                <Text className="text-gray-500 text-center mt-3">
+                  No available time slots for this date
                 </Text>
               </View>
-
-              {/* Receipt Footer */}
-              <View className="border-t border-pink-100 px-6 py-4 flex-row gap-3">
-                <TouchableOpacity 
-                  className="flex-1 py-3 rounded-xl border border-pink-500"
-                  onPress={handleCloseReceipt}
-                >
-                  <Text className="text-pink-500 text-center font-semibold">Close</Text>
-                </TouchableOpacity>
-                <TouchableOpacity 
-                  className="flex-1 py-3 rounded-xl bg-pink-500"
-                  onPress={handleCloseReceipt}
-                >
-                  <Text className="text-white text-center font-semibold">View My Bookings</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </ScrollView>
+            ) : (
+              <ScrollView showsVerticalScrollIndicator={false} className="max-h-96">
+                <View className="flex-row flex-wrap justify-between">
+                  {availableTimeSlots.map((time) => (
+                    <TouchableOpacity
+                      key={time}
+                      className="w-[30%] py-3 mb-3 rounded-xl border border-gray-200 items-center"
+                      style={{
+                        backgroundColor: selectedTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }) === time ? '#ec4899' : 'white'
+                      }}
+                      onPress={() => handleTimeSelect(time)}
+                    >
+                      <Text className={selectedTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }) === time ? 'text-white font-semibold' : 'text-gray-700'}>
+                        {time}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </ScrollView>
+            )}
+          </View>
         </View>
       </Modal>
     );
@@ -565,7 +891,7 @@ export default function CustomerDashboard() {
                         selectedStaffId === staffMember.id ? 'border-pink-500 bg-pink-50' : 'border-gray-200 bg-white'
                       }`}
                       onPress={() => {
-                        console.log("Selected staff ID:", staffMember.id); // Debug log
+                        console.log("Selected staff ID:", staffMember.id);
                         setSelectedStaffId(staffMember.id);
                         setShowStaffModal(false);
                       }}
@@ -603,55 +929,131 @@ export default function CustomerDashboard() {
     );
   };
 
-  // Time Picker Modal
-  const TimePickerModal = () => (
-    <Modal
-      transparent={true}
-      animationType="slide"
-      visible={showTimePickerModal}
-      onRequestClose={() => {
-        setShowTimePickerModal(false);
-        setSelectedDateForModal(null);
-      }}
-    >
-      <View className="flex-1 justify-end bg-black/50">
-        <View className="bg-white rounded-t-3xl p-6" style={{ maxHeight: '80%' }}>
-          <View className="flex-row justify-between items-center mb-4">
-            <Text className="text-lg font-semibold text-gray-800">
-              Select Time for {selectedDateForModal?.toLocaleDateString()}
-            </Text>
-            <TouchableOpacity onPress={() => {
-              setShowTimePickerModal(false);
-              setSelectedDateForModal(null);
-            }}>
-              <Ionicons name="close" size={24} color="#9ca3af" />
-            </TouchableOpacity>
-          </View>
-          
-          <ScrollView showsVerticalScrollIndicator={false} className="max-h-96">
-            <View className="flex-row flex-wrap justify-between">
-              {availableTimes.map((time) => (
-                <TouchableOpacity
-                  key={time}
-                  className="w-[30%] py-3 mb-3 rounded-xl border border-gray-200 items-center"
-                  style={{
-                    backgroundColor: selectedTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }) === time ? '#ec4899' : 'white'
-                  }}
-                  onPress={() => handleTimeSelect(time)}
+  // Receipt Modal Component
+  const ReceiptModal = () => {
+    if (!receiptData) return null;
+
+    return (
+      <Modal
+        transparent={true}
+        animationType="slide"
+        visible={showReceipt}
+        onRequestClose={handleCloseReceipt}
+      >
+        <View className="flex-1 justify-center items-center bg-black/50 p-4">
+          <ScrollView className="max-h-[90%]" showsVerticalScrollIndicator={false}>
+            <View className="bg-white rounded-2xl overflow-hidden w-full" style={{ minWidth: 320 }}>
+              <View className="bg-gradient-to-r from-pink-500 to-pink-600 px-6 py-4 items-center">
+                <Text className="text-white text-2xl font-bold mb-1">💇‍♀️ Salon Bliss</Text>
+                <Text className="text-white opacity-90 text-sm">Official Receipt</Text>
+                <View className="bg-white/20 rounded-full px-3 py-1 mt-2">
+                  <Text className="text-white text-xs font-mono">{receiptData.bookingId}</Text>
+                </View>
+              </View>
+
+              <View className="p-6">
+                <View className="bg-yellow-50 rounded-xl p-3 mb-4 items-center border border-yellow-200">
+                  <Text className="text-yellow-700 font-semibold text-sm">{receiptData.status}</Text>
+                  <Text className="text-gray-500 text-xs mt-1">Thank you for booking with us!</Text>
+                </View>
+
+                <View className="border-b border-gray-200 pb-3 mb-3">
+                  <Text className="text-gray-500 text-xs font-semibold uppercase tracking-wider mb-2">Booking Details</Text>
+                  <View className="space-y-2">
+                    <View className="flex-row justify-between">
+                      <Text className="text-gray-600 text-sm">Service</Text>
+                      <Text className="text-gray-800 font-semibold text-sm">{receiptData.serviceName}</Text>
+                    </View>
+                    <View className="flex-row justify-between">
+                      <Text className="text-gray-600 text-sm">Date</Text>
+                      <Text className="text-gray-800 text-sm">{receiptData.date}</Text>
+                    </View>
+                    <View className="flex-row justify-between">
+                      <Text className="text-gray-600 text-sm">Time</Text>
+                      <Text className="text-gray-800 text-sm">{receiptData.time}</Text>
+                    </View>
+                    <View className="flex-row justify-between">
+                      <Text className="text-gray-600 text-sm">Stylist</Text>
+                      <Text className="text-gray-800 text-sm">{receiptData.stylistName}</Text>
+                    </View>
+                  </View>
+                </View>
+
+                <View className="border-b border-gray-200 pb-3 mb-3">
+                  <Text className="text-gray-500 text-xs font-semibold uppercase tracking-wider mb-2">Payment Details</Text>
+                  <View className="space-y-2">
+                    <View className="flex-row justify-between">
+                      <Text className="text-gray-600 text-sm">Total Amount</Text>
+                      <Text className="text-gray-800 font-semibold text-sm">₱{receiptData.totalAmount.toLocaleString()}</Text>
+                    </View>
+                    <View className="flex-row justify-between">
+                      <Text className="text-gray-600 text-sm">Payment Type</Text>
+                      <Text className="text-gray-800 text-sm">{receiptData.paymentType}</Text>
+                    </View>
+                    <View className="flex-row justify-between">
+                      <Text className="text-gray-600 text-sm">Payment Method</Text>
+                      <Text className="text-gray-800 text-sm">{receiptData.paymentMethod}</Text>
+                    </View>
+                    <View className="flex-row justify-between pt-2 border-t border-dashed border-gray-200">
+                      <Text className="text-gray-600 text-sm font-semibold">Amount Paid</Text>
+                      <Text className="text-green-600 font-bold text-base">₱{receiptData.amountPaid.toLocaleString()}</Text>
+                    </View>
+                    {receiptData.remainingBalance > 0 && (
+                      <View className="flex-row justify-between">
+                        <Text className="text-gray-600 text-sm">Remaining Balance</Text>
+                        <Text className="text-orange-600 font-semibold text-sm">₱{receiptData.remainingBalance.toLocaleString()}</Text>
+                      </View>
+                    )}
+                  </View>
+                </View>
+
+                <View className="bg-gray-50 rounded-xl p-3 mb-4">
+                  <View className="flex-row items-start gap-2">
+                    <Ionicons name="information-circle-outline" size={16} color="#ec4899" />
+                    <Text className="text-gray-500 text-xs flex-1">
+                      Please arrive 10 minutes before your scheduled time. 
+                      {receiptData.remainingBalance > 0 && ' The remaining balance can be paid at the salon.'}
+                    </Text>
+                  </View>
+                </View>
+
+                <Text className="text-gray-400 text-center text-xs border-t border-gray-100 pt-3">
+                  Booked on {receiptData.bookingDate}
+                </Text>
+              </View>
+
+              <View className="border-t border-pink-100 px-6 py-4 flex-row gap-3">
+                <TouchableOpacity 
+                  className="flex-1 py-3 rounded-xl border border-pink-500"
+                  onPress={handleCloseReceipt}
                 >
-                  <Text className={selectedTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }) === time ? 'text-white font-semibold' : 'text-gray-700'}>
-                    {time}
-                  </Text>
+                  <Text className="text-pink-500 text-center font-semibold">Close</Text>
                 </TouchableOpacity>
-              ))}
+                <TouchableOpacity 
+                  className="flex-1 py-3 rounded-xl bg-pink-500"
+                  onPress={handleCloseReceipt}
+                >
+                  <Text className="text-white text-center font-semibold">View My Bookings</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </ScrollView>
         </View>
-      </View>
-    </Modal>
-  );
+      </Modal>
+    );
+  };
 
   const renderContent = () => {
+    // If change password page is open, show it
+    if (showChangePasswordPage) {
+      return <ChangePasswordPage />;
+    }
+    
+    // If feedback page is open, show it
+    if (showFeedbackPage) {
+      return <FeedbackPage />;
+    }
+
     switch(activeTab) {
       case 'home':
         return (
@@ -885,6 +1287,22 @@ export default function CustomerDashboard() {
                     </View>
                   </View>
                   
+                  {/* Legend */}
+                  <View className="flex-row justify-around mb-4 pb-3 border-b border-gray-100">
+                    <View className="flex-row items-center gap-1">
+                      <View className="w-3 h-3 rounded-full bg-green-500" />
+                      <Text className="text-xs text-gray-600">Open</Text>
+                    </View>
+                    <View className="flex-row items-center gap-1">
+                      <View className="w-3 h-3 rounded-full bg-red-500" />
+                      <Text className="text-xs text-gray-600">Closed</Text>
+                    </View>
+                    <View className="flex-row items-center gap-1">
+                      <View className="w-3 h-3 rounded-full bg-gray-300" />
+                      <Text className="text-xs text-gray-600">No Schedule</Text>
+                    </View>
+                  </View>
+                  
                   {/* Calendar Header */}
                   <View className="flex-row justify-between items-center mb-4">
                     <TouchableOpacity onPress={() => changeMonth(-1)} className="p-2">
@@ -902,7 +1320,7 @@ export default function CustomerDashboard() {
                   <View className="flex-row mb-2">
                     {weekDays.map((day, index) => (
                       <View key={index} className="flex-1 items-center py-2">
-                        <Text className="text-gray-500 text-sm font-medium">{day}</Text>
+                        <Text className="text-gray-500 text-xs font-medium">{day}</Text>
                       </View>
                     ))}
                   </View>
@@ -914,25 +1332,56 @@ export default function CustomerDashboard() {
                         return <View key={`empty-${index}`} className="w-[14.28%] aspect-square p-1" />;
                       }
                       
-                      const isSelected = selectedDate && date.toDateString() === selectedDate.toDateString();
-                      const isTodayDate = isToday(date);
-                      const isPast = isPastDate(date);
+                      const dateUTC = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+                      const todayUTC = new Date(Date.UTC(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()));
+                      const isSelected = selectedDate && 
+                        dateUTC.getTime() === new Date(Date.UTC(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate())).getTime();
+                      const isTodayDate = dateUTC.getTime() === todayUTC.getTime();
+                      const isPast = dateUTC < todayUTC;
+                      const scheduleStatus = getScheduleStatus(date);
+                      const isBookable = isDateBookable(date);
+                      
+                      let cellBgColor = 'bg-gray-50';
+                      let indicatorColor = null;
+                      
+                      if (!isPast) {
+                        if (scheduleStatus.status === 'open') {
+                          cellBgColor = 'bg-green-50';
+                          indicatorColor = 'bg-green-500';
+                        } else if (scheduleStatus.status === 'closed') {
+                          cellBgColor = 'bg-red-50';
+                          indicatorColor = 'bg-red-500';
+                        } else {
+                          cellBgColor = 'bg-gray-100';
+                          indicatorColor = 'bg-gray-400';
+                        }
+                      } else {
+                        cellBgColor = 'bg-gray-100';
+                      }
+                      
+                      const dayNumber = date.getUTCDate();
                       
                       return (
                         <TouchableOpacity
                           key={date.toISOString()}
                           className={`w-[14.28%] aspect-square p-1 ${isPast ? 'opacity-40' : ''}`}
                           onPress={() => !isPast && handleDateSelect(date)}
-                          disabled={isPast}
+                          disabled={isPast || !isBookable}
                         >
-                          <View className={`flex-1 items-center justify-center rounded-full ${
-                            isSelected ? 'bg-pink-500' : isTodayDate ? 'bg-pink-100' : ''
-                          }`}>
-                            <Text className={`text-base ${
-                              isSelected ? 'text-white font-bold' : isTodayDate ? 'text-pink-600 font-semibold' : 'text-gray-700'
+                          <View className={`flex-1 items-center justify-center rounded-full ${cellBgColor} ${isSelected ? 'ring-2 ring-pink-500' : ''}`}>
+                            <Text className={`text-sm ${
+                              isSelected ? 'text-pink-600 font-bold' : 
+                              isTodayDate ? 'text-pink-600 font-semibold' : 
+                              isPast ? 'text-gray-400' : 
+                              scheduleStatus.status === 'open' ? 'text-green-700' :
+                              scheduleStatus.status === 'closed' ? 'text-red-700' :
+                              'text-gray-500'
                             }`}>
-                              {date.getDate()}
+                              {dayNumber}
                             </Text>
+                            {indicatorColor && !isSelected && (
+                              <View className={`w-1.5 h-1.5 rounded-full ${indicatorColor} mt-0.5`} />
+                            )}
                           </View>
                         </TouchableOpacity>
                       );
@@ -1026,7 +1475,7 @@ export default function CustomerDashboard() {
                       <View className="flex-row items-center">
                         <Ionicons name="checkmark-circle" size={16} color="#10b981" />
                         <Text className="text-green-600 text-sm ml-2">
-                          {getStaffName(selectedStaffId)} will be your stylist (ID: {selectedStaffId})
+                          {getStaffName(selectedStaffId)} will be your stylist
                         </Text>
                       </View>
                     </View>
@@ -1256,24 +1705,54 @@ export default function CustomerDashboard() {
                   </TouchableOpacity>
                 </View>
               ) : (
-                appointments.map((item) => (
-                  <View key={item.id} className="bg-white rounded-2xl p-4 mb-3 shadow-sm">
-                    <View className="flex-row justify-between items-start">
-                      <View>
-                        <Text className="font-semibold text-gray-800 text-lg">{item.service_name}</Text>
-                        <Text className="text-gray-500 text-sm">{item.duration_minutes} mins</Text>
-                        <View className="flex-row items-center mt-1">
-                          <Ionicons name="calendar-outline" size={12} color="#9ca3af" />
-                          <Text className="text-gray-400 text-xs ml-1">{formatDate(item.appointment_date)}</Text>
+                appointments.map((item) => {
+                  const hasGivenFeedback = hasFeedback(item.id);
+                  const existingRating = getFeedbackRating(item.id);
+                  const isCompleted = item.status === 'completed';
+                  
+                  return (
+                    <View key={item.id} className="bg-white rounded-2xl p-4 mb-3 shadow-sm">
+                      <View className="flex-row justify-between items-start">
+                        <View className="flex-1">
+                          <Text className="font-semibold text-gray-800 text-lg">{item.service_name}</Text>
+                          <Text className="text-gray-500 text-sm">{item.duration_minutes} mins</Text>
+                          <View className="flex-row items-center mt-1">
+                            <Ionicons name="calendar-outline" size={12} color="#9ca3af" />
+                            <Text className="text-gray-400 text-xs ml-1">{formatDate(item.appointment_date)}</Text>
+                          </View>
+                          <View className="flex-row items-center mt-1">
+                            <Ionicons name="time-outline" size={12} color="#9ca3af" />
+                            <Text className="text-gray-400 text-xs ml-1">{item.appointment_time}</Text>
+                          </View>
                         </View>
+                        <Text className="text-pink-500 font-semibold">₱{parseFloat(item.price).toLocaleString()}</Text>
                       </View>
-                      <Text className="text-pink-500 font-semibold">₱{parseFloat(item.price).toLocaleString()}</Text>
+                      
+                      <View className="flex-row items-center justify-between mt-3 pt-2 border-t border-gray-100">
+                        <View className={`px-2 py-0.5 rounded-full self-start ${getStatusColor(item.status)}`}>
+                          <Text className="text-xs font-semibold capitalize">{item.status}</Text>
+                        </View>
+                        
+                        {isCompleted && !hasGivenFeedback && (
+                          <TouchableOpacity 
+                            onPress={() => handleOpenFeedbackPage(item)}
+                            className="flex-row items-center gap-1 px-3 py-1.5 bg-yellow-50 rounded-full"
+                          >
+                            <Ionicons name="star-outline" size={14} color="#eab308" />
+                            <Text className="text-xs font-semibold text-yellow-600">Rate</Text>
+                          </TouchableOpacity>
+                        )}
+                        
+                        {isCompleted && hasGivenFeedback && (
+                          <View className="flex-row items-center gap-1 px-3 py-1.5 bg-green-50 rounded-full">
+                            <Ionicons name="star" size={14} color="#10b981" />
+                            <Text className="text-xs font-semibold text-green-600">Rated {existingRating}/5</Text>
+                          </View>
+                        )}
+                      </View>
                     </View>
-                    <View className={`mt-2 px-2 py-0.5 rounded-full self-start ${getStatusColor(item.status)}`}>
-                      <Text className="text-xs font-semibold capitalize">{item.status}</Text>
-                    </View>
-                  </View>
-                ))
+                  );
+                })
               )}
             </View>
           </ScrollView>
@@ -1299,6 +1778,14 @@ export default function CustomerDashboard() {
               
               <View className="bg-white rounded-2xl p-5 mb-4" style={{ elevation: 2 }}>
                 <Text className="text-lg font-semibold text-gray-800 mb-3">Account Settings</Text>
+                <TouchableOpacity 
+                  className="flex-row items-center py-3 border-b border-gray-100"
+                  onPress={handleOpenChangePasswordPage}
+                >
+                  <Ionicons name="lock-closed-outline" size={22} color="#ec4899" />
+                  <Text className="ml-3 flex-1 text-gray-700">Change Password</Text>
+                  <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
+                </TouchableOpacity>
                 <TouchableOpacity className="flex-row items-center py-3 border-b border-gray-100">
                   <Ionicons name="person-outline" size={22} color="#ec4899" />
                   <Text className="ml-3 flex-1 text-gray-700">Personal Information</Text>
@@ -1307,11 +1794,6 @@ export default function CustomerDashboard() {
                 <TouchableOpacity className="flex-row items-center py-3 border-b border-gray-100">
                   <Ionicons name="notifications-outline" size={22} color="#ec4899" />
                   <Text className="ml-3 flex-1 text-gray-700">Notifications</Text>
-                  <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
-                </TouchableOpacity>
-                <TouchableOpacity className="flex-row items-center py-3">
-                  <Ionicons name="lock-closed-outline" size={22} color="#ec4899" />
-                  <Text className="ml-3 flex-1 text-gray-700">Change Password</Text>
                   <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
                 </TouchableOpacity>
               </View>

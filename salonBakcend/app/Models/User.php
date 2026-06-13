@@ -7,6 +7,8 @@ use App\Models\Appointments;
 use App\Models\EmployeeCommission;
 use App\Models\Feedback;
 use App\Models\StaffSpecialties;
+use App\Models\StaffSchedules;
+use App\Models\AssignStaff;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -68,12 +70,22 @@ class User extends Authenticatable
 
     public function feedback()
     {
-        return $this->hasMany(Feedback::class, 'customer_id');
+        return $this->hasMany(Feedback::class, 'customer_id', 'id');
     }
 
     public function staffSpecialties()
     {
         return $this->hasMany(StaffSpecialties::class, 'staff_id');
+    }
+
+    public function staffSchedules()
+    {
+        return $this->hasMany(StaffSchedules::class, 'staff_id', 'id');
+    }
+
+    public function assignStaff()
+    {
+        return $this->hasMany(AssignStaff::class, 'staff_id', 'id');
     }
 
 }

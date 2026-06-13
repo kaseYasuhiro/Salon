@@ -3,7 +3,8 @@ import {
   Calendar, Scissors, Plus, Filter,
   ChevronLeft, ChevronRight, Search,
   User, Clock, Phone, Edit, Trash2, MoreVertical,
-  CheckCircle, XCircle, AlertCircle, Eye, X, Save
+  CheckCircle, XCircle, AlertCircle, Eye, X, Save,
+  Settings, Clock as ClockIcon, Sun, Moon
 } from 'lucide-react';
 import api from '../api/axios';
 
@@ -18,15 +19,25 @@ function Appointments() {
   const [selectedDayAppointments, setSelectedDayAppointments] = useState([]);
   const [showModal, setShowModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [selectedDay, setSelectedDay] = useState(null);
   const [editingAppointment, setEditingAppointment] = useState(null);
+  const [selectedDateSchedule, setSelectedDateSchedule] = useState(null);
   const [editFormData, setEditFormData] = useState({
     appointment_time: '',
     assigned_employee_id: '',
     status: '',
     notes: ''
   });
+  const [scheduleFormData, setScheduleFormData] = useState({
+    business_date: '',
+    open_time: '09:00',
+    close_time: '17:00',
+    is_open: true
+  });
   const [isUpdating, setIsUpdating] = useState(false);
+  const [isSavingSchedule, setIsSavingSchedule] = useState(false);
+  const [businessSchedules, setBusinessSchedules] = useState([]);
 
   const [stats, setStats] = useState([
     { label: 'Total Appointments', value: '0', change: '+0%', changeType: 'up', color: 'from-blue-500 to-blue-600', bgColor: 'bg-blue-50', icon: Calendar },
@@ -69,6 +80,73 @@ function Appointments() {
     setCurrentDate(new Date());
   };
 
+  // Fetch business schedules
+  const fetchBusinessSchedules = async () => {
+    try {
+      const response = await api.get('/daysched');
+      console.log('Fetched business schedules:', response.data);
+      if (Array.isArray(response.data)) {
+        setBusinessSchedules(response.data);
+      }
+    } catch (error) {
+      console.error('Error fetching business schedules:', error);
+    }
+  };
+
+  // Add/Update business schedule
+  const handleSaveSchedule = async (e) => {
+    e.preventDefault();
+    setIsSavingSchedule(true);
+    try {
+      const response = await api.post('/daysched/add', {
+        business_date: scheduleFormData.business_date,
+        open_time: scheduleFormData.open_time,
+        close_time: scheduleFormData.close_time,
+        is_open: scheduleFormData.is_open ? 1 : 0
+      });
+      
+      console.log('Schedule saved:', response.data);
+      alert('Schedule saved successfully!');
+      setShowScheduleModal(false);
+      setSelectedDateSchedule(null);
+      resetScheduleForm();
+      fetchBusinessSchedules();
+    } catch (error) {
+      console.error('Error saving schedule:', error);
+      alert(error.response?.data?.message || 'Error saving schedule');
+    } finally {
+      setIsSavingSchedule(false);
+    }
+  };
+
+  // Get schedule for a specific date
+  const getScheduleForDate = (dateStr) => {
+    return businessSchedules.find(schedule => schedule.business_date === dateStr);
+  };
+
+  // Get day status based on schedule only (no appointments considered for color)
+  const getDayStatus = (day) => {
+    const year = currentDate.getFullYear();
+    const month = String(currentDate.getMonth() + 1).padStart(2, '0');
+    const dayStr = String(day).padStart(2, '0');
+    const dateStr = `${year}-${month}-${dayStr}`;
+    
+    const schedule = getScheduleForDate(dateStr);
+    
+    // If no schedule exists, show default (no highlight)
+    if (!schedule) {
+      return 'default';
+    }
+    
+    // If schedule exists and is closed
+    if (!schedule.is_open) {
+      return 'closed';
+    }
+    
+    // If schedule exists and is open
+    return 'open';
+  };
+
   // Fetch staff list
   const fetchStaffList = async () => {
     try {
@@ -91,13 +169,11 @@ function Appointments() {
       console.log('Fetched appointments:', response.data);
       
       if (Array.isArray(response.data)) {
-        // Create a map of staff IDs to names
         const staffNameMap = new Map();
         staffList.forEach(staff => {
           staffNameMap.set(staff.id, staff.name);
         });
         
-        // Transform the data
         const appointmentsWithStaff = response.data.map(app => {
           let staffName = 'Unassigned';
           if (app.assigned_employee_id) {
@@ -148,6 +224,7 @@ function Appointments() {
 
   useEffect(() => {
     fetchStaffList();
+    fetchBusinessSchedules();
   }, []);
 
   useEffect(() => {
@@ -177,20 +254,52 @@ function Appointments() {
     return appointments.filter(app => app.appointment_date === dateStr);
   };
 
-  const getDayStatus = (day) => {
-    const count = getAppointmentsForDay(day).length;
-    if (count >= 3) return 'busy';
-    if (count >= 1) return 'moderate';
-    return 'free';
+  const handleDayClick = (day) => {
+    const year = currentDate.getFullYear();
+    const month = String(currentDate.getMonth() + 1).padStart(2, '0');
+    const dayStr = String(day).padStart(2, '0');
+    const dateStr = `${year}-${month}-${dayStr}`;
+    const schedule = getScheduleForDate(dateStr);
+    
+    setSelectedDay(day);
+    setSelectedDateSchedule({
+      date: dateStr,
+      schedule: schedule
+    });
+    
+    // Show options modal
+    setShowModal(true);
   };
 
-  const handleDayClick = (day) => {
-    const dayAppointments = getAppointmentsForDay(day);
-    if (dayAppointments.length > 0) {
-      setSelectedDay(day);
-      setSelectedDayAppointments(dayAppointments);
+  const handleViewAppointments = () => {
+    const dayAppointments = getAppointmentsForDay(selectedDay);
+    setSelectedDayAppointments(dayAppointments);
+    setShowModal(false);
+    // Show appointments in a separate modal view
+    setTimeout(() => {
       setShowModal(true);
-    }
+    }, 100);
+  };
+
+  const handleEditSchedule = () => {
+    const schedule = getScheduleForDate(selectedDateSchedule.date);
+    setScheduleFormData({
+      business_date: selectedDateSchedule.date,
+      open_time: schedule?.open_time || '09:00',
+      close_time: schedule?.close_time || '17:00',
+      is_open: schedule?.is_open === 1
+    });
+    setShowModal(false);
+    setShowScheduleModal(true);
+  };
+
+  const resetScheduleForm = () => {
+    setScheduleFormData({
+      business_date: '',
+      open_time: '09:00',
+      close_time: '17:00',
+      is_open: true
+    });
   };
 
   const handleEditClick = (appointment) => {
@@ -259,22 +368,6 @@ function Appointments() {
         )
       );
       
-      if (showModal && selectedDayAppointments.length > 0) {
-        setSelectedDayAppointments(prev => 
-          prev.map(app => 
-            app.appointment_id === editingAppointment.appointment_id 
-              ? { 
-                  ...app, 
-                  appointment_time: formattedTime || app.appointment_time,
-                  status: editFormData.status,
-                  assigned_employee_id: editFormData.assigned_employee_id || null,
-                  staff_name: updatedStaffName
-                }
-              : app
-          )
-        );
-      }
-      
       alert('Appointment updated successfully!');
       setShowEditModal(false);
       setEditingAppointment(null);
@@ -309,11 +402,20 @@ function Appointments() {
 
   const getCalendarCellStyle = (status) => {
     const styles = {
-      busy: 'bg-pink-50 border-pink-200 hover:bg-pink-100 cursor-pointer',
-      moderate: 'bg-yellow-50 border-yellow-200 hover:bg-yellow-100 cursor-pointer',
-      free: 'bg-green-50 border-green-200 hover:bg-green-100'
+      closed: 'bg-red-100 border-red-300 cursor-pointer',
+      open: 'bg-green-100 border-green-300 cursor-pointer',
+      default: 'bg-white border-gray-200 cursor-pointer hover:bg-gray-50'
     };
     return styles[status] || 'bg-white border-gray-200 hover:bg-gray-50';
+  };
+
+  const getCalendarCellTextColor = (status) => {
+    const colors = {
+      closed: 'text-red-700',
+      open: 'text-green-700',
+      default: 'text-gray-700'
+    };
+    return colors[status] || 'text-gray-700';
   };
 
   const formatTime = (time) => {
@@ -330,6 +432,12 @@ function Appointments() {
     if (!date) return 'TBA';
     const d = new Date(date);
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  };
+
+  const formatFullDate = (date) => {
+    if (!date) return 'TBA';
+    const d = new Date(date);
+    return d.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
   };
 
   const filteredAppointments = appointments.filter(app => {
@@ -422,7 +530,7 @@ function Appointments() {
         </div>
       </div>
 
-      {/* Calendar View */}
+      {/* Calendar View - Schedule Based Highlight Only */}
       {viewMode === 'calendar' && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
           <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between flex-wrap gap-3">
@@ -438,18 +546,18 @@ function Appointments() {
                 Today
               </button>
             </div>
-            <div className="flex gap-2 text-xs">
+            <div className="flex gap-3 text-xs">
               <div className="flex items-center gap-1">
-                <div className="w-2.5 h-2.5 bg-pink-100 rounded border border-pink-200"></div>
-                <span className="text-gray-500">Busy (3+)</span>
+                <div className="w-2.5 h-2.5 bg-green-100 rounded border border-green-300"></div>
+                <span className="text-gray-500">Open</span>
               </div>
               <div className="flex items-center gap-1">
-                <div className="w-2.5 h-2.5 bg-yellow-50 rounded border border-yellow-200"></div>
-                <span className="text-gray-500">Moderate (1-2)</span>
+                <div className="w-2.5 h-2.5 bg-red-100 rounded border border-red-300"></div>
+                <span className="text-gray-500">Closed</span>
               </div>
               <div className="flex items-center gap-1">
-                <div className="w-2.5 h-2.5 bg-green-50 rounded border border-green-200"></div>
-                <span className="text-gray-500">Available</span>
+                <div className="w-2.5 h-2.5 bg-white rounded border border-gray-200"></div>
+                <span className="text-gray-500">No Schedule</span>
               </div>
             </div>
           </div>
@@ -474,25 +582,20 @@ function Appointments() {
                 return (
                   <div 
                     key={day}
-                    onClick={() => hasAppointments && handleDayClick(day)}
-                    className={`${getCalendarCellStyle(dayStatus)} rounded-lg p-2 min-h-[80px] border transition-all duration-200 ${hasAppointments ? 'cursor-pointer hover:shadow-md' : ''}`}
+                    onClick={() => handleDayClick(day)}
+                    className={`${getCalendarCellStyle(dayStatus)} rounded-lg p-2 min-h-[80px] border transition-all duration-200 cursor-pointer hover:shadow-md`}
                   >
                     <div className="flex items-center justify-between mb-1">
-                      <span className={`font-semibold text-sm ${
-                        dayStatus === 'busy' ? 'text-pink-700' : dayStatus === 'moderate' ? 'text-yellow-700' : 'text-green-700'
-                      }`}>
+                      <span className={`font-semibold text-sm ${getCalendarCellTextColor(dayStatus)}`}>
                         {day}
                       </span>
-                      {dayAppointments.length > 0 && (
-                        <span className={`text-xs px-1.5 py-0.5 rounded-full ${
-                          dayStatus === 'busy' ? 'bg-pink-200 text-pink-800' : 
-                          dayStatus === 'moderate' ? 'bg-yellow-200 text-yellow-800' : 'bg-green-200 text-green-800'
-                        }`}>
+                      {hasAppointments && (
+                        <span className="text-xs px-1.5 py-0.5 rounded-full bg-gray-200 text-gray-700">
                           {dayAppointments.length}
                         </span>
                       )}
                     </div>
-                    {dayAppointments.length > 0 && (
+                    {hasAppointments && (
                       <div className="space-y-0.5 mt-1">
                         <div className="text-xs text-gray-600 truncate">
                           {dayAppointments[0]?.customer_name?.split(' ')[0]} - {formatTime(dayAppointments[0]?.appointment_time)}
@@ -510,14 +613,54 @@ function Appointments() {
         </div>
       )}
 
-      {/* Appointment Details Modal - Smaller Cards */}
+      {/* Day Options Modal (Appointments or Edit Schedule) */}
+      {showModal && selectedDay && !selectedDayAppointments.length && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
+            <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-5 py-3 flex items-center justify-between">
+              <h2 className="text-lg font-bold text-white">
+                {formatFullDate(selectedDateSchedule?.date)}
+              </h2>
+              <button onClick={() => { setShowModal(false); setSelectedDay(null); }} className="text-white hover:bg-white/20 rounded-lg p-1">
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-3">
+              <button
+                onClick={handleViewAppointments}
+                className="w-full flex items-center gap-3 px-4 py-3 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition-colors"
+              >
+                <Eye size={18} />
+                <div className="text-left">
+                  <p className="font-semibold">View Appointments</p>
+                  <p className="text-xs text-gray-500">See all appointments for this day</p>
+                </div>
+              </button>
+              
+              <button
+                onClick={handleEditSchedule}
+                className="w-full flex items-center gap-3 px-4 py-3 bg-purple-50 text-purple-700 rounded-lg hover:bg-purple-100 transition-colors"
+              >
+                <Settings size={18} />
+                <div className="text-left">
+                  <p className="font-semibold">Edit Schedule</p>
+                  <p className="text-xs text-gray-500">Set open/close hours for this day</p>
+                </div>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Appointment Details Modal */}
       {showModal && selectedDayAppointments.length > 0 && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden max-h-[80vh] overflow-y-auto">
             <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-5 py-3 flex items-center justify-between sticky top-0">
               <div>
                 <h2 className="text-lg font-bold text-white">
-                  {formatDate(`${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(selectedDay).padStart(2, '0')}`)}
+                  Appointments for {formatFullDate(selectedDayAppointments[0]?.appointment_date)}
                 </h2>
                 <p className="text-pink-100 text-xs mt-0.5">{selectedDayAppointments.length} appointment(s)</p>
               </div>
@@ -590,6 +733,117 @@ function Appointments() {
                 ))}
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Schedule Modal */}
+      {showScheduleModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
+            <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-5 py-3 flex items-center justify-between">
+              <h2 className="text-lg font-bold text-white">Edit Business Schedule</h2>
+              <button 
+                onClick={() => { 
+                  setShowScheduleModal(false); 
+                  resetScheduleForm();
+                }} 
+                className="text-white hover:bg-white/20 rounded-lg p-1"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveSchedule} className="p-5 space-y-4">
+              <div>
+                <label className="block text-gray-700 text-xs font-semibold mb-1">
+                  Business Date *
+                </label>
+                <input
+                  type="date"
+                  name="business_date"
+                  value={scheduleFormData.business_date}
+                  disabled
+                  className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg bg-gray-50 text-gray-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-gray-700 text-xs font-semibold mb-1">
+                  Open Time *
+                </label>
+                <input
+                  type="time"
+                  name="open_time"
+                  value={scheduleFormData.open_time}
+                  onChange={(e) => setScheduleFormData(prev => ({ ...prev, open_time: e.target.value }))}
+                  className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-gray-700 text-xs font-semibold mb-1">
+                  Close Time *
+                </label>
+                <input
+                  type="time"
+                  name="close_time"
+                  value={scheduleFormData.close_time}
+                  onChange={(e) => setScheduleFormData(prev => ({ ...prev, close_time: e.target.value }))}
+                  className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    name="is_open"
+                    checked={scheduleFormData.is_open}
+                    onChange={(e) => setScheduleFormData(prev => ({ ...prev, is_open: e.target.checked }))}
+                    className="w-3.5 h-3.5 text-pink-500 border-gray-300 rounded focus:ring-pink-500"
+                  />
+                  <span className="text-gray-700 text-sm font-semibold">
+                    Salon Open on this day
+                  </span>
+                </label>
+                <p className="text-[10px] text-gray-500 mt-1 ml-5">
+                  Uncheck if the salon is closed on this day
+                </p>
+              </div>
+
+              <div className="flex gap-2 pt-3">
+                <button
+                  type="button"
+                  onClick={() => { 
+                    setShowScheduleModal(false); 
+                    resetScheduleForm();
+                  }}
+                  className="flex-1 px-3 py-1.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingSchedule}
+                  className="flex-1 px-3 py-1.5 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 text-sm font-medium disabled:opacity-50 flex items-center justify-center gap-1.5"
+                >
+                  {isSavingSchedule ? (
+                    <>
+                      <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Save size={14} />
+                      Save Schedule
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
@@ -717,7 +971,7 @@ function Appointments() {
         </div>
       )}
 
-      {/* List View - Fixed Syntax */}
+      {/* List View */}
       {viewMode === 'list' && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
           <div className="overflow-x-auto">

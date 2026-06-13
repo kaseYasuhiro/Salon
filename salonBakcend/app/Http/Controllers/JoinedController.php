@@ -14,6 +14,9 @@ use App\Models\InventoryTransaction;
 use App\Models\Specialties;
 use App\Models\StaffSpecialties;
 use App\Models\ServiceSpecialties;
+use App\Models\StaffSchedules;
+use App\Models\AssignStaff;
+use App\Models\Feedback;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Http\Request;
 
@@ -49,6 +52,21 @@ class JoinedController extends Controller
     public function serviceWithSpecialties()
     {
         return ServiceSpecialties::with('specialties')->get();
+    }
+
+    public function getStaffSchedules()
+    {
+        return User::where('role', ['staff'])->with('staffSchedules')->get();
+    }
+
+    public function assignedStaffSchedules()
+    {
+        return AssignStaff::with(['user', 'businessSchedules'])->get();
+    }
+
+    public function viewFeedbacks()
+    {
+        return Feedback::with(['user', 'appointment'])->get();
     }
 
 
