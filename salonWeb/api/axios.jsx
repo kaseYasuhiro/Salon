@@ -2,7 +2,7 @@ import axiosClient from "axios";
 import { getToken } from "../services/auth-storage";
 
 const axios = axiosClient.create({
-  baseURL: "http://192.168.100.73:8000/api",
+  baseURL: "http://10.17.241.238:8000/api",
   headers: {
     Accept: "application/json",
   },

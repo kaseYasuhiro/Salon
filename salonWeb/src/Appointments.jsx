@@ -4,7 +4,7 @@ import {
   ChevronLeft, ChevronRight, Search,
   User, Clock, Phone, Edit, Trash2, MoreVertical,
   CheckCircle, XCircle, AlertCircle, Eye, X, Save,
-  Settings, Clock as ClockIcon, Sun, Moon
+  Settings, Clock as ClockIcon, Sun, Moon, Users as UsersIcon
 } from 'lucide-react';
 import api from '../api/axios';
 
@@ -20,6 +20,7 @@ function Appointments() {
   const [showModal, setShowModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [showAssignStaffModal, setShowAssignStaffModal] = useState(false);
   const [selectedDay, setSelectedDay] = useState(null);
   const [editingAppointment, setEditingAppointment] = useState(null);
   const [selectedDateSchedule, setSelectedDateSchedule] = useState(null);
@@ -35,9 +36,15 @@ function Appointments() {
     close_time: '17:00',
     is_open: true
   });
+  const [assignStaffFormData, setAssignStaffFormData] = useState({
+    staff_id: '',
+    business_date_id: ''
+  });
   const [isUpdating, setIsUpdating] = useState(false);
   const [isSavingSchedule, setIsSavingSchedule] = useState(false);
+  const [isAssigningStaff, setIsAssigningStaff] = useState(false);
   const [businessSchedules, setBusinessSchedules] = useState([]);
+  const [assignedStaff, setAssignedStaff] = useState([]);
 
   const [stats, setStats] = useState([
     { label: 'Total Appointments', value: '0', change: '+0%', changeType: 'up', color: 'from-blue-500 to-blue-600', bgColor: 'bg-blue-50', icon: Calendar },
@@ -93,6 +100,30 @@ function Appointments() {
     }
   };
 
+  // Fetch assigned staff schedules
+  const fetchAssignedStaff = async () => {
+    try {
+      const response = await api.get('/assign');
+      console.log('Fetched assigned staff:', response.data);
+      if (Array.isArray(response.data)) {
+        setAssignedStaff(response.data);
+      }
+    } catch (error) {
+      console.error('Error fetching assigned staff:', error);
+    }
+  };
+
+  // Get assigned staff for a specific business date
+  const getAssignedStaffForDate = (businessDateId) => {
+    return assignedStaff.filter(assignment => assignment.business_date_id === businessDateId);
+  };
+
+  // Get business schedule ID by date
+  const getBusinessScheduleId = (dateStr) => {
+    const schedule = businessSchedules.find(s => s.business_date === dateStr);
+    return schedule?.id || null;
+  };
+
   // Add/Update business schedule
   const handleSaveSchedule = async (e) => {
     e.preventDefault();
@@ -116,6 +147,34 @@ function Appointments() {
       alert(error.response?.data?.message || 'Error saving schedule');
     } finally {
       setIsSavingSchedule(false);
+    }
+  };
+
+  // Assign staff to schedule
+  const handleAssignStaff = async (e) => {
+    e.preventDefault();
+    if (!assignStaffFormData.staff_id) {
+      alert('Please select a staff member');
+      return;
+    }
+    
+    setIsAssigningStaff(true);
+    try {
+      const response = await api.post('/assign/add', {
+        staff_id: parseInt(assignStaffFormData.staff_id),
+        business_date_id: parseInt(assignStaffFormData.business_date_id)
+      });
+      
+      console.log('Staff assigned:', response.data);
+      alert('Staff assigned successfully!');
+      setShowAssignStaffModal(false);
+      resetAssignStaffForm();
+      fetchAssignedStaff();
+    } catch (error) {
+      console.error('Error assigning staff:', error);
+      alert(error.response?.data?.message || 'Error assigning staff');
+    } finally {
+      setIsAssigningStaff(false);
     }
   };
 
@@ -225,6 +284,7 @@ function Appointments() {
   useEffect(() => {
     fetchStaffList();
     fetchBusinessSchedules();
+    fetchAssignedStaff();
   }, []);
 
   useEffect(() => {
@@ -260,11 +320,15 @@ function Appointments() {
     const dayStr = String(day).padStart(2, '0');
     const dateStr = `${year}-${month}-${dayStr}`;
     const schedule = getScheduleForDate(dateStr);
+    const businessScheduleId = getBusinessScheduleId(dateStr);
+    const assignedStaffForDate = businessScheduleId ? getAssignedStaffForDate(businessScheduleId) : [];
     
     setSelectedDay(day);
     setSelectedDateSchedule({
       date: dateStr,
-      schedule: schedule
+      schedule: schedule,
+      businessScheduleId: businessScheduleId,
+      assignedStaff: assignedStaffForDate
     });
     
     // Show options modal
@@ -275,7 +339,6 @@ function Appointments() {
     const dayAppointments = getAppointmentsForDay(selectedDay);
     setSelectedDayAppointments(dayAppointments);
     setShowModal(false);
-    // Show appointments in a separate modal view
     setTimeout(() => {
       setShowModal(true);
     }, 100);
@@ -293,12 +356,32 @@ function Appointments() {
     setShowScheduleModal(true);
   };
 
+  const handleAssignStaffToSchedule = () => {
+    if (!selectedDateSchedule.businessScheduleId) {
+      alert('Please save the business schedule first before assigning staff.');
+      return;
+    }
+    setAssignStaffFormData({
+      staff_id: '',
+      business_date_id: selectedDateSchedule.businessScheduleId
+    });
+    setShowModal(false);
+    setShowAssignStaffModal(true);
+  };
+
   const resetScheduleForm = () => {
     setScheduleFormData({
       business_date: '',
       open_time: '09:00',
       close_time: '17:00',
       is_open: true
+    });
+  };
+
+  const resetAssignStaffForm = () => {
+    setAssignStaffFormData({
+      staff_id: '',
+      business_date_id: ''
     });
   };
 
@@ -613,7 +696,7 @@ function Appointments() {
         </div>
       )}
 
-      {/* Day Options Modal (Appointments or Edit Schedule) */}
+      {/* Day Options Modal (Appointments, Edit Schedule, or Assign Staff) */}
       {showModal && selectedDay && !selectedDayAppointments.length && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
@@ -648,7 +731,36 @@ function Appointments() {
                   <p className="text-xs text-gray-500">Set open/close hours for this day</p>
                 </div>
               </button>
+
+              <button
+                onClick={handleAssignStaffToSchedule}
+                className="w-full flex items-center gap-3 px-4 py-3 bg-green-50 text-green-700 rounded-lg hover:bg-green-100 transition-colors"
+              >
+                <UsersIcon size={18} />
+                <div className="text-left">
+                  <p className="font-semibold">Assign Staff</p>
+                  <p className="text-xs text-gray-500">Assign staff to work on this day</p>
+                </div>
+              </button>
             </div>
+
+            {/* Display assigned staff for this day */}
+            {selectedDateSchedule?.assignedStaff && selectedDateSchedule.assignedStaff.length > 0 && (
+              <div className="border-t border-gray-100 px-5 py-3">
+                <p className="text-xs font-semibold text-gray-600 mb-2">Assigned Staff:</p>
+                <div className="flex flex-wrap gap-2">
+                  {selectedDateSchedule.assignedStaff.map((assignment) => (
+                    <span 
+                      key={assignment.id}
+                      className="inline-flex items-center gap-1 px-2 py-1 bg-gray-100 text-gray-700 rounded-md text-xs"
+                    >
+                      <User size={12} />
+                      {assignment.user?.first_name} {assignment.user?.last_name}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -839,6 +951,93 @@ function Appointments() {
                     <>
                       <Save size={14} />
                       Save Schedule
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Assign Staff Modal */}
+      {showAssignStaffModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
+            <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-5 py-3 flex items-center justify-between">
+              <h2 className="text-lg font-bold text-white">Assign Staff to Schedule</h2>
+              <button 
+                onClick={() => { 
+                  setShowAssignStaffModal(false); 
+                  resetAssignStaffForm();
+                }} 
+                className="text-white hover:bg-white/20 rounded-lg p-1"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <form onSubmit={handleAssignStaff} className="p-5 space-y-4">
+              <div>
+                <label className="block text-gray-700 text-xs font-semibold mb-1">
+                  Select Staff *
+                </label>
+                <select
+                  name="staff_id"
+                  value={assignStaffFormData.staff_id}
+                  onChange={(e) => setAssignStaffFormData(prev => ({ ...prev, staff_id: e.target.value }))}
+                  className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                  required
+                >
+                  <option value="">Select a staff member...</option>
+                  {staffList.map(staff => (
+                    <option key={staff.id} value={staff.id}>
+                      {staff.name}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-500 mt-1">
+                  Choose which staff member will work on this day
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-gray-700 text-xs font-semibold mb-1">
+                  Business Date
+                </label>
+                <input
+                  type="text"
+                  value={formatFullDate(selectedDateSchedule?.date)}
+                  disabled
+                  className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg bg-gray-50 text-gray-500"
+                />
+              </div>
+
+              <div className="flex gap-2 pt-3">
+                <button
+                  type="button"
+                  onClick={() => { 
+                    setShowAssignStaffModal(false); 
+                    resetAssignStaffForm();
+                  }}
+                  className="flex-1 px-3 py-1.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isAssigningStaff}
+                  className="flex-1 px-3 py-1.5 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 text-sm font-medium disabled:opacity-50 flex items-center justify-center gap-1.5"
+                >
+                  {isAssigningStaff ? (
+                    <>
+                      <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      Assigning...
+                    </>
+                  ) : (
+                    <>
+                      <UsersIcon size={14} />
+                      Assign Staff
                     </>
                   )}
                 </button>
