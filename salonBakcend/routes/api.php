@@ -14,6 +14,7 @@ use App\Http\Controllers\StaffSchedulesController;
 use App\Http\Controllers\BusinessSchedulesController;
 use App\Http\Controllers\AssignStaffController;
 use App\Http\Controllers\FeedbackController;
+use App\Http\Controllers\StaffFeedbackController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -51,6 +52,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/employee/specialties', [JoinedController::class, 'staffWithSpecialties']);
 
     Route::get('/feedbacks', [JoinedController::class, 'viewFeedbacks']);
+    route::get('/feedbacks/staff', [JoinedController::class, 'displayStaffReviews']);
 
     Route::get('/inventory', [JoinedController::class, 'invDisplay']);
     Route::post('/inventory/add' , [JoinedController::class, 'addProductsToInventory']);
@@ -86,8 +88,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/staff-list', [JoinedController::class, 'staffList']);
     Route::post('/feedbacks/submit', [FeedbackController::class, 'submitFeedback']);
     Route::post('/user/{id}/password', [UserController::class, 'updatePassword']);
+    Route::post('/feedbacks/staff/submit', [StaffFeedbackController::class, 'submitStaffFeedback']);
+    Route::get('/transactions', [TransactionController::class, 'displayTransaction']);
 
-    
 
     //staff side
     Route::get('/staff/{staffId}/appointments', [JoinedController::class, 'getStaffAppointments']);
@@ -97,7 +100,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/service/{serviceId}/product-usages', [JoinedController::class, 'getServiceProductUsages']);
     Route::get('/test/service/{serviceId}/product-usages', [JoinedController::class, 'testServiceProductUsages']);
     Route::post('/assign/add', [AssignStaffController::class, 'staffAssignment']);
+    Route::post('/profile/{id}/add', [UserController::class, 'addProfileImage']);
+
+    
 });
+
 
 
 

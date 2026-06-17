@@ -17,6 +17,7 @@ use App\Models\ServiceSpecialties;
 use App\Models\StaffSchedules;
 use App\Models\AssignStaff;
 use App\Models\Feedback;
+use App\Models\StaffFeedback;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Http\Request;
 
@@ -67,6 +68,16 @@ class JoinedController extends Controller
     public function viewFeedbacks()
     {
         return Feedback::with(['user', 'appointment'])->get();
+    }
+
+    public function displayStaffReviews()
+    {
+        return StaffFeedback::with('user')->get();
+    }
+
+    public function transactionWithAppointments()
+    {
+        return Transaction::with('appointments')->get();
     }
 
 

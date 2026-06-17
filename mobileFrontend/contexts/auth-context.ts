@@ -37,6 +37,47 @@ interface Appointment {
   service_name: string;
   duration_minutes: number;
   price: string;
+  assigned_employee_id?: number;
+  stylist_name?: string;
+}
+
+interface Transaction {
+  id: number;
+  appointment_id: number;
+  customer_id: number;
+  service_id: number;
+  assigned_employee_id?: number;
+  total_amount: number;
+  payment_type: string;
+  payment_method: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+  appointment?: {
+    id: number;
+    appointment_date: string;
+    appointment_time: string;
+    status: string;
+    service_status: string;
+    service_name: string;
+    duration_minutes: number;
+    price: string;
+    assigned_employee_id?: number;
+  };
+  service?: {
+    id: number;
+    service_name: string;
+    description: string;
+    price: number;
+    duration_minutes: number;
+  };
+  assigned_employee?: {
+    id: number;
+    first_name: string;
+    last_name: string;
+    email: string;
+    phone_number: string;
+  };
 }
 
 interface StaffAppointment {
@@ -75,6 +116,7 @@ interface StaffMember {
   email: string;
   phone_number: string;
   role: string;
+  profile_image?: string;
   staff_specialties: Array<{
     id: number;
     staff_id: number;
@@ -97,6 +139,19 @@ interface Feedback {
   updated_at?: string;
   customer_name?: string;
   service_name?: string;
+}
+
+interface StaffFeedback {
+  id: number;
+  staff_id: number;
+  rating: number;
+}
+
+interface SubmitStaffFeedbackData {
+  staff_id: number;
+  customer_id: number;
+  rating: number;
+  comments: string;
 }
 
 interface BookingData {
@@ -141,14 +196,51 @@ interface UpdatePasswordData {
   new_password_confirmation: string;
 }
 
+interface BusinessSchedule {
+  id: number;
+  business_date: string;
+  open_time: string;
+  close_time: string;
+  is_open: number;
+}
+
+interface StaffAssignment {
+  id: number;
+  staff_id: number;
+  business_date_id: number;
+  user?: {
+    id: number;
+    first_name: string;
+    last_name: string;
+    email: string;
+    phone_number: string;
+    profile_image?: string;
+    staff_specialties?: Array<{
+      id: number;
+      staff_id: number;
+      specialty_id: number;
+      is_active: number;
+      specialties?: {
+        id: number;
+        specialty_name: string;
+      };
+    }>;
+  };
+  business_schedules?: BusinessSchedule;
+}
+
 interface AuthState {
   user: User | null;
   appointments: Appointment[];
+  transactions: Transaction[];
   staffAppointments: StaffAppointment[];
   services: Services[];
   staff: StaffMember[];
   serviceSpecialties: any[];
   feedbacks: Feedback[];
+  staffFeedbacks: StaffFeedback[];
+  businessSchedules: BusinessSchedule[];
+  staffAssignments: StaffAssignment[];
   isLoading: boolean;
   
   // User methods
@@ -160,6 +252,7 @@ interface AuthState {
   
   // Customer appointment methods
   fetchUserAppointments: () => Promise<Appointment[]>;
+  fetchUserTransactions: () => Promise<Transaction[]>;
   getUpcomingAppointments: () => Appointment[];
   getCompletedAppointments: () => Appointment[];
   getTotalSpent: () => number;
@@ -191,6 +284,12 @@ interface AuthState {
   submitFeedback: (data: SubmitFeedbackData) => Promise<any>;
   getFeedbacksForAppointment: (appointmentId: number) => Feedback[];
   
+  // Staff Feedback methods
+  fetchStaffFeedbacks: () => Promise<StaffFeedback[]>;
+  getStaffFeedbacks: (staffId: number) => StaffFeedback[];
+  getAverageStaffRating: (staffId: number) => number;
+  submitStaffFeedback: (data: SubmitStaffFeedbackData) => Promise<any>;
+  
   // Booking methods
   bookAppointment: (data: BookingData) => Promise<{ appointment_id: number }>;
   addPayment: (data: PaymentData) => Promise<void>;
@@ -202,16 +301,29 @@ interface AuthState {
   //complete appointment/transaction
   completeService: (transactionId: number) => Promise<void>;
   updateServiceWithInventory: (transactionId: number, data: any) => Promise<void>;
+
+  // Business Schedule methods
+  fetchBusinessSchedules: () => Promise<BusinessSchedule[]>;
+  getBusinessScheduleByDate: (date: string) => BusinessSchedule | undefined;
+  
+  // Staff Assignment methods
+  fetchStaffAssignments: () => Promise<StaffAssignment[]>;
+  getStaffAssignmentsByDate: (date: string) => StaffAssignment[];
+  getStaffByDateAndSpecialty: (date: string, specialtyName: string) => StaffMember[];
 }
 
 export const useAuth = create<AuthState>((set, get) => ({
   user: null,
   appointments: [],
+  transactions: [],
   staffAppointments: [],
   services: [],
   staff: [],
   serviceSpecialties: [],
   feedbacks: [],
+  staffFeedbacks: [],
+  businessSchedules: [],
+  staffAssignments: [],
   isLoading: false,
 
   getUser: async () => {
@@ -236,11 +348,15 @@ export const useAuth = create<AuthState>((set, get) => ({
         await get().fetchStaffAppointments();
       } else {
         await get().fetchUserAppointments();
+        await get().fetchUserTransactions();
       }
       await get().fetchServices();
       await get().fetchStaff();
       await get().fetchServiceSpecialties();
       await get().fetchFeedbacks();
+      await get().fetchStaffFeedbacks();
+      await get().fetchBusinessSchedules();
+      await get().fetchStaffAssignments();
     } catch (error) {
       console.log("Login error:", error);
       throw error;
@@ -262,7 +378,19 @@ export const useAuth = create<AuthState>((set, get) => ({
     try {
       await axios.post("/logout");
       await setToken(null);
-      set({ user: null, appointments: [], staffAppointments: [], services: [], staff: [], serviceSpecialties: [], feedbacks: [] });
+      set({ 
+        user: null, 
+        appointments: [], 
+        transactions: [],
+        staffAppointments: [], 
+        services: [], 
+        staff: [], 
+        serviceSpecialties: [], 
+        feedbacks: [],
+        staffFeedbacks: [],
+        businessSchedules: [],
+        staffAssignments: []
+      });
     } catch (error) {
       console.log("Logout error:", error);
     }
@@ -302,6 +430,8 @@ export const useAuth = create<AuthState>((set, get) => ({
           service_name: item.service_name,
           duration_minutes: item.duration_minutes,
           price: item.price,
+          assigned_employee_id: item.assigned_employee_id,
+          stylist_name: item.stylist_name
         }));
       }
       
@@ -310,6 +440,43 @@ export const useAuth = create<AuthState>((set, get) => ({
       return appointmentsData;
     } catch (error) {
       console.log("Error fetching appointments:", error);
+      return [];
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+
+  fetchUserTransactions: async () => {
+    set({ isLoading: true });
+    try {
+      const response = await axios.get("/transactions");
+      console.log("Raw transactions response:", response.data);
+      
+      let transactionsData: Transaction[] = [];
+      if (Array.isArray(response.data)) {
+        transactionsData = response.data.map((item: any) => ({
+          id: item.id,
+          appointment_id: item.appointment_id,
+          customer_id: item.customer_id,
+          service_id: item.service_id,
+          assigned_employee_id: item.assigned_employee_id,
+          total_amount: parseFloat(item.total_amount) || 0,
+          payment_type: item.payment_type,
+          payment_method: item.payment_method,
+          status: item.status,
+          created_at: item.created_at,
+          updated_at: item.updated_at,
+          appointment: item.appointment,
+          service: item.service,
+          assigned_employee: item.assigned_employee
+        }));
+      }
+      
+      console.log("Processed transactions data:", transactionsData);
+      set({ transactions: transactionsData });
+      return transactionsData;
+    } catch (error) {
+      console.log("Error fetching transactions:", error);
       return [];
     } finally {
       set({ isLoading: false });
@@ -599,6 +766,78 @@ export const useAuth = create<AuthState>((set, get) => ({
     return feedbacks.filter(feedback => feedback.appointment_id === appointmentId);
   },
 
+  // Staff Feedback methods
+  fetchStaffFeedbacks: async () => {
+    set({ isLoading: true });
+    try {
+      const response = await axios.get("/feedbacks/staff");
+      console.log("Raw staff feedbacks response:", response.data);
+      
+      let staffFeedbacksData: StaffFeedback[] = [];
+      if (Array.isArray(response.data)) {
+        staffFeedbacksData = response.data.map((item: any) => ({
+          id: item.id || 0,
+          staff_id: item.staff_id || 0,
+          rating: parseFloat(item.rating) || 0
+        }));
+      }
+      
+      console.log("Processed staff feedbacks:", staffFeedbacksData);
+      set({ staffFeedbacks: staffFeedbacksData });
+      return staffFeedbacksData;
+    } catch (error) {
+      console.log("Error fetching staff feedbacks:", error);
+      return [];
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+
+  getStaffFeedbacks: (staffId: number) => {
+    const { staffFeedbacks } = get();
+    return staffFeedbacks.filter(feedback => feedback.staff_id === staffId);
+  },
+
+  getAverageStaffRating: (staffId: number) => {
+    const { staffFeedbacks } = get();
+    console.log(`Calculating average for staff ${staffId}`);
+    console.log(`Total feedbacks: ${staffFeedbacks.length}`);
+    
+    const staffReviews = staffFeedbacks.filter(feedback => feedback.staff_id === staffId);
+    console.log(`Found ${staffReviews.length} reviews for staff ${staffId}`);
+    
+    if (staffReviews.length === 0) return 0;
+    
+    const total = staffReviews.reduce((sum, feedback) => {
+      const rating = typeof feedback.rating === 'number' ? feedback.rating : parseFloat(feedback.rating as any) || 0;
+      return sum + rating;
+    }, 0);
+    
+    const average = total / staffReviews.length;
+    const roundedAverage = parseFloat(average.toFixed(1));
+    console.log(`Average for staff ${staffId}: ${roundedAverage}`);
+    return roundedAverage;
+  },
+
+  submitStaffFeedback: async (data: SubmitStaffFeedbackData) => {
+    try {
+      const response = await axios.post("/feedbacks/staff/submit", {
+        staff_id: data.staff_id,
+        customer_id: data.customer_id,
+        rating: data.rating,
+        comments: data.comments
+      });
+      console.log("Staff feedback submitted:", response.data);
+      
+      await get().fetchStaffFeedbacks();
+      
+      return response.data;
+    } catch (error) {
+      console.log("Error submitting staff feedback:", error);
+      throw error;
+    }
+  },
+
   // Booking methods
   bookAppointment: async (data: BookingData) => {
     try {
@@ -674,4 +913,81 @@ export const useAuth = create<AuthState>((set, get) => ({
       throw error;
     }
   },
+
+  // Business Schedule methods
+  fetchBusinessSchedules: async () => {
+    set({ isLoading: true });
+    try {
+      const response = await axios.get('/daysched');
+      console.log('Fetched business schedules:', response.data);
+      let schedulesData: BusinessSchedule[] = [];
+      if (Array.isArray(response.data)) {
+        schedulesData = response.data;
+      }
+      set({ businessSchedules: schedulesData });
+      return schedulesData;
+    } catch (error) {
+      console.error('Error fetching business schedules:', error);
+      return [];
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+
+  getBusinessScheduleByDate: (date: string) => {
+    const { businessSchedules } = get();
+    return businessSchedules.find(schedule => schedule.business_date === date);
+  },
+
+  // Staff Assignment methods
+  fetchStaffAssignments: async () => {
+    set({ isLoading: true });
+    try {
+      const response = await axios.get('/assign');
+      console.log('Fetched staff assignments:', response.data);
+      let assignmentsData: StaffAssignment[] = [];
+      if (Array.isArray(response.data)) {
+        assignmentsData = response.data;
+      }
+      set({ staffAssignments: assignmentsData });
+      return assignmentsData;
+    } catch (error) {
+      console.error('Error fetching staff assignments:', error);
+      return [];
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+
+  getStaffAssignmentsByDate: (date: string) => {
+    const { staffAssignments, businessSchedules } = get();
+    const schedule = businessSchedules.find(s => s.business_date === date);
+    if (!schedule) return [];
+    return staffAssignments.filter(assignment => assignment.business_date_id === schedule.id);
+  },
+
+  getStaffByDateAndSpecialty: (date: string, specialtyName: string) => {
+    const { staff, staffAssignments, businessSchedules } = get();
+    
+    const schedule = businessSchedules.find(s => s.business_date === date);
+    if (!schedule) return [];
+    
+    const assignments = staffAssignments.filter(
+      assignment => assignment.business_date_id === schedule.id
+    );
+    
+    const staffIds = assignments.map(a => a.staff_id);
+    
+    return staff.filter(staffMember => {
+      if (!staffIds.includes(staffMember.id)) return false;
+      
+      if (!specialtyName) return true;
+      
+      return staffMember.staff_specialties?.some(
+        (specialty) => 
+          specialty.specialties?.specialty_name?.toLowerCase() === specialtyName.toLowerCase() &&
+          specialty.is_active === 1
+      ) || false;
+    });
+  }
 }));

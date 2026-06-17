@@ -9,6 +9,7 @@ use App\Models\Feedback;
 use App\Models\StaffSpecialties;
 use App\Models\StaffSchedules;
 use App\Models\AssignStaff;
+use App\Models\StaffFeedback;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -26,6 +27,7 @@ class User extends Authenticatable
     protected $fillable = [
         'first_name',
         'last_name',
+        'profile_image',
         'email',
         'password',
         'phone_number',
@@ -86,6 +88,11 @@ class User extends Authenticatable
     public function assignStaff()
     {
         return $this->hasMany(AssignStaff::class, 'staff_id', 'id');
+    }
+
+    public function staffFeedack()
+    {
+        return $this->hasMany(staffFeedback::class, 'staff_id', 'id');
     }
 
 }

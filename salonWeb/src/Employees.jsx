@@ -14,6 +14,7 @@ function Employees() {
   const [viewMode, setViewMode] = useState('grid');
   const [employees, setEmployees] = useState([]);
   const [specialtiesList, setSpecialtiesList] = useState([]);
+  const [staffFeedbacks, setStaffFeedbacks] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [showSpecialtyModal, setShowSpecialtyModal] = useState(false);
@@ -51,6 +52,19 @@ function Employees() {
     setTimeout(() => {
       setToast({ show: false, message: '', type: 'success' });
     }, 3000);
+  };
+
+  // Fetch staff feedbacks
+  const fetchStaffFeedbacks = async () => {
+    try {
+      const response = await api.get('/feedbacks/staff');
+      console.log('Fetched staff feedbacks:', response.data);
+      if (Array.isArray(response.data)) {
+        setStaffFeedbacks(response.data);
+      }
+    } catch (error) {
+      console.error('Error fetching staff feedbacks:', error);
+    }
   };
 
   // Fetch all available specialties from the specialties table
@@ -93,6 +107,7 @@ function Employees() {
   useEffect(() => {
     fetchEmployees();
     fetchSpecialtiesList();
+    fetchStaffFeedbacks();
   }, []);
 
   const handleInputChange = (e) => {
@@ -114,6 +129,43 @@ function Employees() {
   const getSpecialtyName = (specialtyId) => {
     const specialty = specialtiesList.find(s => s.id === specialtyId);
     return specialty ? specialty.specialty_name : 'Unknown';
+  };
+
+  // Get average rating for a staff member
+  const getAverageStaffRating = (staffId) => {
+    const staffReviews = staffFeedbacks.filter(f => f.staff_id === staffId);
+    if (staffReviews.length === 0) return 0;
+    
+    const total = staffReviews.reduce((sum, feedback) => {
+      const rating = typeof feedback.rating === 'number' ? feedback.rating : parseFloat(feedback.rating) || 0;
+      return sum + rating;
+    }, 0);
+    
+    return parseFloat((total / staffReviews.length).toFixed(1));
+  };
+
+  // Get review count for a staff member
+  const getStaffReviewCount = (staffId) => {
+    return staffFeedbacks.filter(f => f.staff_id === staffId).length;
+  };
+
+  // Render stars for rating display
+  const renderStars = (rating) => {
+    const fullStars = Math.floor(rating);
+    const hasHalfStar = rating % 1 >= 0.5;
+    const stars = [];
+    
+    for (let i = 0; i < fullStars; i++) {
+      stars.push(<Star key={`star-${i}`} size={12} className="fill-yellow-400 text-yellow-400" />);
+    }
+    if (hasHalfStar) {
+      stars.push(<Star key="half-star" size={12} className="fill-yellow-400 text-yellow-400" />);
+    }
+    const emptyStars = 5 - stars.length;
+    for (let i = 0; i < emptyStars; i++) {
+      stars.push(<Star key={`empty-star-${i}`} size={12} className="text-gray-300" />);
+    }
+    return stars;
   };
 
   // Add specialty for employee
@@ -422,100 +474,120 @@ function Employees() {
       {/* Grid View - Smaller Cards */}
       {viewMode === 'grid' && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {filteredEmployees.map((employee) => (
-            <div 
-              key={employee.id} 
-              onClick={() => handleEmployeeClick(employee)}
-              className="bg-white rounded-xl shadow-sm hover:shadow-lg transition-all duration-300 border border-gray-100 overflow-hidden cursor-pointer group"
-            >
-              <div className="relative h-24 bg-gradient-to-r from-pink-50 to-purple-50 flex items-center justify-center">
-                <div className="w-14 h-14 bg-gradient-to-r from-pink-500 to-pink-600 rounded-xl flex items-center justify-center shadow-lg">
-                  <span className="text-white text-xl font-bold">
-                    {getInitials(employee.first_name, employee.last_name)}
-                  </span>
-                </div>
-                {employee.staff_specialties && employee.staff_specialties.length > 0 && (
-                  <div className="absolute bottom-1.5 right-1.5 bg-white rounded-full px-1.5 py-0.5 shadow-md">
-                    <div className="flex items-center gap-0.5">
-                      <Tag size={10} className="text-pink-500" />
-                      <span className="text-[10px] font-medium text-gray-700">
-                        {employee.staff_specialties.length}
-                      </span>
-                    </div>
+          {filteredEmployees.map((employee) => {
+            const avgRating = getAverageStaffRating(employee.id);
+            const reviewCount = getStaffReviewCount(employee.id);
+            
+            return (
+              <div 
+                key={employee.id} 
+                onClick={() => handleEmployeeClick(employee)}
+                className="bg-white rounded-xl shadow-sm hover:shadow-lg transition-all duration-300 border border-gray-100 overflow-hidden cursor-pointer group"
+              >
+                <div className="relative h-24 bg-gradient-to-r from-pink-50 to-purple-50 flex items-center justify-center">
+                  <div className="w-14 h-14 bg-gradient-to-r from-pink-500 to-pink-600 rounded-xl flex items-center justify-center shadow-lg">
+                    <span className="text-white text-xl font-bold">
+                      {getInitials(employee.first_name, employee.last_name)}
+                    </span>
                   </div>
-                )}
-              </div>
-              
-              <div className="p-3">
-                <div className="text-center mb-2">
-                  <h3 className="text-sm font-semibold text-gray-800">
-                    {employee.first_name} {employee.last_name}
-                  </h3>
-                  <div className="flex items-center justify-center gap-1 mt-0.5">
-                    <Users size={10} className="text-gray-400" />
-                    <span className="text-xs text-gray-500">Staff</span>
-                  </div>
-                </div>
-                
-                <div className="mb-3 min-h-[36px]">
-                  {employee.staff_specialties && employee.staff_specialties.length > 0 ? (
-                    <div className="flex flex-wrap gap-1 justify-center">
-                      {employee.staff_specialties.slice(0, 2).map((specialty, idx) => (
-                        <span 
-                          key={idx} 
-                          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-pink-100 text-pink-700 rounded text-[10px] font-medium"
-                        >
-                          {getSpecialtyIcon(specialty.specialties?.specialty_name)}
-                          <span>{formatSpecialtyName(specialty.specialties?.specialty_name)}</span>
+                  {employee.staff_specialties && employee.staff_specialties.length > 0 && (
+                    <div className="absolute bottom-1.5 right-1.5 bg-white rounded-full px-1.5 py-0.5 shadow-md">
+                      <div className="flex items-center gap-0.5">
+                        <Tag size={10} className="text-pink-500" />
+                        <span className="text-[10px] font-medium text-gray-700">
+                          {employee.staff_specialties.length}
                         </span>
-                      ))}
-                      {employee.staff_specialties.length > 2 && (
-                        <span className="inline-flex items-center px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded text-[10px] font-medium">
-                          +{employee.staff_specialties.length - 2}
-                        </span>
-                      )}
+                      </div>
                     </div>
-                  ) : (
-                    <p className="text-center text-[10px] text-gray-400 italic">No specialties</p>
                   )}
                 </div>
                 
-                <div className="space-y-1 mb-3">
-                  <div className="flex items-center justify-center gap-1 text-xs text-gray-500">
-                    <Mail size={10} />
-                    <span className="truncate text-[10px]">{employee.email}</span>
+                <div className="p-3">
+                  <div className="text-center mb-2">
+                    <h3 className="text-sm font-semibold text-gray-800">
+                      {employee.first_name} {employee.last_name}
+                    </h3>
+                    <div className="flex items-center justify-center gap-1 mt-0.5">
+                      <Users size={10} className="text-gray-400" />
+                      <span className="text-xs text-gray-500">Staff</span>
+                    </div>
                   </div>
-                  <div className="flex items-center justify-center gap-1 text-xs text-gray-500">
-                    <Phone size={10} />
-                    <span className="text-[10px]">{employee.phone_number}</span>
+                  
+                  {/* Rating Section */}
+                  <div className="flex items-center justify-center gap-1 mb-2">
+                    <div className="flex items-center gap-0.5">
+                      {renderStars(avgRating)}
+                    </div>
+                    {reviewCount > 0 && (
+                      <span className="text-[10px] text-gray-500 ml-1">
+                        ({avgRating.toFixed(1)} · {reviewCount})
+                      </span>
+                    )}
+                    {reviewCount === 0 && (
+                      <span className="text-[10px] text-gray-400 ml-1">No ratings</span>
+                    )}
                   </div>
-                </div>
-                
-                <div className="flex gap-1.5">
-                  <button 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleEdit(employee);
-                    }}
-                    className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 bg-pink-50 text-pink-600 rounded-lg hover:bg-pink-100 transition-colors text-xs font-medium"
-                  >
-                    <Edit size={12} />
-                    Edit
-                  </button>
-                  <button 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDeleteEmployee(employee.id);
-                    }}
-                    className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors text-xs font-medium"
-                  >
-                    <Trash2 size={12} />
-                    Delete
-                  </button>
+                  
+                  <div className="mb-3 min-h-[36px]">
+                    {employee.staff_specialties && employee.staff_specialties.length > 0 ? (
+                      <div className="flex flex-wrap gap-1 justify-center">
+                        {employee.staff_specialties.slice(0, 2).map((specialty, idx) => (
+                          <span 
+                            key={idx} 
+                            className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-pink-100 text-pink-700 rounded text-[10px] font-medium"
+                          >
+                            {getSpecialtyIcon(specialty.specialties?.specialty_name)}
+                            <span>{formatSpecialtyName(specialty.specialties?.specialty_name)}</span>
+                          </span>
+                        ))}
+                        {employee.staff_specialties.length > 2 && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded text-[10px] font-medium">
+                            +{employee.staff_specialties.length - 2}
+                          </span>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-center text-[10px] text-gray-400 italic">No specialties</p>
+                    )}
+                  </div>
+                  
+                  <div className="space-y-1 mb-3">
+                    <div className="flex items-center justify-center gap-1 text-xs text-gray-500">
+                      <Mail size={10} />
+                      <span className="truncate text-[10px]">{employee.email}</span>
+                    </div>
+                    <div className="flex items-center justify-center gap-1 text-xs text-gray-500">
+                      <Phone size={10} />
+                      <span className="text-[10px]">{employee.phone_number}</span>
+                    </div>
+                  </div>
+                  
+                  <div className="flex gap-1.5">
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleEdit(employee);
+                      }}
+                      className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 bg-pink-50 text-pink-600 rounded-lg hover:bg-pink-100 transition-colors text-xs font-medium"
+                    >
+                      <Edit size={12} />
+                      Edit
+                    </button>
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteEmployee(employee.id);
+                      }}
+                      className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors text-xs font-medium"
+                    >
+                      <Trash2 size={12} />
+                      Delete
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -528,6 +600,7 @@ function Employees() {
                 <tr>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Staff Member</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Role</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Rating</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Specialties</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Email</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Phone</th>
@@ -535,85 +608,105 @@ function Employees() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {filteredEmployees.map((employee) => (
-                  <tr 
-                    key={employee.id} 
-                    onClick={() => handleEmployeeClick(employee)}
-                    className="hover:bg-pink-50/30 transition-colors duration-200 cursor-pointer"
-                  >
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 bg-gradient-to-r from-pink-500 to-pink-600 rounded-lg flex items-center justify-center">
-                          <span className="text-white text-xs font-bold">
-                            {getInitials(employee.first_name, employee.last_name)}
-                          </span>
-                        </div>
-                        <div>
-                          <p className="text-sm font-semibold text-gray-900">
-                            {employee.first_name} {employee.last_name}
-                          </p>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <div className="flex items-center gap-1.5">
-                        <Users size={12} className="text-gray-400" />
-                        <span className="text-xs text-gray-600">Staff</span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-wrap gap-1">
-                        {employee.staff_specialties && employee.staff_specialties.length > 0 ? (
-                          employee.staff_specialties.slice(0, 2).map((specialty, idx) => (
-                            <span 
-                              key={idx} 
-                              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-pink-100 text-pink-700 rounded text-[10px] font-medium"
-                            >
-                              {getSpecialtyIcon(specialty.specialties?.specialty_name)}
-                              <span>{formatSpecialtyName(specialty.specialties?.specialty_name)}</span>
+                {filteredEmployees.map((employee) => {
+                  const avgRating = getAverageStaffRating(employee.id);
+                  const reviewCount = getStaffReviewCount(employee.id);
+                  
+                  return (
+                    <tr 
+                      key={employee.id} 
+                      onClick={() => handleEmployeeClick(employee)}
+                      className="hover:bg-pink-50/30 transition-colors duration-200 cursor-pointer"
+                    >
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <div className="flex items-center gap-2">
+                          <div className="w-8 h-8 bg-gradient-to-r from-pink-500 to-pink-600 rounded-lg flex items-center justify-center">
+                            <span className="text-white text-xs font-bold">
+                              {getInitials(employee.first_name, employee.last_name)}
                             </span>
-                          ))
-                        ) : (
-                          <span className="text-[10px] text-gray-400 italic">None</span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-1.5">
-                        <Mail size={12} className="text-gray-400" />
-                        <span className="text-xs text-gray-600 truncate max-w-[180px]">{employee.email}</span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-1.5">
-                        <Phone size={12} className="text-gray-400" />
-                        <span className="text-xs text-gray-600">{employee.phone_number}</span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <div className="flex items-center gap-1.5">
-                        <button 
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleEdit(employee);
-                          }}
-                          className="p-1 hover:bg-gray-100 rounded-lg transition-colors"
-                        >
-                          <Edit size={14} className="text-gray-500" />
-                        </button>
-                        <button 
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeleteEmployee(employee.id);
-                          }}
-                          className="p-1 hover:bg-gray-100 rounded-lg transition-colors"
-                        >
-                          <Trash2 size={14} className="text-red-500" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                          </div>
+                          <div>
+                            <p className="text-sm font-semibold text-gray-900">
+                              {employee.first_name} {employee.last_name}
+                            </p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <div className="flex items-center gap-1.5">
+                          <Users size={12} className="text-gray-400" />
+                          <span className="text-xs text-gray-600">Staff</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <div className="flex items-center gap-1">
+                          <div className="flex items-center gap-0.5">
+                            {renderStars(avgRating)}
+                          </div>
+                          {reviewCount > 0 && (
+                            <span className="text-[10px] text-gray-500">
+                              ({avgRating.toFixed(1)})
+                            </span>
+                          )}
+                          {reviewCount === 0 && (
+                            <span className="text-[10px] text-gray-400">—</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-wrap gap-1">
+                          {employee.staff_specialties && employee.staff_specialties.length > 0 ? (
+                            employee.staff_specialties.slice(0, 2).map((specialty, idx) => (
+                              <span 
+                                key={idx} 
+                                className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-pink-100 text-pink-700 rounded text-[10px] font-medium"
+                              >
+                                {getSpecialtyIcon(specialty.specialties?.specialty_name)}
+                                <span>{formatSpecialtyName(specialty.specialties?.specialty_name)}</span>
+                              </span>
+                            ))
+                          ) : (
+                            <span className="text-[10px] text-gray-400 italic">None</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-1.5">
+                          <Mail size={12} className="text-gray-400" />
+                          <span className="text-xs text-gray-600 truncate max-w-[180px]">{employee.email}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-1.5">
+                          <Phone size={12} className="text-gray-400" />
+                          <span className="text-xs text-gray-600">{employee.phone_number}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <div className="flex items-center gap-1.5">
+                          <button 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleEdit(employee);
+                            }}
+                            className="p-1 hover:bg-gray-100 rounded-lg transition-colors"
+                          >
+                            <Edit size={14} className="text-gray-500" />
+                          </button>
+                          <button 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteEmployee(employee.id);
+                            }}
+                            className="p-1 hover:bg-gray-100 rounded-lg transition-colors"
+                          >
+                            <Trash2 size={14} className="text-red-500" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

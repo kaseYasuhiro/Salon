@@ -152,4 +152,23 @@ class UserController extends Controller
             'message' => 'Password updated successfully'
         ], 200);
     }
+
+    public function addProfileImage(Request $request, $id)
+    {
+        $user_id = $request->user()->id;
+
+        $request->validate([
+            'profile_image' => ['required', 'image', 'mimes:jpg, jpeg, png']
+        ]);
+
+        $image_url = $request->file('profile_image')->store('users', 'public');
+
+        User::create([
+            'profile_image' => $image_url
+        ]);
+
+        return response()->json([
+            'message' => 'Profile Image Added Successfully'
+        ], 200);
+    }
 }

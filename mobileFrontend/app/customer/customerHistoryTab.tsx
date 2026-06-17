@@ -16,9 +16,10 @@ const FeedbackPage = ({
 }: { 
   appointment: any; 
   onBack: () => void; 
-  onSubmit: (rating: number, comment: string) => Promise<void>;
+  onSubmit: (serviceRating: number, staffRating: number, comment: string) => Promise<void>;
 }) => {
-  const [feedbackRating, setFeedbackRating] = useState<number>(0);
+  const [serviceRating, setServiceRating] = useState<number>(0);
+  const [staffRating, setStaffRating] = useState<number>(0);
   const [feedbackComment, setFeedbackComment] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -29,14 +30,19 @@ const FeedbackPage = ({
   };
 
   const handleSubmit = async () => {
-    if (feedbackRating === 0) {
-      Alert.alert("Rating Required", "Please select a rating before submitting.");
+    if (serviceRating === 0) {
+      Alert.alert("Rating Required", "Please rate the service before submitting.");
+      return;
+    }
+
+    if (staffRating === 0) {
+      Alert.alert("Rating Required", "Please rate the stylist before submitting.");
       return;
     }
 
     setIsSubmitting(true);
     try {
-      await onSubmit(feedbackRating, feedbackComment);
+      await onSubmit(serviceRating, staffRating, feedbackComment);
       onBack();
     } catch (error) {
       // Error is already handled in the parent
@@ -65,29 +71,71 @@ const FeedbackPage = ({
           <Text className="text-gray-500 text-sm text-center">
             {formatDate(appointment.appointment_date)} at {appointment.appointment_time}
           </Text>
+          <Text className="text-gray-500 text-sm text-center mt-1">
+            Stylist: {appointment.stylist_name || 'Not assigned'}
+          </Text>
         </View>
 
+        {/* Service Rating Section */}
         <View className="bg-white rounded-2xl p-6 shadow-sm mb-5">
-          <Text className="text-gray-800 text-lg font-semibold text-center mb-4">
-            How was your experience?
+          <Text className="text-gray-800 text-lg font-semibold text-center mb-2">
+            Rate the Service
+          </Text>
+          <Text className="text-gray-500 text-sm text-center mb-4">
+            How was the overall service quality?
           </Text>
           
-          <View className="flex-row justify-center gap-3 mb-5">
+          <View className="flex-row justify-center gap-3 mb-2">
             {[1, 2, 3, 4, 5].map((star) => (
               <TouchableOpacity
-                key={star}
-                onPress={() => setFeedbackRating(star)}
+                key={`service-${star}`}
+                onPress={() => setServiceRating(star)}
                 className="p-1"
               >
                 <Ionicons 
-                  name={star <= feedbackRating ? "star" : "star-outline"} 
-                  size={44} 
-                  color={star <= feedbackRating ? "#fbbf24" : "#d1d5db"} 
+                  name={star <= serviceRating ? "star" : "star-outline"} 
+                  size={40} 
+                  color={star <= serviceRating ? "#fbbf24" : "#d1d5db"} 
                 />
               </TouchableOpacity>
             ))}
           </View>
+          <Text className="text-center text-gray-400 text-xs">
+            {serviceRating > 0 ? `${serviceRating} / 5` : 'Tap a star to rate'}
+          </Text>
+        </View>
 
+        {/* Staff Rating Section */}
+        <View className="bg-white rounded-2xl p-6 shadow-sm mb-5">
+          <Text className="text-gray-800 text-lg font-semibold text-center mb-2">
+            Rate the Stylist
+          </Text>
+          <Text className="text-gray-500 text-sm text-center mb-4">
+            How was your experience with the stylist?
+          </Text>
+          
+          <View className="flex-row justify-center gap-3 mb-2">
+            {[1, 2, 3, 4, 5].map((star) => (
+              <TouchableOpacity
+                key={`staff-${star}`}
+                onPress={() => setStaffRating(star)}
+                className="p-1"
+              >
+                <Ionicons 
+                  name={star <= staffRating ? "star" : "star-outline"} 
+                  size={40} 
+                  color={star <= staffRating ? "#fbbf24" : "#d1d5db"} 
+                />
+              </TouchableOpacity>
+            ))}
+          </View>
+          <Text className="text-center text-gray-400 text-xs">
+            {staffRating > 0 ? `${staffRating} / 5` : 'Tap a star to rate'}
+          </Text>
+        </View>
+
+        {/* Comment Section */}
+        <View className="bg-white rounded-2xl p-6 shadow-sm mb-5">
           <View className="border-t border-gray-100 pt-4">
             <Text className="text-gray-700 text-sm font-semibold mb-3">
               Share your thoughts (Optional)
@@ -97,7 +145,7 @@ const FeedbackPage = ({
               numberOfLines={5}
               value={feedbackComment}
               onChangeText={setFeedbackComment}
-              placeholder="Tell us about your experience with the service and staff..."
+              placeholder="Tell us about your experience with the service and stylist..."
               className="border border-gray-200 rounded-xl p-4 text-gray-700 min-h-[120px] text-base"
               textAlignVertical="top"
             />
@@ -134,11 +182,18 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
   const { 
     user,
     appointments,
+    transactions,
     isLoading,
     fetchUserAppointments,
+    fetchUserTransactions,
     fetchFeedbacks,
+    fetchStaffFeedbacks,
     submitFeedback,
-    getFeedbacksForAppointment
+    submitStaffFeedback,
+    getFeedbacksForAppointment,
+    getStaffFeedbacks,
+    getAverageStaffRating,
+    staff
   } = useAuth();
 
   // Format date helper
@@ -174,12 +229,65 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
     return null;
   };
 
+  // Get staff name by ID
+  const getStaffName = (staffId: number) => {
+    if (!staffId) return 'Not assigned';
+    const staffMember = staff.find(s => s.id === staffId);
+    return staffMember ? `${staffMember.first_name} ${staffMember.last_name}` : 'Not assigned';
+  };
+
+  // Get stylist name for an appointment from transactions
+  const getStylistNameForAppointment = (appointmentId: number) => {
+    // First check if the appointment already has stylist_name
+    const appointment = appointments.find(a => a.id === appointmentId);
+    if (appointment && (appointment as any).stylist_name) {
+      return (appointment as any).stylist_name;
+    }
+    
+    // If not, try to get from transactions
+    const transaction = transactions.find(t => t.appointment_id === appointmentId);
+    if (transaction?.assigned_employee) {
+      return `${transaction.assigned_employee.first_name} ${transaction.assigned_employee.last_name}`;
+    }
+    if (transaction?.assigned_employee_id) {
+      return getStaffName(transaction.assigned_employee_id);
+    }
+    return 'Not assigned';
+  };
+
+  // Get stylist ID for an appointment from transactions
+  const getStylistIdForAppointment = (appointmentId: number) => {
+    // First check if the appointment already has assigned_employee_id
+    const appointment = appointments.find(a => a.id === appointmentId);
+    if (appointment && (appointment as any).assigned_employee_id) {
+      return (appointment as any).assigned_employee_id;
+    }
+    
+    // If not, try to get from transactions
+    const transaction = transactions.find(t => t.appointment_id === appointmentId);
+    if (transaction?.assigned_employee_id) {
+      return transaction.assigned_employee_id;
+    }
+    return null;
+  };
+
   // Handle opening feedback page
   const handleOpenFeedbackPage = (appointment: any) => {
+    // Get stylist name and ID for this appointment
+    const stylistName = getStylistNameForAppointment(appointment.id);
+    const stylistId = getStylistIdForAppointment(appointment.id);
+    
+    // Create enriched appointment object with stylist info
+    const enrichedAppointment = {
+      ...appointment,
+      stylist_name: stylistName,
+      assigned_employee_id: stylistId
+    };
+    
     if (onOpenFeedbackPage) {
-      onOpenFeedbackPage(appointment);
+      onOpenFeedbackPage(enrichedAppointment);
     } else {
-      setSelectedAppointmentForFeedback(appointment);
+      setSelectedAppointmentForFeedback(enrichedAppointment);
       setShowFeedbackPage(true);
     }
   };
@@ -191,7 +299,7 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
   };
 
   // Handle submitting feedback
-  const handleSubmitFeedback = async (rating: number, comment: string) => {
+  const handleSubmitFeedback = async (serviceRating: number, staffRating: number, comment: string) => {
     const customerId = user?.id;
     
     if (!customerId || customerId === 0) {
@@ -199,16 +307,33 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
       throw new Error("No customer ID");
     }
 
+    // Submit service feedback
     await submitFeedback({
       appointment_id: selectedAppointmentForFeedback.id,
       customer_id: customerId,
-      rating: rating,
+      rating: serviceRating,
       comments: comment
     });
+
+    // Submit staff feedback if staff is assigned
+    if (selectedAppointmentForFeedback.assigned_employee_id) {
+      await submitStaffFeedback({
+        staff_id: selectedAppointmentForFeedback.assigned_employee_id,
+        customer_id: customerId,
+        rating: staffRating,
+        comments: comment
+      });
+    } else {
+      Alert.alert("Warning", "No stylist was assigned to this appointment. Staff feedback was not submitted.");
+    }
     
     Alert.alert("Thank You!", "Your feedback has been submitted successfully.");
-    await fetchUserAppointments();
-    await fetchFeedbacks();
+    await Promise.all([
+      fetchUserAppointments(),
+      fetchUserTransactions(),
+      fetchFeedbacks(),
+      fetchStaffFeedbacks()
+    ]);
   };
 
   // Handle refresh
@@ -216,24 +341,46 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
     setRefreshing(true);
     await Promise.all([
       fetchUserAppointments(),
-      fetchFeedbacks()
+      fetchUserTransactions(),
+      fetchFeedbacks(),
+      fetchStaffFeedbacks()
     ]);
     setRefreshing(false);
-  }, [fetchUserAppointments, fetchFeedbacks]);
+  }, [fetchUserAppointments, fetchUserTransactions, fetchFeedbacks, fetchStaffFeedbacks]);
 
   // Fetch data on mount
   useEffect(() => {
     fetchUserAppointments();
+    fetchUserTransactions();
     fetchFeedbacks();
+    fetchStaffFeedbacks();
   }, []);
 
   // Refresh when trigger changes
   useEffect(() => {
     if (refreshTrigger) {
       fetchUserAppointments();
+      fetchUserTransactions();
       fetchFeedbacks();
+      fetchStaffFeedbacks();
     }
   }, [refreshTrigger]);
+
+  // Render stars for rating display
+  const renderStars = (rating: number) => {
+    const stars = [];
+    for (let i = 0; i < 5; i++) {
+      stars.push(
+        <Ionicons 
+          key={i} 
+          name={i < rating ? "star" : "star-outline"} 
+          size={14} 
+          color={i < rating ? "#fbbf24" : "#d1d5db"} 
+        />
+      );
+    }
+    return stars;
+  };
 
   // Main History Tab Content
   if (showFeedbackPage && selectedAppointmentForFeedback) {
@@ -272,6 +419,8 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
             const hasGivenFeedback = hasFeedback(item.id);
             const existingRating = getFeedbackRating(item.id);
             const isCompleted = item.status === 'completed';
+            const stylistName = getStylistNameForAppointment(item.id);
+            const stylistId = getStylistIdForAppointment(item.id);
             
             return (
               <View key={item.id} className="bg-white rounded-2xl p-4 mb-3 shadow-sm">
@@ -287,6 +436,12 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
                       <Ionicons name="time-outline" size={12} color="#9ca3af" />
                       <Text className="text-gray-400 text-xs ml-1">{item.appointment_time}</Text>
                     </View>
+                    {stylistName && stylistName !== 'Not assigned' && (
+                      <View className="flex-row items-center mt-1">
+                        <Ionicons name="person-outline" size={12} color="#9ca3af" />
+                        <Text className="text-gray-400 text-xs ml-1">Stylist: {stylistName}</Text>
+                      </View>
+                    )}
                   </View>
                   <Text className="text-pink-500 font-semibold">₱{parseFloat(item.price).toLocaleString()}</Text>
                 </View>
@@ -297,9 +452,32 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
                   </View>
                   
                   {/* Rate Button - Only show for completed appointments without feedback */}
-                  {isCompleted && !hasGivenFeedback && (
+                  {isCompleted && !hasGivenFeedback && stylistId && (
                     <TouchableOpacity 
                       onPress={() => handleOpenFeedbackPage(item)}
+                      className="flex-row items-center gap-1 px-3 py-1.5 bg-yellow-50 rounded-full"
+                    >
+                      <Ionicons name="star-outline" size={14} color="#eab308" />
+                      <Text className="text-xs font-semibold text-yellow-600">Rate</Text>
+                    </TouchableOpacity>
+                  )}
+                  
+                  {/* Rate Button - Show even without stylist but with a warning */}
+                  {isCompleted && !hasGivenFeedback && !stylistId && (
+                    <TouchableOpacity 
+                      onPress={() => {
+                        Alert.alert(
+                          "No Stylist Assigned",
+                          "This appointment has no stylist assigned. You can still rate the service, but stylist rating will be skipped.",
+                          [
+                            { text: "Cancel", style: "cancel" },
+                            { 
+                              text: "Continue", 
+                              onPress: () => handleOpenFeedbackPage(item)
+                            }
+                          ]
+                        );
+                      }}
                       className="flex-row items-center gap-1 px-3 py-1.5 bg-yellow-50 rounded-full"
                     >
                       <Ionicons name="star-outline" size={14} color="#eab308" />
@@ -311,7 +489,9 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
                   {isCompleted && hasGivenFeedback && (
                     <View className="flex-row items-center gap-1 px-3 py-1.5 bg-green-50 rounded-full">
                       <Ionicons name="star" size={14} color="#10b981" />
-                      <Text className="text-xs font-semibold text-green-600">Rated {existingRating}/5</Text>
+                      <Text className="text-xs font-semibold text-green-600">
+                        {renderStars(existingRating || 0)} {existingRating}/5
+                      </Text>
                     </View>
                   )}
                 </View>

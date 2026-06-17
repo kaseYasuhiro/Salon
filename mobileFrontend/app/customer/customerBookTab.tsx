@@ -1,8 +1,7 @@
-import React, { useState, useEffect, useCallback } from "react";
-import { View, Text, TouchableOpacity, ScrollView, Alert, RefreshControl, Modal, ActivityIndicator } from "react-native";
+import React, { useState, useEffect } from "react";
+import { View, Text, TouchableOpacity, ScrollView, Alert, Modal, ActivityIndicator, Image } from "react-native";
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from "@/contexts/auth-context";
-import axios from "@/api/axios";
 
 interface ReceiptData {
   bookingId: string;
@@ -27,30 +26,28 @@ interface BusinessSchedule {
   is_open: number;
 }
 
-interface StaffSpecialty {
-  id: number;
-  staff_id: number;
-  specialty_id: number;
-  specialties?: {
-    id: number;
-    specialty_name: string;
-  };
-}
-
-interface StaffMember {
-  id: number;
-  first_name: string;
-  last_name: string;
-  email: string;
-  phone_number: string;
-  staff_specialties?: StaffSpecialty[];
-}
-
 interface StaffAssignment {
   id: number;
   staff_id: number;
   business_date_id: number;
-  user?: StaffMember;
+  user?: {
+    id: number;
+    first_name: string;
+    last_name: string;
+    email: string;
+    phone_number: string;
+    profile_image?: string;
+    staff_specialties?: Array<{
+      id: number;
+      staff_id: number;
+      specialty_id: number;
+      is_active: number;
+      specialties?: {
+        id: number;
+        specialty_name: string;
+      };
+    }>;
+  };
   business_schedules?: BusinessSchedule;
 }
 
@@ -59,26 +56,19 @@ interface CustomerBookingProps {
 }
 
 export default function CustomerBooking({ onBookingSuccess }: CustomerBookingProps) {
-  const [selectedServiceId, setSelectedServiceId] = useState<number | null>(null);
+  const [selectedStaffId, setSelectedStaffId] = useState<number | null>(null);
+  const [selectedServiceIds, setSelectedServiceIds] = useState<number[]>([]);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [selectedTime, setSelectedTime] = useState(new Date());
   const [showTimePickerModal, setShowTimePickerModal] = useState(false);
   const [selectedDateForModal, setSelectedDateForModal] = useState<Date | null>(null);
-  const [bookingStep, setBookingStep] = useState<'service' | 'datetime' | 'stylist' | 'paymentType' | 'paymentMethod'>('service');
+  const [bookingStep, setBookingStep] = useState<'stylist' | 'services' | 'datetime' | 'paymentType' | 'paymentMethod'>('stylist');
   const [selectedPaymentType, setSelectedPaymentType] = useState<string | null>(null);
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [currentMonth, setCurrentMonth] = useState(new Date());
-  const [selectedStaffId, setSelectedStaffId] = useState<number | null>(null);
-  const [showStaffModal, setShowStaffModal] = useState(false);
   const [showReceipt, setShowReceipt] = useState(false);
   const [receiptData, setReceiptData] = useState<ReceiptData | null>(null);
-  const [businessSchedules, setBusinessSchedules] = useState<BusinessSchedule[]>([]);
-  const [staffAssignments, setStaffAssignments] = useState<StaffAssignment[]>([]);
-  const [staffWithSpecialties, setStaffWithSpecialties] = useState<StaffMember[]>([]);
-  const [isLoadingSchedules, setIsLoadingSchedules] = useState(false);
-  const [isLoadingAssignments, setIsLoadingAssignments] = useState(false);
-  const [isLoadingStaffSpecialties, setIsLoadingStaffSpecialties] = useState(false);
   
   const availableTimes = ['09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00'];
   
@@ -88,60 +78,13 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     fetchUserAppointments,
     getActiveServices,
     completeBooking,
-    fetchStaff,
     staff,
-    getStaffBySpecialty,
-    fetchServiceSpecialties,
-    getServiceSpecialties
+    getServiceSpecialties,
+    businessSchedules,
+    staffAssignments,
+    getAverageStaffRating,
+    getStaffFeedbacks
   } = useAuth();
-
-  // Fetch business schedules
-  const fetchBusinessSchedules = async () => {
-    setIsLoadingSchedules(true);
-    try {
-      const response = await axios.get('/daysched');
-      console.log('Fetched business schedules:', response.data);
-      if (Array.isArray(response.data)) {
-        setBusinessSchedules(response.data);
-      }
-    } catch (error) {
-      console.error('Error fetching business schedules:', error);
-    } finally {
-      setIsLoadingSchedules(false);
-    }
-  };
-
-  // Fetch staff assignments (which staff are assigned to which schedules)
-  const fetchStaffAssignments = async () => {
-    setIsLoadingAssignments(true);
-    try {
-      const response = await axios.get('/assign');
-      console.log('Fetched staff assignments:', response.data);
-      if (Array.isArray(response.data)) {
-        setStaffAssignments(response.data);
-      }
-    } catch (error) {
-      console.error('Error fetching staff assignments:', error);
-    } finally {
-      setIsLoadingAssignments(false);
-    }
-  };
-
-  // Fetch staff with their specialties from the new route
-  const fetchStaffWithSpecialties = async () => {
-    setIsLoadingStaffSpecialties(true);
-    try {
-      const response = await axios.get('/employee/specialties');
-      console.log('Fetched staff with specialties:', response.data);
-      if (Array.isArray(response.data)) {
-        setStaffWithSpecialties(response.data);
-      }
-    } catch (error) {
-      console.error('Error fetching staff with specialties:', error);
-    } finally {
-      setIsLoadingStaffSpecialties(false);
-    }
-  };
 
   // Get schedule for a specific date
   const getScheduleForDate = (dateStr: string): BusinessSchedule | null => {
@@ -154,6 +97,13 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     if (!schedule) return [];
     
     return staffAssignments.filter(assignment => assignment.business_date_id === schedule.id);
+  };
+
+  // Check if staff is available on a specific date
+  const isStaffAvailableOnDate = (staffId: number, date: Date): boolean => {
+    const dateStr = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
+    const assignedStaff = getStaffAssignedToDate(dateStr);
+    return assignedStaff.some(assignment => assignment.staff_id === staffId);
   };
 
   // Check if a date is bookable (has schedule and is open)
@@ -176,121 +126,46 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     return { status: 'closed', schedule };
   };
 
-  // Get required specialty for a service from the service_specialties table
-  const getRequiredSpecialtyForService = (serviceId: number): string | null => {
-    const serviceSpecialties = getServiceSpecialties(serviceId);
-    if (serviceSpecialties && serviceSpecialties.length > 0) {
-      return serviceSpecialties[0]?.specialties?.specialty_name || null;
-    }
-    return null;
-  };
-
-  // Get staff member details including specialties
-  const getStaffMemberWithSpecialties = (staffId: number): StaffMember | null => {
-    return staffWithSpecialties.find(staff => staff.id === staffId) || null;
-  };
-
-  // Check if staff has required specialty
-  const hasStaffRequiredSpecialty = (staffMember: StaffMember, requiredSpecialty: string | null): boolean => {
-    if (!requiredSpecialty) return true;
+  // Get services based on staff's specialty
+  const getServicesForStaff = () => {
+    if (!selectedStaffId) return [];
     
-    if (!staffMember.staff_specialties || staffMember.staff_specialties.length === 0) {
-      return false;
-    }
+    const selectedStaff = staff.find(s => s.id === selectedStaffId);
+    if (!selectedStaff) return [];
     
-    return staffMember.staff_specialties.some((specialty: StaffSpecialty) => 
-      specialty.specialties?.specialty_name?.toLowerCase() === requiredSpecialty.toLowerCase()
-    );
-  };
-
-  // Filter staff based on:
-  // 1. Staff assigned to the selected date
-  // 2. Service requirement specialty (using staffWithSpecialties data)
-  const getFilteredStaff = () => {
-    if (!selectedServiceId || !selectedDate) return [];
+    // Get all specialties of the selected staff
+    const staffSpecialties = selectedStaff.staff_specialties
+      ?.filter(s => s.is_active === 1)
+      .map(s => s.specialties?.specialty_name?.toLowerCase()) || [];
     
-    const dateStr = `${selectedDate.getUTCFullYear()}-${String(selectedDate.getUTCMonth() + 1).padStart(2, '0')}-${String(selectedDate.getUTCDate()).padStart(2, '0')}`;
-    const assignedStaffForDate = getStaffAssignedToDate(dateStr);
+    // Get all active services
+    const activeServices = getActiveServices();
     
-    console.log(`Staff assigned to ${dateStr}:`, assignedStaffForDate.length);
-    
-    const requiredSpecialty = getRequiredSpecialtyForService(selectedServiceId);
-    console.log(`Service ID: ${selectedServiceId}, Required specialty: ${requiredSpecialty}`);
-    
-    // If no staff assigned to this date, return empty array
-    if (assignedStaffForDate.length === 0) {
-      console.log('No staff assigned to this date');
-      return [];
-    }
-    
-    // Filter assigned staff based on specialty requirement using staffWithSpecialties
-    const filteredStaff = assignedStaffForDate.filter(assignment => {
-      const staffId = assignment.staff_id;
-      // Get staff member from the specialties data
-      const staffMember = getStaffMemberWithSpecialties(staffId);
-      
-      if (!staffMember) {
-        console.log(`Staff ID ${staffId} not found in specialties data`);
-        return false;
-      }
-      
-      // Check if staff has the required specialty
-      const hasSpecialty = hasStaffRequiredSpecialty(staffMember, requiredSpecialty);
-      
-      if (hasSpecialty) {
-        console.log(`Staff ${staffMember.first_name} ${staffMember.last_name} has required specialty: ${requiredSpecialty}`);
-      } else {
-        console.log(`Staff ${staffMember.first_name} ${staffMember.last_name} does NOT have required specialty: ${requiredSpecialty}`);
-      }
-      
-      return hasSpecialty;
+    // Filter services that match the staff's specialties
+    return activeServices.filter(service => {
+      const serviceSpecialties = getServiceSpecialties(service.id);
+      return serviceSpecialties.some(ss => {
+        const specialtyName = ss.specialties?.specialty_name?.toLowerCase();
+        return staffSpecialties.includes(specialtyName);
+      });
     });
+  };
+
+  // Check if selected services are multitaskable
+  const areServicesMultitaskable = () => {
+    if (selectedServiceIds.length === 0) return false;
+    if (selectedServiceIds.length === 1) return true;
     
-    console.log(`Filtered staff after specialty check:`, filteredStaff.length);
-    return filteredStaff;
+    const services = getServicesForStaff();
+    const selectedServices = services.filter(s => selectedServiceIds.includes(s.id));
+    return selectedServices.every(s => s.is_multitaskable === 1);
   };
 
-  // Get staff name by ID (from staffWithSpecialties data)
-  const getStaffName = (staffId: number | null) => {
-    if (!staffId) return '';
-    const staffMember = getStaffMemberWithSpecialties(staffId);
-    return staffMember ? `${staffMember.first_name} ${staffMember.last_name}` : '';
-  };
-
-  // Get staff specialties as string (from staffWithSpecialties data)
-  const getStaffSpecialtiesString = (staffId: number | null) => {
-    if (!staffId) return 'No specialties assigned';
-    const staffMember = getStaffMemberWithSpecialties(staffId);
-    
-    if (!staffMember?.staff_specialties || staffMember.staff_specialties.length === 0) {
-      return 'No specialties assigned';
-    }
-    
-    return staffMember.staff_specialties
-      .map((specialty: StaffSpecialty) => {
-        const name = specialty.specialties?.specialty_name;
-        return name ? name.charAt(0).toUpperCase() + name.slice(1) : '';
-      })
-      .filter(Boolean)
-      .join(', ');
-  };
-
-  // Generate receipt number
-  const generateReceiptNumber = () => {
-    const date = new Date();
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    const random = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
-    return `RCP-${year}${month}${day}-${random}`;
-  };
-
-  // Get computed data
-  const activeServices = getActiveServices();
-  const selectedService = selectedServiceId ? activeServices.find(s => s.id === selectedServiceId) : null;
-  
+  // Get service price
   const getServicePrice = () => {
-    return selectedService?.price || 0;
+    const services = getServicesForStaff();
+    const selectedServices = services.filter(s => selectedServiceIds.includes(s.id));
+    return selectedServices.reduce((sum, s) => sum + s.price, 0);
   };
 
   const getAmount = () => {
@@ -366,6 +241,55 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     });
   };
 
+  const handleStaffSelect = (staffId: number) => {
+    setSelectedStaffId(staffId);
+    setSelectedServiceIds([]);
+    setBookingStep('services');
+  };
+
+  const handleServiceSelect = (serviceId: number) => {
+    if (selectedServiceIds.includes(serviceId)) {
+      setSelectedServiceIds(selectedServiceIds.filter(id => id !== serviceId));
+      return;
+    }
+    
+    if (selectedServiceIds.length >= 2) {
+      Alert.alert("Maximum Services", "You can select up to 2 services only.");
+      return;
+    }
+    
+    // Check if the new service is multitaskable with existing selections
+    const services = getServicesForStaff();
+    const newService = services.find(s => s.id === serviceId);
+    const existingServices = services.filter(s => selectedServiceIds.includes(s.id));
+    
+    if (selectedServiceIds.length === 1) {
+      const existingService = existingServices[0];
+      if (newService?.is_multitaskable !== 1 && existingService?.is_multitaskable !== 1) {
+        Alert.alert("Not Multitaskable", "Both services must be multitaskable to select multiple services.");
+        return;
+      }
+      if (newService?.is_multitaskable !== 1) {
+        Alert.alert("Not Multitaskable", "This service cannot be combined with another service.");
+        return;
+      }
+      if (existingService?.is_multitaskable !== 1) {
+        Alert.alert("Not Multitaskable", "The selected service cannot be combined with another service.");
+        return;
+      }
+    }
+    
+    setSelectedServiceIds([...selectedServiceIds, serviceId]);
+  };
+
+  const handleContinueToDateTime = () => {
+    if (selectedServiceIds.length === 0) {
+      Alert.alert("Selection Required", "Please select at least one service.");
+      return;
+    }
+    setBookingStep('datetime');
+  };
+
   const handleDateSelect = (date: Date) => {
     if (isPastDate(date)) {
       Alert.alert("Invalid Date", "Cannot select past dates. Please choose today or a future date.");
@@ -382,6 +306,12 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
       return;
     }
     
+    // Check if selected staff is available on this date
+    if (!isStaffAvailableOnDate(selectedStaffId!, date)) {
+      Alert.alert("Staff Not Available", "The selected stylist is not available on this date. Please select another date.");
+      return;
+    }
+    
     setSelectedDateForModal(date);
     setShowTimePickerModal(true);
   };
@@ -395,42 +325,12 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     setShowTimePickerModal(false);
     setSelectedDateForModal(null);
     
-    setBookingStep('stylist');
-  };
-
-  const handleSelectService = (serviceId: number) => {
-    setSelectedServiceId(selectedServiceId === serviceId ? null : serviceId);
-  };
-
-  const handleContinueToDateTime = () => {
-    if (!selectedServiceId) {
-      Alert.alert("Selection Required", "Please select a service first.");
-      return;
-    }
-    setBookingStep('datetime');
-  };
-
-  const handleContinueToStylist = () => {
-    if (!selectedDate) {
-      Alert.alert("Selection Required", "Please select a date and time first.");
-      return;
-    }
-    
-    // Check if there are any staff assigned to this date
-    const dateStr = `${selectedDate.getUTCFullYear()}-${String(selectedDate.getUTCMonth() + 1).padStart(2, '0')}-${String(selectedDate.getUTCDate()).padStart(2, '0')}`;
-    const assignedStaffForDate = getStaffAssignedToDate(dateStr);
-    
-    if (assignedStaffForDate.length === 0) {
-      Alert.alert("No Staff Available", "No staff members are assigned to work on this date. Please select another date.");
-      return;
-    }
-    
-    setBookingStep('stylist');
+    setBookingStep('paymentType');
   };
 
   const handleContinueToPaymentType = () => {
-    if (!selectedStaffId) {
-      Alert.alert("Selection Required", "Please select a preferred stylist.");
+    if (!selectedDate) {
+      Alert.alert("Selection Required", "Please select a date and time first.");
       return;
     }
     setBookingStep('paymentType');
@@ -465,7 +365,8 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
         appointment_date: appointmentDate,
         appointment_time: formattedTime,
         status: 'pending',
-        service_id: selectedServiceId || 0,
+        service_id: selectedServiceIds[0] || 0,
+        service_ids: selectedServiceIds, // Send all selected services
         assigned_employee_id: selectedStaffId,
         service_status: 'pending',
         total_amount: getServicePrice(),
@@ -485,10 +386,11 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
       const staffName = getStaffName(selectedStaffId);
       const receiptNumber = generateReceiptNumber();
       const remainingBalance = selectedPaymentType === 'downpayment' ? totalPrice - amount : 0;
+      const serviceNames = getServiceNames();
 
       const receipt: ReceiptData = {
         bookingId: result.appointment_id?.toString() || receiptNumber,
-        serviceName: selectedService?.service_name || '',
+        serviceName: serviceNames,
         date: selectedDate.toLocaleDateString('en-US', { 
           weekday: 'long', 
           year: 'numeric', 
@@ -527,9 +429,9 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
 
   const handleCloseReceipt = () => {
     setShowReceipt(false);
-    setBookingStep('service');
-    setSelectedServiceId(null);
+    setBookingStep('stylist');
     setSelectedStaffId(null);
+    setSelectedServiceIds([]);
     setSelectedPaymentType(null);
     setSelectedPaymentMethod(null);
     if (onBookingSuccess) {
@@ -537,136 +439,93 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     }
   };
 
+  const handleBackToStylist = () => {
+    setBookingStep('stylist');
+    setSelectedServiceIds([]);
+  };
+
   const handleBackToServices = () => {
-    setBookingStep('service');
+    setBookingStep('services');
   };
 
   const handleBackToDateTime = () => {
     setBookingStep('datetime');
   };
 
-  const handleBackToStylist = () => {
-    setBookingStep('stylist');
-  };
-
   const handleBackToPaymentType = () => {
     setBookingStep('paymentType');
   };
 
-  // Fetch data on mount
-  useEffect(() => {
-    fetchStaff();
-    fetchServiceSpecialties();
-    fetchBusinessSchedules();
-    fetchStaffAssignments();
-    fetchStaffWithSpecialties(); // Fetch staff with specialties from the new route
-  }, []);
+  // Helper functions
+  const getStaffName = (staffId: number | null) => {
+    if (!staffId) return '';
+    const staffMember = staff.find(s => s.id === staffId);
+    return staffMember ? `${staffMember.first_name} ${staffMember.last_name}` : '';
+  };
 
-  // Stylist Selection Modal
-  const StylistModal = () => {
-    const filteredStaff = getFilteredStaff();
-    const requiredSpecialty = selectedServiceId ? getRequiredSpecialtyForService(selectedServiceId) : null;
-    const dateStr = selectedDate ? `${selectedDate.getUTCFullYear()}-${String(selectedDate.getUTCMonth() + 1).padStart(2, '0')}-${String(selectedDate.getUTCDate()).padStart(2, '0')}` : '';
-    const assignedStaffForDate = getStaffAssignedToDate(dateStr);
+  const getStaffSpecialties = (staffId: number | null) => {
+    if (!staffId) return 'No specialties assigned';
+    const staffMember = staff.find(s => s.id === staffId);
+    if (!staffMember?.staff_specialties) return 'No specialties assigned';
     
-    return (
-      <Modal
-        transparent={true}
-        animationType="slide"
-        visible={showStaffModal}
-        onRequestClose={() => setShowStaffModal(false)}
-      >
-        <View className="flex-1 justify-end bg-black/50">
-          <View className="bg-white rounded-t-3xl p-6" style={{ maxHeight: '80%' }}>
-            <View className="flex-row justify-between items-center mb-4">
-              <Text className="text-lg font-semibold text-gray-800">
-                Select Stylist
-              </Text>
-              <TouchableOpacity onPress={() => setShowStaffModal(false)}>
-                <Ionicons name="close" size={24} color="#9ca3af" />
-              </TouchableOpacity>
-            </View>
-            
-            <View className="bg-blue-50 p-3 rounded-xl mb-4">
-              <Text className="text-sm text-blue-600">
-                Showing staff available on {selectedDate?.toLocaleDateString()}
-              </Text>
-            </View>
-            
-            {requiredSpecialty && (
-              <View className="bg-pink-50 p-3 rounded-xl mb-4">
-                <Text className="text-sm text-pink-600">
-                  Required: {requiredSpecialty.charAt(0).toUpperCase() + requiredSpecialty.slice(1)}
-                </Text>
-              </View>
-            )}
-            
-            <ScrollView showsVerticalScrollIndicator={false} className="max-h-96">
-              {isLoadingStaffSpecialties ? (
-                <View className="py-8 items-center">
-                  <ActivityIndicator size="large" color="#ec4899" />
-                  <Text className="text-gray-500 mt-3">Loading staff...</Text>
-                </View>
-              ) : filteredStaff.length === 0 ? (
-                <View className="py-8 items-center">
-                  <Ionicons name="alert-circle-outline" size={48} color="#d1d5db" />
-                  <Text className="text-gray-500 text-center mt-3">
-                    {assignedStaffForDate.length === 0 
-                      ? "No staff assigned to work on this date. Please select another date."
-                      : `No ${requiredSpecialty ? requiredSpecialty + 's' : 'stylists'} available for this service on this date`}
-                  </Text>
-                </View>
-              ) : (
-                filteredStaff.map((assignment) => {
-                  const staffId = assignment.staff_id;
-                  const staffMember = getStaffMemberWithSpecialties(staffId);
-                  if (!staffMember) return null;
-                  
-                  const specialties = getStaffSpecialtiesString(staffId);
-                  
-                  return (
-                    <TouchableOpacity
-                      key={staffMember.id}
-                      className={`flex-row items-center justify-between p-4 mb-3 rounded-xl border-2 ${
-                        selectedStaffId === staffMember.id ? 'border-pink-500 bg-pink-50' : 'border-gray-200 bg-white'
-                      }`}
-                      onPress={() => {
-                        console.log("Selected staff ID:", staffMember.id);
-                        setSelectedStaffId(staffMember.id);
-                        setShowStaffModal(false);
-                      }}
-                    >
-                      <View className="flex-row items-center flex-1">
-                        <View className="w-12 h-12 bg-gradient-to-r from-pink-500 to-pink-600 rounded-full items-center justify-center mr-3">
-                          <Text className="text-white font-bold text-lg">
-                            {staffMember.first_name?.charAt(0)}{staffMember.last_name?.charAt(0)}
-                          </Text>
-                        </View>
-                        <View className="flex-1">
-                          <Text className="text-gray-800 font-semibold">
-                            {staffMember.first_name} {staffMember.last_name}
-                          </Text>
-                          <Text className="text-gray-500 text-xs">
-                            {specialties}
-                          </Text>
-                        </View>
-                      </View>
-                      <View className={`w-6 h-6 rounded-full border-2 items-center justify-center ${
-                        selectedStaffId === staffMember.id ? 'bg-pink-500 border-pink-500' : 'border-gray-300'
-                      }`}>
-                        {selectedStaffId === staffMember.id && (
-                          <Ionicons name="checkmark" size={14} color="white" />
-                        )}
-                      </View>
-                    </TouchableOpacity>
-                  );
-                })
-              )}
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
-    );
+    return staffMember.staff_specialties
+      .filter(s => s.is_active === 1)
+      .map(s => s.specialties?.specialty_name || '')
+      .filter(Boolean)
+      .join(', ');
+  };
+
+  const getServiceNames = () => {
+    const services = getServicesForStaff();
+    const selectedServices = services.filter(s => selectedServiceIds.includes(s.id));
+    return selectedServices.map(s => s.service_name).join(' + ');
+  };
+
+  const generateReceiptNumber = () => {
+    const date = new Date();
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const random = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
+    return `RCP-${year}${month}${day}-${random}`;
+  };
+
+  // Get staff rating with error handling
+  const getStaffRating = (staffId: number) => {
+    try {
+      const average = getAverageStaffRating(staffId);
+      const feedbacks = getStaffFeedbacks(staffId);
+      // Ensure average is a valid number
+      const validAverage = typeof average === 'number' && !isNaN(average) ? average : 0;
+      return { 
+        average: validAverage, 
+        count: Array.isArray(feedbacks) ? feedbacks.length : 0 
+      };
+    } catch (error) {
+      console.error(`Error getting rating for staff ${staffId}:`, error);
+      return { average: 0, count: 0 };
+    }
+  };
+
+  // Generate star rating display with error handling
+  const renderStars = (rating: number) => {
+    // Ensure rating is a valid number
+    const validRating = typeof rating === 'number' && !isNaN(rating) ? rating : 0;
+    const fullStars = Math.floor(validRating);
+    const hasHalfStar = validRating % 1 >= 0.5;
+    const stars = [];
+    
+    for (let i = 0; i < fullStars; i++) {
+      stars.push(<Ionicons key={`star-${i}`} name="star" size={14} color="#fbbf24" />);
+    }
+    if (hasHalfStar) {
+      stars.push(<Ionicons key="half-star" name="star-half" size={14} color="#fbbf24" />);
+    }
+    const emptyStars = 5 - stars.length;
+    for (let i = 0; i < emptyStars; i++) {
+      stars.push(<Ionicons key={`empty-star-${i}`} name="star-outline" size={14} color="#d1d5db" />);
+    }
+    return stars;
   };
 
   // Time Picker Modal
@@ -762,7 +621,7 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                   <Text className="text-gray-500 text-xs font-semibold uppercase tracking-wider mb-2">Booking Details</Text>
                   <View className="space-y-2">
                     <View className="flex-row justify-between">
-                      <Text className="text-gray-600 text-sm">Service</Text>
+                      <Text className="text-gray-600 text-sm">Service(s)</Text>
                       <Text className="text-gray-800 font-semibold text-sm">{receiptData.serviceName}</Text>
                     </View>
                     <View className="flex-row justify-between">
@@ -848,9 +707,8 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     const totalPrice = getServicePrice();
     const downpaymentAmount = totalPrice / 2;
     const fullPaymentAmount = totalPrice;
-    const requiredSpecialty = selectedServiceId ? getRequiredSpecialtyForService(selectedServiceId) : null;
-    const dateStr = selectedDate ? `${selectedDate.getUTCFullYear()}-${String(selectedDate.getUTCMonth() + 1).padStart(2, '0')}-${String(selectedDate.getUTCDate()).padStart(2, '0')}` : '';
-    const assignedStaffCount = getStaffAssignedToDate(dateStr).length;
+    const servicesForStaff = getServicesForStaff();
+    const selectedStaff = selectedStaffId ? staff.find(s => s.id === selectedStaffId) : null;
     
     return (
       <View className="flex-1">
@@ -860,69 +718,179 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
         >
           <View className="px-5 pt-6">
             {/* Back Button */}
-            {(bookingStep === 'datetime' || bookingStep === 'stylist' || bookingStep === 'paymentType' || bookingStep === 'paymentMethod') && (
+            {(bookingStep === 'services' || bookingStep === 'datetime' || bookingStep === 'paymentType' || bookingStep === 'paymentMethod') && (
               <TouchableOpacity 
                 className="flex-row items-center mb-4"
                 onPress={
                   bookingStep === 'paymentMethod' ? handleBackToPaymentType :
-                  bookingStep === 'paymentType' ? handleBackToStylist :
-                  bookingStep === 'stylist' ? handleBackToDateTime : 
-                  handleBackToServices
+                  bookingStep === 'paymentType' ? handleBackToDateTime :
+                  bookingStep === 'datetime' ? handleBackToServices :
+                  handleBackToStylist
                 }
                 disabled={isProcessing}
               >
                 <Ionicons name="arrow-back" size={24} color="#ec4899" />
                 <Text className="text-pink-500 font-semibold ml-2">
                   {bookingStep === 'paymentMethod' ? 'Back to Payment Type' : 
-                   bookingStep === 'paymentType' ? 'Back to Stylist' :
-                   bookingStep === 'stylist' ? 'Back to Calendar' : 'Back to Services'}
+                   bookingStep === 'paymentType' ? 'Back to Date & Time' :
+                   bookingStep === 'datetime' ? 'Back to Services' :
+                   'Back to Stylists'}
                 </Text>
               </TouchableOpacity>
             )}
             
             <Text className="text-3xl font-bold text-gray-800 mb-2">
-              {bookingStep === 'service' ? 'Book Appointment' : 
+              {bookingStep === 'stylist' ? 'Select Stylist' : 
+               bookingStep === 'services' ? 'Select Services' :
                bookingStep === 'datetime' ? 'Select Date & Time' :
-               bookingStep === 'stylist' ? 'Select Preferred Stylist' :
                bookingStep === 'paymentType' ? 'Select Payment Type' : 'Select Payment Method'}
             </Text>
             <Text className="text-gray-500 mb-6">
-              {bookingStep === 'service' ? 'Choose a service to get started' : 
-               bookingStep === 'datetime' ? `Selected: ${selectedService?.service_name}` :
-               bookingStep === 'stylist' ? `Selected Date: ${selectedDate.toLocaleDateString()} at ${selectedTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}` :
-               bookingStep === 'paymentType' ? `Selected Stylist: ${getStaffName(selectedStaffId)}` :
+              {bookingStep === 'stylist' ? 'Choose your preferred stylist' : 
+               bookingStep === 'services' ? `Selected: ${selectedStaff?.first_name} ${selectedStaff?.last_name}` :
+               bookingStep === 'datetime' ? `Selected: ${selectedStaff?.first_name} ${selectedStaff?.last_name} - ${getServiceNames()}` :
+               bookingStep === 'paymentType' ? `Selected Date: ${selectedDate.toLocaleDateString()} at ${selectedTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}` :
                `Complete your booking`}
             </Text>
             
-            {/* Step 1: Service Selection */}
-            {bookingStep === 'service' && (
+            {/* Step 1: Stylist Selection */}
+            {bookingStep === 'stylist' && (
               <>
                 {isLoading ? (
                   <View className="py-10">
-                    <Text className="text-center text-gray-500">Loading services...</Text>
+                    <Text className="text-center text-gray-500">Loading stylists...</Text>
                   </View>
-                ) : activeServices.length === 0 ? (
+                ) : staff.length === 0 ? (
                   <View className="bg-white rounded-2xl p-8 items-center" style={{ elevation: 2 }}>
-                    <Ionicons name="cut-outline" size={50} color="#d1d5db" />
-                    <Text className="text-gray-500 text-center mt-3">No services available</Text>
+                    <Ionicons name="people-outline" size={50} color="#d1d5db" />
+                    <Text className="text-gray-500 text-center mt-3">No stylists available</Text>
                   </View>
                 ) : (
-                  <>
-                    {activeServices.map((service) => (
+                  staff.map((staffMember) => {
+                    const ratingData = getStaffRating(staffMember.id);
+                    const { average, count } = ratingData;
+                    const specialties = getStaffSpecialties(staffMember.id);
+                    const profileImage = (staffMember as any).profile_image;
+                    
+                    return (
+                      <TouchableOpacity 
+                        key={staffMember.id} 
+                        className="bg-white rounded-2xl p-4 mb-3 shadow-sm border-2 border-transparent"
+                        onPress={() => handleStaffSelect(staffMember.id)}
+                        activeOpacity={0.7}
+                        disabled={isProcessing}
+                      >
+                        <View className="flex-row items-start">
+                          <View className="mr-3">
+                            {profileImage ? (
+                              <Image 
+                                source={{ uri: profileImage }} 
+                                className="w-16 h-16 rounded-full"
+                                resizeMode="cover"
+                              />
+                            ) : (
+                              <View className="w-16 h-16 bg-gradient-to-r from-pink-500 to-pink-600 rounded-full items-center justify-center">
+                                <Text className="text-white font-bold text-xl">
+                                  {staffMember.first_name?.charAt(0)}{staffMember.last_name?.charAt(0)}
+                                </Text>
+                              </View>
+                            )}
+                          </View>
+                          
+                          <View className="flex-1">
+                            <Text className="text-lg font-semibold text-gray-800">
+                              {staffMember.first_name} {staffMember.last_name}
+                            </Text>
+                            <Text className="text-gray-500 text-sm mt-0.5">
+                              {specialties}
+                            </Text>
+                            <View className="flex-row items-center mt-1">
+                              <View className="flex-row">
+                                {average > 0 ? (
+                                  renderStars(average)
+                                ) : (
+                                  <Text className="text-gray-400 text-xs">No ratings yet</Text>
+                                )}
+                              </View>
+                              {count > 0 && (
+                                <Text className="text-gray-500 text-xs ml-1">
+                                  ({typeof average === 'number' && !isNaN(average) ? average.toFixed(1) : '0.0'} · {count} {count === 1 ? 'review' : 'reviews'})
+                                </Text>
+                              )}
+                            </View>
+                          </View>
+                          
+                          <Ionicons name="chevron-forward" size={20} color="#d1d5db" />
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })
+                )}
+              </>
+            )}
+            
+            {/* Step 2: Service Selection */}
+            {bookingStep === 'services' && (
+              <View className="bg-white rounded-2xl p-5 shadow-sm" style={{ elevation: 2 }}>
+                <View className="bg-pink-50 rounded-xl p-4 mb-6">
+                  <Text className="text-gray-500 text-sm">Selected Stylist</Text>
+                  <Text className="text-lg font-bold text-gray-800">
+                    {selectedStaff?.first_name} {selectedStaff?.last_name}
+                  </Text>
+                  <Text className="text-gray-500 text-sm mt-1">
+                    {getStaffSpecialties(selectedStaffId)}
+                  </Text>
+                  <View className="flex-row items-center mt-2">
+                    <View className="flex-row">
+                      {(() => {
+                        const { average, count } = getStaffRating(selectedStaffId!);
+                        return average > 0 ? (
+                          <>
+                            {renderStars(average)}
+                            <Text className="text-gray-500 text-xs ml-1">
+                              ({average.toFixed(1)} · {count} {count === 1 ? 'review' : 'reviews'})
+                            </Text>
+                          </>
+                        ) : (
+                          <Text className="text-gray-400 text-xs">No ratings yet</Text>
+                        );
+                      })()}
+                    </View>
+                  </View>
+                </View>
+
+                <Text className="text-lg font-semibold text-gray-800 mb-2">Select Services</Text>
+                <Text className="text-gray-500 text-sm mb-4">
+                  Select up to 2 services (must be multitaskable)
+                </Text>
+                
+                {servicesForStaff.length === 0 ? (
+                  <View className="py-8 items-center">
+                    <Ionicons name="alert-circle-outline" size={48} color="#d1d5db" />
+                    <Text className="text-gray-500 text-center mt-3">
+                      No services available for this stylist's specialty
+                    </Text>
+                  </View>
+                ) : (
+                  servicesForStaff.map((service) => {
+                    const isSelected = selectedServiceIds.includes(service.id);
+                    const isMultitaskable = service.is_multitaskable === 1;
+                    
+                    return (
                       <TouchableOpacity 
                         key={service.id} 
-                        className={`bg-white rounded-2xl p-4 mb-3 shadow-sm border-2 ${
-                          selectedServiceId === service.id ? 'border-pink-500' : 'border-transparent'
+                        className={`rounded-2xl p-4 mb-3 border-2 ${
+                          isSelected ? 'border-pink-500 bg-pink-50' : 'border-gray-200 bg-white'
                         }`}
-                        onPress={() => handleSelectService(service.id)}
+                        onPress={() => handleServiceSelect(service.id)}
                         activeOpacity={0.7}
                         disabled={isProcessing}
                       >
                         <View className="flex-row items-start">
                           <View className={`w-6 h-6 rounded-full border-2 mr-3 mt-1 items-center justify-center ${
-                            selectedServiceId === service.id ? 'bg-pink-500 border-pink-500' : 'border-gray-300'
+                            isSelected ? 'bg-pink-500 border-pink-500' : 'border-gray-300'
                           }`}>
-                            {selectedServiceId === service.id && (
+                            {isSelected && (
                               <Ionicons name="checkmark" size={14} color="white" />
                             )}
                           </View>
@@ -935,35 +903,53 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                             <View className="flex-row items-center mt-2">
                               <Ionicons name="time-outline" size={14} color="#9ca3af" />
                               <Text className="text-gray-500 text-xs ml-1">{service.duration_minutes} mins</Text>
+                              {isMultitaskable && (
+                                <View className="ml-3 bg-green-100 px-2 py-0.5 rounded-full">
+                                  <Text className="text-green-600 text-xs">Multitaskable</Text>
+                                </View>
+                              )}
                             </View>
                           </View>
                           <Text className="text-pink-500 font-bold text-lg">₱{service.price.toLocaleString()}</Text>
                         </View>
                       </TouchableOpacity>
-                    ))}
-                    
-                    {selectedServiceId && (
-                      <TouchableOpacity 
-                        className="bg-pink-500 py-4 rounded-xl mt-4 mb-6"
-                        onPress={handleContinueToDateTime}
-                        disabled={isProcessing}
-                      >
-                        <Text className="text-white text-center font-semibold text-lg">Continue to Date Selection</Text>
-                      </TouchableOpacity>
-                    )}
-                  </>
+                    );
+                  })
                 )}
-              </>
+                
+                {selectedServiceIds.length > 0 && (
+                  <View className="mt-4 p-3 bg-gray-50 rounded-xl">
+                    <Text className="text-gray-600 text-sm">Selected: {getServiceNames()}</Text>
+                    <Text className="text-pink-500 font-bold text-lg">Total: ₱{totalPrice.toLocaleString()}</Text>
+                    {selectedServiceIds.length === 2 && !areServicesMultitaskable() && (
+                      <Text className="text-red-500 text-xs mt-1">
+                        Warning: Selected services may not be multitaskable
+                      </Text>
+                    )}
+                  </View>
+                )}
+                
+                <TouchableOpacity 
+                  className="bg-pink-500 py-4 rounded-xl mt-6"
+                  onPress={handleContinueToDateTime}
+                  disabled={selectedServiceIds.length === 0 || isProcessing}
+                >
+                  <Text className="text-white text-center font-semibold text-lg">
+                    Continue to Date & Time
+                  </Text>
+                </TouchableOpacity>
+              </View>
             )}
             
-            {/* Step 2: Calendar + Time Selection */}
+            {/* Step 3: Calendar + Time Selection */}
             {bookingStep === 'datetime' && (
               <View className="bg-white rounded-2xl p-5 shadow-sm" style={{ elevation: 2 }}>
                 <View className="bg-pink-50 rounded-xl p-4 mb-6">
-                  <Text className="text-gray-500 text-sm">Selected Service</Text>
-                  <Text className="text-lg font-bold text-gray-800">{selectedService?.service_name}</Text>
+                  <Text className="text-gray-500 text-sm">Booking Summary</Text>
+                  <Text className="text-lg font-bold text-gray-800">{getServiceNames()}</Text>
+                  <Text className="text-gray-500 text-sm mt-1">Stylist: {getStaffName(selectedStaffId)}</Text>
                   <View className="flex-row justify-between mt-2">
-                    <Text className="text-gray-500 text-sm">{selectedService?.duration_minutes} mins</Text>
+                    <Text className="text-gray-500 text-sm">{selectedServiceIds.length} service(s)</Text>
                     <Text className="text-pink-500 font-bold">₱{totalPrice.toLocaleString()}</Text>
                   </View>
                 </View>
@@ -1020,13 +1006,14 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                     const isTodayDate = dateUTC.getTime() === todayUTC.getTime();
                     const isPast = dateUTC < todayUTC;
                     const scheduleStatus = getScheduleStatus(date);
-                    const isBookable = isDateBookable(date);
+                    const isStaffAvailable = selectedStaffId ? isStaffAvailableOnDate(selectedStaffId, date) : false;
+                    const isBookable = isDateBookable(date) && isStaffAvailable;
                     
                     let cellBgColor = 'bg-gray-50';
                     let indicatorColor = null;
                     
                     if (!isPast) {
-                      if (scheduleStatus.status === 'open') {
+                      if (isBookable) {
                         cellBgColor = 'bg-green-50';
                         indicatorColor = 'bg-green-500';
                       } else if (scheduleStatus.status === 'closed') {
@@ -1054,7 +1041,7 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                             isSelected ? 'text-pink-600 font-bold' : 
                             isTodayDate ? 'text-pink-600 font-semibold' : 
                             isPast ? 'text-gray-400' : 
-                            scheduleStatus.status === 'open' ? 'text-green-700' :
+                            isBookable ? 'text-green-700' :
                             scheduleStatus.status === 'closed' ? 'text-red-700' :
                             'text-gray-500'
                           }`}>
@@ -1062,6 +1049,9 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                           </Text>
                           {indicatorColor && !isSelected && (
                             <View className={`w-1.5 h-1.5 rounded-full ${indicatorColor} mt-0.5`} />
+                          )}
+                          {!isPast && !isBookable && isStaffAvailable && (
+                            <View className="w-1.5 h-1.5 rounded-full bg-gray-400 mt-0.5" />
                           )}
                         </View>
                       </TouchableOpacity>
@@ -1084,12 +1074,6 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                         </Text>
                       </View>
                     )}
-                    <View className="flex-row items-center mt-2">
-                      <Ionicons name="people-outline" size={14} color="#9ca3af" />
-                      <Text className="text-gray-500 text-xs ml-1">
-                        {assignedStaffCount} staff member(s) available on this date
-                      </Text>
-                    </View>
                   </View>
                 )}
 
@@ -1109,72 +1093,8 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                 
                 <TouchableOpacity 
                   className="bg-pink-500 py-4 rounded-xl mt-4"
-                  onPress={handleContinueToStylist}
-                  disabled={!selectedDate || isProcessing}
-                >
-                  <Text className="text-white text-center font-semibold text-lg">
-                    Continue to Stylist Selection
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            )}
-            
-            {/* Step 3: Stylist Selection */}
-            {bookingStep === 'stylist' && (
-              <View className="bg-white rounded-2xl p-5 shadow-sm" style={{ elevation: 2 }}>
-                <View className="bg-pink-50 rounded-xl p-4 mb-6">
-                  <Text className="text-gray-500 text-sm">Appointment Summary</Text>
-                  <Text className="text-lg font-bold text-gray-800">{selectedService?.service_name}</Text>
-                  <View className="flex-row justify-between mt-1">
-                    <Text className="text-gray-500 text-sm">Date: {selectedDate.toLocaleDateString()}</Text>
-                  </View>
-                  <View className="flex-row justify-between mt-1">
-                    <Text className="text-gray-500 text-sm">Time: {selectedTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</Text>
-                    <Text className="text-pink-500 font-bold">₱{totalPrice.toLocaleString()}</Text>
-                  </View>
-                  <View className="flex-row justify-between mt-1">
-                    <Text className="text-gray-500 text-sm">Available Stylists: {assignedStaffCount}</Text>
-                  </View>
-                </View>
-
-                <Text className="text-lg font-semibold text-gray-800 mb-3">Select Preferred Stylist</Text>
-                
-                {requiredSpecialty && (
-                  <View className="bg-blue-50 p-3 rounded-xl mb-4">
-                    <Text className="text-sm text-blue-600">
-                      This service requires a {requiredSpecialty.charAt(0).toUpperCase() + requiredSpecialty.slice(1)}
-                    </Text>
-                  </View>
-                )}
-                
-                <TouchableOpacity 
-                  className="flex-row items-center justify-between p-4 border border-gray-200 rounded-xl"
-                  onPress={() => setShowStaffModal(true)}
-                >
-                  <View className="flex-row items-center">
-                    <Ionicons name="person-outline" size={20} color="#ec4899" />
-                    <Text className="ml-3 text-gray-700">
-                      {selectedStaffId ? getStaffName(selectedStaffId) : 'Select a stylist...'}
-                    </Text>
-                  </View>
-                  <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
-                </TouchableOpacity>
-                
-                {selectedStaffId && (
-                  <View className="mt-4 p-3 bg-green-50 rounded-xl">
-                    <View className="flex-row items-center">
-                      <Ionicons name="checkmark-circle" size={16} color="#10b981" />
-                      <Text className="text-green-600 text-sm ml-2">
-                        {getStaffName(selectedStaffId)} will be your stylist
-                      </Text>
-                    </View>
-                  </View>
-                )}
-
-                <TouchableOpacity 
-                  className="bg-pink-500 py-4 rounded-xl mt-6"
                   onPress={handleContinueToPaymentType}
-                  disabled={!selectedStaffId || isProcessing}
+                  disabled={!selectedDate || isProcessing}
                 >
                   <Text className="text-white text-center font-semibold text-lg">
                     Continue to Payment Type
@@ -1188,7 +1108,7 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
               <View className="bg-white rounded-2xl p-5 shadow-sm" style={{ elevation: 2 }}>
                 <View className="bg-pink-50 rounded-xl p-4 mb-6">
                   <Text className="text-gray-500 text-sm">Booking Summary</Text>
-                  <Text className="text-lg font-bold text-gray-800">{selectedService?.service_name}</Text>
+                  <Text className="text-lg font-bold text-gray-800">{getServiceNames()}</Text>
                   <View className="flex-row justify-between mt-1">
                     <Text className="text-gray-500 text-sm">Date: {selectedDate.toLocaleDateString()}</Text>
                   </View>
@@ -1277,7 +1197,7 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
               <View className="bg-white rounded-2xl p-5 shadow-sm" style={{ elevation: 2 }}>
                 <View className="bg-pink-50 rounded-xl p-4 mb-6">
                   <Text className="text-gray-500 text-sm">Booking Summary</Text>
-                  <Text className="text-lg font-bold text-gray-800">{selectedService?.service_name}</Text>
+                  <Text className="text-lg font-bold text-gray-800">{getServiceNames()}</Text>
                   <View className="flex-row justify-between mt-1">
                     <Text className="text-gray-500 text-sm">Date: {selectedDate.toLocaleDateString()}</Text>
                   </View>
@@ -1368,7 +1288,6 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
           </View>
         </ScrollView>
 
-        <StylistModal />
         <TimePickerModal />
         <ReceiptModal />
       </View>
