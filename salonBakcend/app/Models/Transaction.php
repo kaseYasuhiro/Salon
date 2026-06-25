@@ -6,6 +6,7 @@ use App\Models\Services;
 use App\Models\User;
 use App\Models\InventoryTransaction;
 use App\Models\Appointments;
+use App\Models\LossDamage;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
@@ -23,12 +24,12 @@ class Transaction extends Model
 
     public function services()
     {
-        return $this->belongsTo(Services::class, 'service_id');
+        return $this->belongsTo(Services::class, 'service_id', 'id');
     }
 
     public function user()
     {
-        return $this->belongsTo(User::class, 'assigned_employee_id');
+        return $this->belongsTo(User::class, 'assigned_employee_id', 'id');
     }
 
     public function inventoryTransaction()
@@ -38,6 +39,11 @@ class Transaction extends Model
 
     public function appointments()
     {
-        return $this->belongsTo(Appointments::class, 'appointment_id');
+        return $this->belongsTo(Appointments::class, 'appointment_id', 'id');
+    }
+
+    public function lossDamage()
+    {
+        return $this->belongsTo(LossDamage::class, 'transaction_id', 'id');
     }
 }

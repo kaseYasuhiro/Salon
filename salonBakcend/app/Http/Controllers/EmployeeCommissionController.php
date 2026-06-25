@@ -7,59 +7,20 @@ use Illuminate\Http\Request;
 
 class EmployeeCommissionController extends Controller
 {
-    /**
-     * Display a listing of the resource.
-     */
-    public function index()
+    public function addCommission(Request $request)
     {
-        //
-    }
+        $request->validate([
+            'employee_id' => ['required', 'numeric'],
+            'commission_amount' => ['required', 'numeric']
+        ]);
 
-    /**
-     * Show the form for creating a new resource.
-     */
-    public function create()
-    {
-        //
-    }
+        EmployeeCommission::create([
+            'employee_id' => $request->employee_id,
+            'commission_amount' => $request->commission_amount
+        ]);
 
-    /**
-     * Store a newly created resource in storage.
-     */
-    public function store(Request $request)
-    {
-        //
-    }
-
-    /**
-     * Display the specified resource.
-     */
-    public function show(EmployeeCommission $employeeCommission)
-    {
-        //
-    }
-
-    /**
-     * Show the form for editing the specified resource.
-     */
-    public function edit(EmployeeCommission $employeeCommission)
-    {
-        //
-    }
-
-    /**
-     * Update the specified resource in storage.
-     */
-    public function update(Request $request, EmployeeCommission $employeeCommission)
-    {
-        //
-    }
-
-    /**
-     * Remove the specified resource from storage.
-     */
-    public function destroy(EmployeeCommission $employeeCommission)
-    {
-        //
+        return response()->json([
+            'message' => 'Employee Commission Applied Successfully'
+        ], 200);
     }
 }

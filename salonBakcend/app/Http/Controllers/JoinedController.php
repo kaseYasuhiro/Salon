@@ -18,6 +18,9 @@ use App\Models\StaffSchedules;
 use App\Models\AssignStaff;
 use App\Models\Feedback;
 use App\Models\StaffFeedback;
+use App\Models\Remittance;
+use App\Models\EmployeeCommission;
+use App\Models\LossDamage;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Http\Request;
 
@@ -75,10 +78,26 @@ class JoinedController extends Controller
         return StaffFeedback::with('user')->get();
     }
 
-    public function transactionWithAppointments()
+    public function transactionWithAssigned()
     {
-        return Transaction::with('appointments')->get();
+        return Transaction::with(['user', 'services'])->get();
     }
+
+    public function remittanceReport()
+    {
+        return Remittance::with('businessSchedules')->get();
+    }
+
+    public function employeeCommissions()
+    {
+        return EmployeeCommission::with('user')->get();
+    }
+
+    public function lossAndDamageReports()
+    {
+        return LossDamage::with(['user', 'inventory', 'transaction'])->get();
+    }
+
 
 
 

@@ -27,7 +27,7 @@ class Services extends Model
 
     public function transaction()
     {
-        return $this->hasMany(Transaction::class, 'service_id');
+        return $this->hasMany(Transaction::class, 'service_id', 'id');
     }
 
     public function serviceSpecialties()

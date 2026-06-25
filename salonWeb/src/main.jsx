@@ -7,6 +7,7 @@ import Appointments from './Appointments';
 import Services from './Services';
 import Employees from './Employees';
 import Inventory from './Inventory';
+import Reports from './Reports';
 import './index.css';
 
 ReactDOM.createRoot(document.getElementById('root')).render(
@@ -20,6 +21,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <Route path="services" element={<Services />} />
           <Route path="employees" element={<Employees />} />
           <Route path="inventory" element={<Inventory />} />
+          <Route path="reports" element={<Reports />} />
         </Route>
       </Routes>
     </BrowserRouter>

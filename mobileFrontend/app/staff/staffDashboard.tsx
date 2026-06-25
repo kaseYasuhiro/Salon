@@ -5,33 +5,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "@/contexts/auth-context";
 import { router } from "expo-router";
 import api from '@/api/axios';
-
-interface ProductUsage {
-  id: number;
-  product_id: number;
-  product_name: string;
-  estimated_usage: number;
-  inventory_id: number | null;
-  current_quantity: number;
-  current_usages: number;
-  quantity_change: number;
-}
-
-interface Appointment {
-  id: number;
-  service_id?: number;
-  customer_name: string;
-  customer_phone: string;
-  appointment_date: string;
-  appointment_time: string;
-  status: string;
-  service_status: string;
-  service_name: string;
-  duration_minutes: number;
-  price: string;
-  notes?: string;
-  transaction_id: number;
-}
+import StaffAppointments from "../staff/staffAppointments";
+import StaffSchedule from "../staff/staffSchedule";
 
 interface BusinessSchedule {
   id: number;
@@ -53,64 +28,87 @@ interface StaffAssignment {
   business_schedules?: BusinessSchedule;
 }
 
+interface Appointment {
+  id: number;
+  service_id?: number;
+  customer_name: string;
+  customer_phone: string;
+  appointment_date: string;
+  appointment_time: string;
+  status: string;
+  service_status: string;
+  service_name: string;
+  duration_minutes: number;
+  price: string;
+  notes?: string;
+  transaction_id: number;
+}
+
+interface InventoryItem {
+  id: number;
+  product_id: number;
+  product_quantity: number;
+  current_usages: number;
+  reorder_level: number;
+  expiration_date: string;
+  products?: {
+    id: number;
+    product_name: string;
+    description: string;
+    price: number;
+  };
+}
+
 export default function StaffDashboard() {
   const [activeTab, setActiveTab] = useState<'home' | 'appointments' | 'schedule' | 'settings'>('home');
   const [refreshing, setRefreshing] = useState(false);
-  const [showUpdateModal, setShowUpdateModal] = useState(false);
-  const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
-  const [productUsages, setProductUsages] = useState<ProductUsage[]>([]);
-  const [updateFormData, setUpdateFormData] = useState({
-    status: '',
-    service_status: '',
-    notes: ''
-  });
-  const [isUpdating, setIsUpdating] = useState(false);
   
-  // Calendar states
-  const [currentMonth, setCurrentMonth] = useState(new Date());
-  const [businessSchedules, setBusinessSchedules] = useState<BusinessSchedule[]>([]);
-  const [staffAssignments, setStaffAssignments] = useState<StaffAssignment[]>([]);
-  const [showScheduleOptionsModal, setShowScheduleOptionsModal] = useState(false);
-  const [selectedSchedule, setSelectedSchedule] = useState<BusinessSchedule | null>(null);
-  const [isSelfAssigning, setIsSelfAssigning] = useState(false);
+  // Remittance states
+  const [showRemitModal, setShowRemitModal] = useState(false);
+  const [isSubmittingRemit, setIsSubmittingRemit] = useState(false);
+  const [totalProfit, setTotalProfit] = useState(0);
+  const [remitAmount, setRemitAmount] = useState(0);
+
+  // Report states
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [reportAppointment, setReportAppointment] = useState<Appointment | null>(null);
+  const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
+  const [reportFormData, setReportFormData] = useState({
+    incident_type: '',
+    category: '',
+    amount: '',
+    description: '',
+    inventory_id: '',
+    transaction_id: ''
+  });
+  const [isSubmittingReport, setIsSubmittingReport] = useState(false);
   
   const { 
     user, 
     staffAppointments, 
     fetchStaffAppointments, 
     updateServiceWithInventory,
-    logout 
+    logout,
+    employeeCommissions,
+    fetchEmployeeCommissions,
+    submitRemittance,
+    fetchRemittances,
+    submitLossDamage,
+    fetchLossDamages,
+    transactions
   } = useAuth();
 
-  // Fetch business schedules
-  const fetchBusinessSchedules = async () => {
+  // Fetch inventory items
+  const fetchInventoryItems = async () => {
     try {
-      const response = await api.get('/daysched');
-      console.log('Fetched business schedules:', response.data);
+      const response = await api.get('/inventory');
+      console.log('Fetched inventory items:', response.data);
       if (Array.isArray(response.data)) {
-        setBusinessSchedules(response.data);
+        setInventoryItems(response.data);
       }
     } catch (error) {
-      console.error('Error fetching business schedules:', error);
+      console.error('Error fetching inventory items:', error);
     }
-  };
-
-  // Fetch staff assignments
-  const fetchStaffAssignments = async () => {
-    try {
-      const response = await api.get('/assign');
-      console.log('Fetched staff assignments:', response.data);
-      if (Array.isArray(response.data)) {
-        setStaffAssignments(response.data);
-      }
-    } catch (error) {
-      console.error('Error fetching staff assignments:', error);
-    }
-  };
-
-  // Get schedule for a specific date - using UTC date string
-  const getScheduleForDate = (dateStr: string): BusinessSchedule | null => {
-    return businessSchedules.find(schedule => schedule.business_date === dateStr) || null;
   };
 
   // Get UTC date string from Date object
@@ -118,279 +116,189 @@ export default function StaffDashboard() {
     return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
   };
 
-  // Check if staff is already assigned to a schedule
-  const isStaffAssignedToSchedule = (businessDateId: number): boolean => {
-    return staffAssignments.some(
-      assignment => assignment.business_date_id === businessDateId && assignment.staff_id === user?.id
-    );
+  // Get today's date string
+  const getTodayDateStr = () => {
+    const today = new Date();
+    return getUTCDateString(today);
   };
 
-  // Get assignment for a schedule
-  const getAssignmentForSchedule = (businessDateId: number): StaffAssignment | null => {
-    return staffAssignments.find(
-      assignment => assignment.business_date_id === businessDateId && assignment.staff_id === user?.id
-    ) || null;
-  };
-
-  // Assign self to schedule
-  const handleAssignSelfToSchedule = async () => {
-    if (!selectedSchedule) return;
+  // Calculate today's commission earnings from staffAppointments
+  const getTodayCommissionEarnings = () => {
+    const todayStr = getTodayDateStr();
     
-    setIsSelfAssigning(true);
+    // Get today's completed appointments for this staff member
+    const todayCompletedAppointments = staffAppointments.filter(app => {
+      const appointmentDate = app.appointment_date;
+      const isCompleted = app.service_status === 'completed' || app.status === 'completed';
+      
+      return appointmentDate === todayStr && isCompleted;
+    });
+    
+    // Calculate total earnings from appointments
+    const totalEarnings = todayCompletedAppointments.reduce((sum, app) => {
+      const price = parseFloat(app.price) || 0;
+      return sum + price;
+    }, 0);
+    
+    // Get the commission rate for this staff member
+    const staffCommission = employeeCommissions.find(c => c.employee_id === user?.id);
+    const commissionRate = staffCommission ? staffCommission.commission_amount : 0;
+    
+    // Calculate commission earnings (total earnings * commission rate)
+    const commissionEarnings = totalEarnings * commissionRate;
+    
+    return {
+      totalEarnings,
+      commissionRate,
+      commissionEarnings
+    };
+  };
+
+  // Load remittance data
+  const loadRemittanceData = () => {
+    const todayStr = getTodayDateStr();
+    
+    // Get today's completed appointments
+    const todayCompletedAppointments = staffAppointments.filter(app => {
+      const appointmentDate = app.appointment_date;
+      const isCompleted = app.service_status === 'completed' || app.status === 'completed';
+      return appointmentDate === todayStr && isCompleted;
+    });
+    
+    // Calculate total earnings
+    const totalEarnings = todayCompletedAppointments.reduce((sum, app) => {
+      const price = parseFloat(app.price) || 0;
+      return sum + price;
+    }, 0);
+    
+    // Get commission rate
+    const staffCommission = employeeCommissions.find(c => c.employee_id === user?.id);
+    const commissionRate = staffCommission ? staffCommission.commission_amount : 0;
+    
+    // Calculate commission earnings
+    const commissionEarnings = totalEarnings * commissionRate;
+    
+    // Calculate total profit (total earnings - commission earnings)
+    const profit = totalEarnings - commissionEarnings;
+    
+    setTotalProfit(profit);
+    setRemitAmount(profit);
+  };
+
+  // Handle open remit modal
+  const handleOpenRemitModal = () => {
+    loadRemittanceData();
+    setShowRemitModal(true);
+  };
+
+  // Handle submit remittance
+  const handleSubmitRemittance = async () => {
+    if (remitAmount <= 0) {
+      Alert.alert('Invalid Amount', 'Remittance amount must be greater than 0');
+      return;
+    }
+
+    // Get today's business schedule
+    const todayStr = getTodayDateStr();
+    const schedule = businessSchedules.find(s => s.business_date === todayStr);
+    
+    if (!schedule) {
+      Alert.alert('No Schedule', 'No business schedule found for today');
+      return;
+    }
+
+    setIsSubmittingRemit(true);
     try {
-      const response = await api.post('/assign/add', {
-        staff_id: user?.id,
-        business_date_id: selectedSchedule.id
+      await submitRemittance({
+        business_date_id: schedule.id,
+        remittance_amount: remitAmount
       });
       
-      console.log('Self-assignment response:', response.data);
-      Alert.alert("Success", "You have been assigned to this schedule!");
-      setShowScheduleOptionsModal(false);
-      setSelectedSchedule(null);
-      await fetchStaffAssignments();
+      Alert.alert('Success', 'Remittance submitted successfully!');
+      setShowRemitModal(false);
+      // Refresh data
+      await Promise.all([
+        fetchStaffAppointments(),
+        fetchEmployeeCommissions(),
+        fetchRemittances()
+      ]);
     } catch (error: any) {
-      console.error('Error assigning self:', error);
-      Alert.alert("Error", error.response?.data?.message || "Failed to assign yourself to this schedule");
+      console.error('Error submitting remittance:', error);
+      Alert.alert('Error', error.response?.data?.message || 'Failed to submit remittance');
     } finally {
-      setIsSelfAssigning(false);
+      setIsSubmittingRemit(false);
     }
   };
 
-  // Get days in month for calendar - using UTC
-  const getDaysInMonth = (date: Date) => {
-    const year = date.getFullYear();
-    const month = date.getMonth();
-    const firstDay = new Date(Date.UTC(year, month, 1));
-    const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
-    const startingDayOfWeek = firstDay.getUTCDay();
-    
-    const days = [];
-    for (let i = 0; i < startingDayOfWeek; i++) {
-      days.push(null);
-    }
-    for (let i = 1; i <= daysInMonth; i++) {
-      days.push(new Date(Date.UTC(year, month, i)));
-    }
-    return days;
-  };
-
-  const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-  const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-
-  const changeMonth = (increment: number) => {
-    setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + increment, 1));
-  };
-
-  const isToday = (date: Date): boolean => {
-    const today = new Date();
-    const dateUTC = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-    const todayUTC = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()));
-    return dateUTC.getTime() === todayUTC.getTime();
-  };
-
-  const isPastDate = (date: Date): boolean => {
-    const today = new Date();
-    const dateUTC = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-    const todayUTC = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()));
-    return dateUTC < todayUTC;
-  };
-
-  const formatDisplayDate = (dateString: string) => {
-    if (!dateString) return '';
-    const [year, month, day] = dateString.split('-');
-    return new Date(Date.UTC(parseInt(year), parseInt(month) - 1, parseInt(day))).toLocaleDateString('en-US', { 
-      month: 'short', 
-      day: 'numeric', 
-      year: 'numeric' 
+  // Handle open report modal
+  const handleOpenReportModal = (appointment: Appointment) => {
+    setReportAppointment(appointment);
+    setReportFormData({
+      incident_type: '',
+      category: '',
+      amount: '',
+      description: '',
+      inventory_id: '',
+      transaction_id: appointment.transaction_id ? appointment.transaction_id.toString() : ''
     });
+    setShowReportModal(true);
   };
 
-  const formatFullDate = (dateString: string) => {
-    if (!dateString) return '';
-    const [year, month, day] = dateString.split('-');
-    return new Date(Date.UTC(parseInt(year), parseInt(month) - 1, parseInt(day))).toLocaleDateString('en-US', { 
-      weekday: 'long', 
-      year: 'numeric', 
-      month: 'long', 
-      day: 'numeric' 
-    });
-  };
-
-  // Get schedule status for calendar display - using UTC
-  const getScheduleStatus = (date: Date): { status: 'open' | 'closed' | 'no_schedule'; schedule: BusinessSchedule | null; isAssigned: boolean } => {
-    const dateStr = getUTCDateString(date);
-    const schedule = getScheduleForDate(dateStr);
-    
-    if (!schedule) return { status: 'no_schedule', schedule: null, isAssigned: false };
-    if (schedule.is_open !== 1) return { status: 'closed', schedule, isAssigned: false };
-    
-    const isAssigned = isStaffAssignedToSchedule(schedule.id);
-    return { status: 'open', schedule, isAssigned };
-  };
-
-  // Handle schedule click
-  const handleScheduleClick = (date: Date) => {
-    if (isPastDate(date)) {
-      Alert.alert("Past Date", "Cannot interact with past dates.");
+  // Handle submit report
+  const handleSubmitReport = async () => {
+    // Validate form
+    if (!reportFormData.incident_type) {
+      Alert.alert('Validation Error', 'Please select an incident type');
       return;
     }
-    
-    const scheduleStatus = getScheduleStatus(date);
-    
-    if (scheduleStatus.status === 'no_schedule') {
-      Alert.alert("No Schedule", "No business schedule set for this date.");
+    if (!reportFormData.category) {
+      Alert.alert('Validation Error', 'Please select a category');
       return;
     }
-    
-    if (scheduleStatus.status === 'closed') {
-      Alert.alert("Salon Closed", "The salon is closed on this date.");
+    if (!reportFormData.amount || parseFloat(reportFormData.amount) <= 0) {
+      Alert.alert('Validation Error', 'Please enter a valid amount');
       return;
     }
-    
-    if (scheduleStatus.status === 'open' && scheduleStatus.schedule) {
-      setSelectedSchedule(scheduleStatus.schedule);
-      setShowScheduleOptionsModal(true);
+    if (!reportFormData.description) {
+      Alert.alert('Validation Error', 'Please enter a description');
+      return;
     }
-  };
 
-  // Debug: Log appointments when they change
-  useEffect(() => {
-    console.log("Staff appointments from store:", staffAppointments);
-    if (staffAppointments.length > 0) {
-      console.log("First appointment:", staffAppointments[0]);
-      console.log("Service ID of first appointment:", staffAppointments[0].service_id);
-    }
-  }, [staffAppointments]);
-
-  // Fetch data on mount
-  useEffect(() => {
-    if (user?.id) {
-      fetchStaffAppointments();
-      fetchBusinessSchedules();
-      fetchStaffAssignments();
-    }
-  }, [user?.id]);
-
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    await Promise.all([
-      fetchStaffAppointments(),
-      fetchBusinessSchedules(),
-      fetchStaffAssignments()
-    ]);
-    setRefreshing(false);
-  }, [fetchStaffAppointments]);
-
-  const handleLogout = async () => {
+    setIsSubmittingReport(true);
     try {
-      await logout();
-      router.replace("/");
-    } catch (error) {
-      console.log("Logout Error.", error);
-      router.replace("/");
-    }
-  };
-
-  const fetchProductUsagesForService = async (serviceId: number) => {
-    try {
-      console.log("Fetching product usages for service ID:", serviceId);
-      const response = await api.get(`/service/${serviceId}/product-usages`);
-      console.log("Product usages response:", response.data);
+      const today = new Date();
+      const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
       
-      if (Array.isArray(response.data)) {
-        const usages = response.data.map((usage: any) => ({
-          id: usage.id,
-          product_id: usage.product_id,
-          product_name: usage.product_name,
-          estimated_usage: usage.estimated_usage,
-          inventory_id: usage.inventory_id,
-          current_quantity: usage.current_quantity,
-          current_usages: usage.current_usages,
-          quantity_change: 0
-        }));
-        setProductUsages(usages);
-      } else {
-        setProductUsages([]);
-      }
-    } catch (error) {
-      console.error("Error fetching product usages:", error);
-      Alert.alert("Error", "Failed to load product information");
-      setProductUsages([]);
-    }
-  };
-
-  const handleOpenUpdateModal = (appointment: Appointment) => {
-    console.log("Full appointment data:", appointment);
-    console.log("Service ID:", appointment.service_id);
-    
-    setSelectedAppointment(appointment);
-    setUpdateFormData({
-      status: appointment.status,
-      service_status: appointment.service_status,
-      notes: appointment.notes || ''
-    });
-    
-    if (appointment.service_id) {
-      console.log("Fetching product usages for service ID:", appointment.service_id);
-      fetchProductUsagesForService(appointment.service_id);
-    } else {
-      console.log("No service_id found in appointment");
-      setProductUsages([]);
-    }
-    
-    setShowUpdateModal(true);
-  };
-
-  const handleProductQuantityChange = (index: number, value: string) => {
-    const updatedUsages = [...productUsages];
-    const numericValue = parseInt(value) || 0;
-    updatedUsages[index].quantity_change = numericValue;
-    setProductUsages(updatedUsages);
-  };
-
-  const handleUpdateSubmit = async () => {
-    if (!selectedAppointment) return;
-    
-    for (const product of productUsages) {
-      if (product.quantity_change > 0 && product.inventory_id) {
-        const availableUsages = (product.current_quantity * product.estimated_usage) - product.current_usages;
-        if (product.quantity_change > availableUsages && availableUsages > 0) {
-          Alert.alert(
-            "Insufficient Stock",
-            `Not enough ${product.product_name} available. Available: ${availableUsages} units`
-          );
-          return;
-        }
-      }
-    }
-    
-    setIsUpdating(true);
-    try {
-      const updateData = {
-        status: updateFormData.status,
-        service_status: updateFormData.service_status,
-        notes: updateFormData.notes,
-        product_usages: productUsages
-          .filter(p => p.quantity_change > 0 && p.inventory_id)
-          .map(p => ({
-            inventory_id: p.inventory_id,
-            quantity_change: p.quantity_change
-          }))
-      };
+      await submitLossDamage({
+        date: dateStr,
+        incident_type: reportFormData.incident_type,
+        category: reportFormData.category,
+        amount: parseFloat(reportFormData.amount),
+        description: reportFormData.description,
+        staff_id: user?.id || 0,
+        inventory_id: reportFormData.inventory_id ? parseInt(reportFormData.inventory_id) : null,
+        transaction_id: reportFormData.transaction_id ? parseInt(reportFormData.transaction_id) : null,
+        status: 'reported'
+      });
       
-      console.log("Updating with data:", updateData);
-      
-      await updateServiceWithInventory(selectedAppointment.transaction_id, updateData);
-      
-      Alert.alert("Success", "Service updated successfully!");
-      setShowUpdateModal(false);
-      setSelectedAppointment(null);
-      await fetchStaffAppointments();
+      Alert.alert('Success', 'Report submitted successfully!');
+      setShowReportModal(false);
+      setReportAppointment(null);
+      setReportFormData({
+        incident_type: '',
+        category: '',
+        amount: '',
+        description: '',
+        inventory_id: '',
+        transaction_id: ''
+      });
+      // Refresh data
+      await fetchLossDamages();
     } catch (error: any) {
-      console.error("Update error:", error);
-      Alert.alert("Error", error.response?.data?.message || "Failed to update service");
+      console.error('Error submitting report:', error);
+      Alert.alert('Error', error.response?.data?.message || 'Failed to submit report');
     } finally {
-      setIsUpdating(false);
+      setIsSubmittingReport(false);
     }
   };
 
@@ -400,20 +308,13 @@ export default function StaffDashboard() {
     return app.appointment_date === today;
   });
 
-  // Filter upcoming appointments (future dates)
-  const upcomingAppointments = staffAppointments.filter(app => {
-    const today = getUTCDateString(new Date());
-    return app.appointment_date > today;
-  });
-
-  // Calculate earnings
+  // Calculate earnings from staff appointments
   const completedEarnings = staffAppointments
-    .filter(app => app.service_status === 'completed')
+    .filter(app => app.service_status === 'completed' || app.status === 'completed')
     .reduce((sum, app) => sum + parseFloat(app.price || '0'), 0);
   
-  const todayEarnings = todayAppointments
-    .filter(app => app.service_status === 'completed')
-    .reduce((sum, app) => sum + parseFloat(app.price || '0'), 0);
+  // Calculate today's commission earnings using appointments
+  const { totalEarnings: todayTotalEarnings, commissionRate, commissionEarnings: todayCommissionEarnings } = getTodayCommissionEarnings();
 
   const staffName = user ? `${user.first_name} ${user.last_name}` : 'Staff';
 
@@ -426,255 +327,417 @@ export default function StaffDashboard() {
     return `${displayHour}:${minutes} ${ampm}`;
   };
 
-  const renderAppointmentCard = (app: Appointment) => (
-    <View key={app.id} className="bg-white rounded-2xl p-4 mb-4 shadow-sm border border-gray-100">
-      <View className="flex-row justify-between items-start mb-3">
-        <View className="flex-1">
-          <View className="flex-row items-center mb-2">
-            <View className="bg-purple-100 p-2 rounded-full mr-3">
-              <Ionicons name="person-outline" size={20} color="#9333ea" />
-            </View>
-            <View>
-              <Text className="text-gray-800 font-bold text-lg">
-                {app.customer_name !== 'Walk-in Customer' ? app.customer_name : 'Customer #' + (app.id || '?')}
-              </Text>
-              {app.customer_phone !== 'N/A' && app.customer_phone && (
-                <Text className="text-gray-500 text-xs">{app.customer_phone}</Text>
-              )}
-            </View>
-          </View>
-          
-          <View className="flex-row items-center mt-1">
-            <Ionicons name="time-outline" size={14} color="#9ca3af" />
-            <Text className="text-gray-600 text-sm ml-1">{formatTime(app.appointment_time)}</Text>
-            <Text className="text-gray-400 text-sm mx-2">•</Text>
-            <Ionicons name="cut-outline" size={14} color="#9ca3af" />
-            <Text className="text-gray-600 text-sm ml-1">{app.service_name}</Text>
-          </View>
-          
-          <View className="flex-row items-center mt-1">
-            <Ionicons name="hourglass-outline" size={14} color="#9ca3af" />
-            <Text className="text-gray-500 text-xs ml-1">{app.duration_minutes} mins</Text>
-          </View>
-          
-          {app.notes && (
-            <View className="flex-row items-center mt-1">
-              <Ionicons name="document-text-outline" size={12} color="#9ca3af" />
-              <Text className="text-gray-400 text-xs italic" numberOfLines={1}>{app.notes}</Text>
-            </View>
-          )}
-        </View>
-        
-        <View className={`px-3 py-1.5 rounded-full ${
-          app.service_status === 'completed' ? 'bg-green-100' :
-          app.service_status === 'in_progress' ? 'bg-blue-100' : 'bg-purple-100'
-        }`}>
-          <Text className={`text-xs font-semibold ${
-            app.service_status === 'in_progress' ? 'text-blue-700' :
-            app.service_status === 'completed' ? 'text-green-700' : 'text-purple-700'
-          }`}>
-            {app.service_status === 'in_progress' ? 'IN PROGRESS' : 
-             app.service_status === 'completed' ? 'COMPLETED' : 
-             app.service_status?.toUpperCase() || 'PENDING'}
-          </Text>
-        </View>
-      </View>
-      
-      <View className="flex-row justify-between items-center mt-2 pt-2 border-t border-gray-100">
-        <Text className="text-purple-600 font-bold text-lg">₱{parseFloat(app.price).toLocaleString()}</Text>
-        
-        <TouchableOpacity 
-          className="bg-blue-600 px-5 py-2 rounded-xl"
-          onPress={() => handleOpenUpdateModal(app)}
-        >
-          <Text className="text-white font-semibold text-sm">Update</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
+  // Fetch business schedules - needed for remittance
+  const [businessSchedules, setBusinessSchedules] = useState<BusinessSchedule[]>([]);
 
-  // Calendar View Component
-  const CalendarView = () => {
-    const days = getDaysInMonth(currentMonth);
-    
-    return (
-      <View className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <View className="px-4 py-3 border-b border-gray-100 flex items-center justify-between flex-row">
-          <View className="flex-row items-center gap-3">
-            <TouchableOpacity onPress={() => changeMonth(-1)} className="p-1.5">
-              <Ionicons name="chevron-back" size={20} color="#9333ea" />
-            </TouchableOpacity>
-            <Text className="text-base font-semibold text-gray-800">
-              {monthNames[currentMonth.getMonth()]} {currentMonth.getFullYear()}
-            </Text>
-            <TouchableOpacity onPress={() => changeMonth(1)} className="p-1.5">
-              <Ionicons name="chevron-forward" size={20} color="#9333ea" />
-            </TouchableOpacity>
-          </View>
-          <TouchableOpacity onPress={() => setCurrentMonth(new Date())} className="px-2 py-1 bg-purple-50 rounded-lg">
-            <Text className="text-xs text-purple-600">Today</Text>
-          </TouchableOpacity>
-        </View>
-
-        <View className="p-4">
-          {/* Week Days Header */}
-          <View className="flex-row mb-2">
-            {weekDays.map((day, index) => (
-              <View key={index} className="flex-1 items-center py-2">
-                <Text className="text-gray-500 text-xs font-medium">{day}</Text>
-              </View>
-            ))}
-          </View>
-          
-          {/* Calendar Grid */}
-          <View className="flex-row flex-wrap">
-            {days.map((date, index) => {
-              if (!date) {
-                return <View key={`empty-${index}`} className="w-[14.28%] aspect-square p-1" />;
-              }
-              
-              const dateUTC = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-              const todayUTC = new Date(Date.UTC(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()));
-              const isTodayDate = dateUTC.getTime() === todayUTC.getTime();
-              const isPast = dateUTC < todayUTC;
-              const scheduleStatus = getScheduleStatus(date);
-              
-              let cellBgColor = 'bg-gray-50';
-              let indicatorColor = null;
-              let indicatorText = null;
-              const dayNumber = date.getUTCDate();
-              
-              if (!isPast) {
-                if (scheduleStatus.status === 'open') {
-                  cellBgColor = 'bg-green-50';
-                  indicatorColor = 'bg-green-500';
-                  if (scheduleStatus.isAssigned) {
-                    indicatorText = '✓';
-                  }
-                } else if (scheduleStatus.status === 'closed') {
-                  cellBgColor = 'bg-red-50';
-                  indicatorColor = 'bg-red-500';
-                } else {
-                  cellBgColor = 'bg-gray-100';
-                  indicatorColor = 'bg-gray-400';
-                }
-              } else {
-                cellBgColor = 'bg-gray-100';
-              }
-              
-              return (
-                <TouchableOpacity
-                  key={date.toISOString()}
-                  className={`w-[14.28%] aspect-square p-1 ${isPast ? 'opacity-40' : ''}`}
-                  onPress={() => !isPast && handleScheduleClick(date)}
-                  disabled={isPast || scheduleStatus.status === 'closed' || scheduleStatus.status === 'no_schedule'}
-                >
-                  <View className={`flex-1 items-center justify-center rounded-full ${cellBgColor}`}>
-                    <Text className={`text-sm ${
-                      isTodayDate ? 'text-purple-600 font-bold' : 
-                      isPast ? 'text-gray-400' : 
-                      scheduleStatus.status === 'open' ? 'text-green-700' :
-                      scheduleStatus.status === 'closed' ? 'text-red-700' :
-                      'text-gray-500'
-                    }`}>
-                      {dayNumber}
-                    </Text>
-                    {indicatorColor && (
-                      <View className={`w-1.5 h-1.5 rounded-full ${indicatorColor} mt-0.5`} />
-                    )}
-                    {indicatorText && (
-                      <Text className="text-green-600 text-xs mt-0.5 font-bold">{indicatorText}</Text>
-                    )}
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        </View>
-      </View>
-    );
+  const fetchBusinessSchedules = async () => {
+    try {
+      const response = await api.get('/daysched');
+      console.log('Fetched business schedules:', response.data);
+      if (Array.isArray(response.data)) {
+        setBusinessSchedules(response.data);
+      }
+    } catch (error) {
+      console.error('Error fetching business schedules:', error);
+    }
   };
 
-  // Schedule Options Modal
-  const ScheduleOptionsModal = () => {
-    if (!selectedSchedule) return null;
-    
-    const isAssigned = isStaffAssignedToSchedule(selectedSchedule.id);
-    const assignment = getAssignmentForSchedule(selectedSchedule.id);
-    
+  // Fetch staff assignments - needed for schedule tab
+  const [staffAssignments, setStaffAssignments] = useState<StaffAssignment[]>([]);
+
+  const fetchStaffAssignments = async () => {
+    try {
+      const response = await api.get('/assign');
+      console.log('Fetched staff assignments:', response.data);
+      if (Array.isArray(response.data)) {
+        setStaffAssignments(response.data);
+      }
+    } catch (error) {
+      console.error('Error fetching staff assignments:', error);
+    }
+  };
+
+  // Fetch data on mount
+  useEffect(() => {
+    if (user?.id) {
+      console.log("Fetching data for user:", user.id);
+      fetchStaffAppointments();
+      fetchBusinessSchedules();
+      fetchStaffAssignments();
+      fetchEmployeeCommissions();
+      fetchRemittances();
+      fetchInventoryItems();
+      fetchLossDamages();
+    }
+  }, [user?.id]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await Promise.all([
+      fetchStaffAppointments(),
+      fetchBusinessSchedules(),
+      fetchStaffAssignments(),
+      fetchEmployeeCommissions(),
+      fetchRemittances(),
+      fetchInventoryItems(),
+      fetchLossDamages()
+    ]);
+    setRefreshing(false);
+  }, [fetchStaffAppointments, fetchEmployeeCommissions, fetchRemittances]);
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+      router.replace("/");
+    } catch (error) {
+      console.log("Logout Error.", error);
+      router.replace("/");
+    }
+  };
+
+  // Remittance Modal - Memoized to prevent re-renders
+  const RemittanceModal = React.memo(() => {
+    // Local state for the modal to prevent re-renders
+    const [localRemitAmount, setLocalRemitAmount] = useState(remitAmount);
+    const [localIsSubmitting, setLocalIsSubmitting] = useState(isSubmittingRemit);
+
+    // Update local state when props change
+    useEffect(() => {
+      setLocalRemitAmount(remitAmount);
+    }, [remitAmount]);
+
+    useEffect(() => {
+      setLocalIsSubmitting(isSubmittingRemit);
+    }, [isSubmittingRemit]);
+
+    const handleAmountChange = (text: string) => {
+      const num = parseFloat(text) || 0;
+      setLocalRemitAmount(num);
+      // Update parent state
+      setRemitAmount(num);
+    };
+
+    const handleSubmit = async () => {
+      if (localRemitAmount <= 0) {
+        Alert.alert('Invalid Amount', 'Remittance amount must be greater than 0');
+        return;
+      }
+      await handleSubmitRemittance();
+    };
+
     return (
       <Modal
         animationType="slide"
         transparent={true}
-        visible={showScheduleOptionsModal}
-        onRequestClose={() => {
-          setShowScheduleOptionsModal(false);
-          setSelectedSchedule(null);
-        }}
+        visible={showRemitModal}
+        onRequestClose={() => setShowRemitModal(false)}
       >
         <View className="flex-1 justify-center items-center bg-black/50">
           <View className="bg-white rounded-2xl w-full max-w-md mx-4 overflow-hidden">
             <View className="bg-purple-600 px-6 py-4 flex-row justify-between items-center">
-              <Text className="text-xl font-bold text-white">Schedule Details</Text>
+              <Text className="text-xl font-bold text-white">Remit Profit</Text>
+              <TouchableOpacity onPress={() => setShowRemitModal(false)}>
+                <Ionicons name="close" size={24} color="white" />
+              </TouchableOpacity>
+            </View>
+            
+            <ScrollView className="p-6">
+              <Text className="text-gray-500 text-sm mb-4">Today's Remittance Summary</Text>
+              
+              {/* Summary Cards */}
+              <View className="bg-gray-50 rounded-xl p-4 mb-4">
+                <View className="flex-row justify-between items-center mb-2">
+                  <Text className="text-gray-600">Total Earnings (Today's Services)</Text>
+                  <Text className="text-green-600 font-bold text-lg">₱{todayTotalEarnings.toLocaleString()}</Text>
+                </View>
+                <View className="flex-row justify-between items-center mb-2">
+                  <Text className="text-gray-600">Commission ({commissionRate * 100}%)</Text>
+                  <Text className="text-orange-600 font-bold text-lg">₱{todayCommissionEarnings.toLocaleString()}</Text>
+                </View>
+                <View className="border-t border-gray-200 pt-2 mt-2">
+                  <View className="flex-row justify-between items-center">
+                    <Text className="text-gray-800 font-bold">Total Profit to Remit</Text>
+                    <Text className="text-purple-600 font-bold text-xl">₱{totalProfit.toLocaleString()}</Text>
+                  </View>
+                </View>
+              </View>
+              
+              {/* Today's Appointments List */}
+              {todayAppointments.length > 0 && (
+                <View className="mb-4">
+                  <Text className="text-gray-700 font-semibold mb-2">Today's Appointments</Text>
+                  {todayAppointments.map((app) => (
+                    <View key={app.id} className="bg-gray-50 rounded-xl p-3 mb-2">
+                      <View className="flex-row justify-between items-center">
+                        <View>
+                          <Text className="text-gray-800 font-semibold">{app.service_name}</Text>
+                          <Text className="text-gray-500 text-xs">
+                            {app.customer_name} • {formatTime(app.appointment_time)}
+                          </Text>
+                        </View>
+                        <Text className="text-green-600 font-bold">₱{parseFloat(app.price).toLocaleString()}</Text>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              )}
+              
+              {todayAppointments.length === 0 && (
+                <View className="bg-yellow-50 rounded-xl p-4 mb-4">
+                  <Text className="text-yellow-600 text-center">No completed appointments for today</Text>
+                </View>
+              )}
+              
+              {/* Remittance Amount */}
+              <View className="mb-4">
+                <Text className="text-gray-700 font-semibold mb-2">Remittance Amount</Text>
+                <View className="flex-row items-center bg-gray-50 rounded-xl px-4 py-3">
+                  <Text className="text-gray-800 font-bold text-lg mr-2">₱</Text>
+                  <TextInput
+                    value={localRemitAmount.toString()}
+                    onChangeText={handleAmountChange}
+                    keyboardType="numeric"
+                    className="flex-1 text-lg text-gray-800"
+                  />
+                </View>
+                <Text className="text-gray-400 text-xs mt-1">Amount to be remitted (Total Earnings - Commission)</Text>
+              </View>
+              
+              {/* Submit Button */}
+              <TouchableOpacity
+                onPress={handleSubmit}
+                disabled={localIsSubmitting || todayAppointments.length === 0}
+                className={`py-3 rounded-xl mt-2 ${todayAppointments.length === 0 ? 'bg-gray-400' : 'bg-purple-600'}`}
+              >
+                <Text className="text-white text-center font-semibold">
+                  {localIsSubmitting ? 'Submitting...' : 'Submit Remittance'}
+                </Text>
+              </TouchableOpacity>
+              
+              {todayAppointments.length === 0 && (
+                <Text className="text-gray-400 text-xs text-center mt-2">
+                  No appointments to remit
+                </Text>
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+    );
+  });
+
+  // Report Modal
+  const ReportModal = React.memo(() => {
+    const [localReportFormData, setLocalReportFormData] = useState(reportFormData);
+    const [localIsSubmitting, setLocalIsSubmitting] = useState(isSubmittingReport);
+
+    useEffect(() => {
+      setLocalReportFormData(reportFormData);
+    }, [reportFormData]);
+
+    useEffect(() => {
+      setLocalIsSubmitting(isSubmittingReport);
+    }, [isSubmittingReport]);
+
+    const handleInputChange = (field: string, value: string) => {
+      setLocalReportFormData(prev => ({ ...prev, [field]: value }));
+      setReportFormData(prev => ({ ...prev, [field]: value }));
+    };
+
+    const handleSubmit = async () => {
+      // Use local form data for validation
+      if (!localReportFormData.incident_type) {
+        Alert.alert('Validation Error', 'Please select an incident type');
+        return;
+      }
+      if (!localReportFormData.category) {
+        Alert.alert('Validation Error', 'Please select a category');
+        return;
+      }
+      if (!localReportFormData.amount || parseFloat(localReportFormData.amount) <= 0) {
+        Alert.alert('Validation Error', 'Please enter a valid amount');
+        return;
+      }
+      if (!localReportFormData.description) {
+        Alert.alert('Validation Error', 'Please enter a description');
+        return;
+      }
+      await handleSubmitReport();
+    };
+
+    return (
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={showReportModal}
+        onRequestClose={() => {
+          setShowReportModal(false);
+          setReportAppointment(null);
+          setReportFormData({
+            incident_type: '',
+            category: '',
+            amount: '',
+            description: '',
+            inventory_id: '',
+            transaction_id: ''
+          });
+        }}
+      >
+        <View className="flex-1 justify-center items-center bg-black/50">
+          <View className="bg-white rounded-2xl w-full max-w-md mx-4 overflow-hidden">
+            <View className="bg-red-600 px-6 py-4 flex-row justify-between items-center">
+              <Text className="text-xl font-bold text-white">Report Incident</Text>
               <TouchableOpacity onPress={() => {
-                setShowScheduleOptionsModal(false);
-                setSelectedSchedule(null);
+                setShowReportModal(false);
+                setReportAppointment(null);
+                setReportFormData({
+                  incident_type: '',
+                  category: '',
+                  amount: '',
+                  description: '',
+                  inventory_id: '',
+                  transaction_id: ''
+                });
               }}>
                 <Ionicons name="close" size={24} color="white" />
               </TouchableOpacity>
             </View>
             
-            <View className="p-6">
-              <View className="mb-4">
-                <Text className="text-gray-500 text-sm">Date</Text>
-                <Text className="text-gray-800 font-semibold text-lg">
-                  {formatFullDate(selectedSchedule.business_date)}
-                </Text>
-              </View>
-              
-              <View className="mb-4">
-                <Text className="text-gray-500 text-sm">Business Hours</Text>
-                <Text className="text-gray-800 font-semibold">
-                  {selectedSchedule.open_time.substring(0, 5)} - {selectedSchedule.close_time.substring(0, 5)}
-                </Text>
-              </View>
-              
-              {isAssigned && assignment && (
-                <View className="mb-4 p-3 bg-green-50 rounded-xl">
-                  <View className="flex-row items-center gap-2">
-                    <Ionicons name="checkmark-circle" size={20} color="#10b981" />
-                    <Text className="text-green-700 font-semibold">You are assigned to this schedule</Text>
-                  </View>
+            <ScrollView className="p-6">
+              {/* Appointment Info */}
+              {reportAppointment && (
+                <View className="mb-4 p-3 bg-gray-50 rounded-xl">
+                  <Text className="text-gray-500 text-sm">Appointment Details</Text>
+                  <Text className="text-gray-800 font-semibold">{reportAppointment.service_name}</Text>
+                  <Text className="text-gray-500 text-xs">
+                    {reportAppointment.customer_name} • {formatTime(reportAppointment.appointment_time)}
+                  </Text>
+                  <Text className="text-gray-500 text-xs">Transaction ID: {reportAppointment.transaction_id}</Text>
                 </View>
               )}
-              
-              {!isAssigned && (
-                <TouchableOpacity
-                  onPress={handleAssignSelfToSchedule}
-                  disabled={isSelfAssigning}
-                  className="bg-purple-600 py-3 rounded-xl mt-2"
-                >
-                  <Text className="text-white text-center font-semibold">
-                    {isSelfAssigning ? 'Assigning...' : 'Assign Myself to This Schedule'}
-                  </Text>
-                </TouchableOpacity>
-              )}
-              
+
+              {/* Incident Type */}
+              <View className="mb-4">
+                <Text className="text-gray-700 font-semibold mb-2">Incident Type *</Text>
+                <View className="flex-row flex-wrap gap-2">
+                  {['damage', 'inventory_loss', 'theft'].map((type) => (
+                    <TouchableOpacity
+                      key={type}
+                      onPress={() => handleInputChange('incident_type', type)}
+                      className={`px-4 py-2 rounded-full ${
+                        localReportFormData.incident_type === type 
+                          ? 'bg-red-600' 
+                          : 'bg-gray-200'
+                      }`}
+                    >
+                      <Text className={`capitalize ${localReportFormData.incident_type === type ? 'text-white' : 'text-gray-700'}`}>
+                        {type === 'inventory_loss' ? 'Inventory Loss' : type}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+
+              {/* Category */}
+              <View className="mb-4">
+                <Text className="text-gray-700 font-semibold mb-2">Category *</Text>
+                <View className="flex-row flex-wrap gap-2">
+                  {['product', 'service', 'other'].map((cat) => (
+                    <TouchableOpacity
+                      key={cat}
+                      onPress={() => handleInputChange('category', cat)}
+                      className={`px-4 py-2 rounded-full ${
+                        localReportFormData.category === cat 
+                          ? 'bg-red-600' 
+                          : 'bg-gray-200'
+                      }`}
+                    >
+                      <Text className={`capitalize ${localReportFormData.category === cat ? 'text-white' : 'text-gray-700'}`}>
+                        {cat}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+
+              {/* Amount */}
+              <View className="mb-4">
+                <Text className="text-gray-700 font-semibold mb-2">Amount *</Text>
+                <View className="flex-row items-center bg-gray-50 rounded-xl px-4 py-2 border border-gray-200">
+                  <Text className="text-gray-800 font-bold text-lg mr-2">₱</Text>
+                  <TextInput
+                    value={localReportFormData.amount}
+                    onChangeText={(text) => handleInputChange('amount', text)}
+                    placeholder="0.00"
+                    keyboardType="numeric"
+                    className="flex-1 text-lg text-gray-800"
+                  />
+                </View>
+              </View>
+
+              {/* Inventory ID (Optional) */}
+              <View className="mb-4">
+                <Text className="text-gray-700 font-semibold mb-2">Inventory Item (Optional)</Text>
+                <View className="flex-row items-center bg-gray-50 rounded-xl px-4 py-2 border border-gray-200">
+                  <Ionicons name="cube-outline" size={20} color="#9ca3af" />
+                  <TextInput
+                    value={localReportFormData.inventory_id}
+                    onChangeText={(text) => handleInputChange('inventory_id', text)}
+                    placeholder="Enter inventory ID (optional)"
+                    keyboardType="numeric"
+                    className="flex-1 ml-2 text-gray-800"
+                  />
+                </View>
+                {inventoryItems.length > 0 && (
+                  <View className="mt-2">
+                    <Text className="text-gray-500 text-xs">Available Inventory Items:</Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mt-1">
+                      {inventoryItems.slice(0, 5).map((item) => (
+                        <TouchableOpacity
+                          key={item.id}
+                          onPress={() => handleInputChange('inventory_id', item.id.toString())}
+                          className="bg-gray-100 rounded-full px-3 py-1 mr-2"
+                        >
+                          <Text className="text-xs text-gray-600">
+                            #{item.id} - {item.products?.product_name || 'Item'}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  </View>
+                )}
+              </View>
+
+              {/* Description */}
+              <View className="mb-4">
+                <Text className="text-gray-700 font-semibold mb-2">Description *</Text>
+                <TextInput
+                  value={localReportFormData.description}
+                  onChangeText={(text) => handleInputChange('description', text)}
+                  placeholder="Describe the incident in detail..."
+                  multiline
+                  numberOfLines={4}
+                  textAlignVertical="top"
+                  className="border border-gray-200 rounded-xl p-3 text-gray-700 min-h-[100px]"
+                />
+              </View>
+
+              {/* Submit Button */}
               <TouchableOpacity
-                onPress={() => {
-                  setShowScheduleOptionsModal(false);
-                  setSelectedSchedule(null);
-                }}
-                className="border border-gray-300 py-3 rounded-xl mt-3"
+                onPress={handleSubmit}
+                disabled={localIsSubmitting}
+                className="bg-red-600 py-3 rounded-xl mt-2"
               >
-                <Text className="text-gray-700 text-center font-semibold">Close</Text>
+                <Text className="text-white text-center font-semibold">
+                  {localIsSubmitting ? 'Submitting...' : 'Submit Report'}
+                </Text>
               </TouchableOpacity>
-            </View>
+            </ScrollView>
           </View>
         </View>
       </Modal>
     );
-  };
+  });
 
   const renderContent = () => {
     switch(activeTab) {
@@ -724,9 +787,23 @@ export default function StaffDashboard() {
                     <Ionicons name="cash-outline" size={18} color="#10b981" />
                   </View>
                 </View>
-                <Text className="text-green-600 text-3xl font-bold mt-3">₱{todayEarnings.toLocaleString()}</Text>
-                <Text className="text-gray-400 text-xs mt-1">Completed</Text>
+                <Text className="text-green-600 text-3xl font-bold mt-3">₱{todayCommissionEarnings.toLocaleString()}</Text>
+                <Text className="text-gray-400 text-xs mt-1">Commission Earnings</Text>
               </View>
+            </View>
+
+            {/* Remit Profit Button */}
+            <View className="px-5 mt-4">
+              <TouchableOpacity
+                onPress={handleOpenRemitModal}
+                className="bg-gradient-to-r from-purple-500 to-purple-700 py-4 rounded-2xl shadow-lg"
+              >
+                <View className="flex-row items-center justify-center gap-3">
+                  <Ionicons name="cash-outline" size={24} color="white" />
+                  <Text className="text-white font-bold text-lg">Remit Profit</Text>
+                  <Ionicons name="arrow-forward-circle-outline" size={24} color="white" />
+                </View>
+              </TouchableOpacity>
             </View>
 
             {/* Today's Schedule */}
@@ -744,7 +821,58 @@ export default function StaffDashboard() {
                   <Text className="text-gray-400 mt-3 text-center">No appointments today</Text>
                 </View>
               ) : (
-                todayAppointments.map(renderAppointmentCard)
+                todayAppointments.slice(0, 3).map((app) => (
+                  <View key={app.id} className="bg-white rounded-2xl p-4 mb-4 shadow-sm border border-gray-100">
+                    <View className="flex-row justify-between items-start mb-3">
+                      <View className="flex-1">
+                        <View className="flex-row items-center mb-2">
+                          <View className="bg-purple-100 p-2 rounded-full mr-3">
+                            <Ionicons name="person-outline" size={20} color="#9333ea" />
+                          </View>
+                          <View>
+                            <Text className="text-gray-800 font-bold text-lg">
+                              {app.customer_name !== 'Walk-in Customer' ? app.customer_name : 'Customer #' + (app.id || '?')}
+                            </Text>
+                            {app.customer_phone !== 'N/A' && app.customer_phone && (
+                              <Text className="text-gray-500 text-xs">{app.customer_phone}</Text>
+                            )}
+                          </View>
+                        </View>
+                        
+                        <View className="flex-row items-center mt-1">
+                          <Ionicons name="time-outline" size={14} color="#9ca3af" />
+                          <Text className="text-gray-600 text-sm ml-1">{formatTime(app.appointment_time)}</Text>
+                          <Text className="text-gray-400 text-sm mx-2">•</Text>
+                          <Ionicons name="cut-outline" size={14} color="#9ca3af" />
+                          <Text className="text-gray-600 text-sm ml-1">{app.service_name}</Text>
+                        </View>
+                        
+                        <View className="flex-row items-center mt-1">
+                          <Ionicons name="hourglass-outline" size={14} color="#9ca3af" />
+                          <Text className="text-gray-500 text-xs ml-1">{app.duration_minutes} mins</Text>
+                        </View>
+                      </View>
+                      
+                      <View className={`px-3 py-1.5 rounded-full ${
+                        app.service_status === 'completed' ? 'bg-green-100' :
+                        app.service_status === 'in_progress' ? 'bg-blue-100' : 'bg-purple-100'
+                      }`}>
+                        <Text className={`text-xs font-semibold ${
+                          app.service_status === 'in_progress' ? 'text-blue-700' :
+                          app.service_status === 'completed' ? 'text-green-700' : 'text-purple-700'
+                        }`}>
+                          {app.service_status === 'in_progress' ? 'IN PROGRESS' : 
+                           app.service_status === 'completed' ? 'COMPLETED' : 
+                           app.service_status?.toUpperCase() || 'PENDING'}
+                        </Text>
+                      </View>
+                    </View>
+                    
+                    <View className="flex-row justify-between items-center mt-2 pt-2 border-t border-gray-100">
+                      <Text className="text-purple-600 font-bold text-lg">₱{parseFloat(app.price).toLocaleString()}</Text>
+                    </View>
+                  </View>
+                ))
               )}
             </View>
 
@@ -768,114 +896,19 @@ export default function StaffDashboard() {
       
       case 'appointments':
         return (
-          <ScrollView 
-            showsVerticalScrollIndicator={false} 
-            className="flex-1"
-            refreshControl={
-              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#9333ea']} />
-            }
-          >
-            <View className="px-5 pt-6">
-              <Text className="text-3xl font-bold text-gray-800 mb-2">My Appointments</Text>
-              <Text className="text-gray-500 mb-6">All your assigned appointments</Text>
-              
-              {/* Today's Appointments */}
-              {todayAppointments.length > 0 && (
-                <>
-                  <Text className="text-lg font-bold text-gray-800 mb-3">Today</Text>
-                  {todayAppointments.map(renderAppointmentCard)}
-                </>
-              )}
-              
-              {/* Upcoming Appointments */}
-              {upcomingAppointments.length > 0 && (
-                <>
-                  <Text className="text-lg font-bold text-gray-800 mt-4 mb-3">Upcoming</Text>
-                  {upcomingAppointments.map(renderAppointmentCard)}
-                </>
-              )}
-              
-              {/* No Appointments */}
-              {staffAppointments.length === 0 && (
-                <View className="bg-white rounded-2xl p-12 items-center">
-                  <Ionicons name="calendar-outline" size={60} color="#d1d5db" />
-                  <Text className="text-gray-400 mt-4 text-center">No appointments assigned yet</Text>
-                </View>
-              )}
-            </View>
-          </ScrollView>
+          <StaffAppointments 
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            onOpenReportModal={handleOpenReportModal}
+          />
         );
       
       case 'schedule':
         return (
-          <ScrollView 
-            showsVerticalScrollIndicator={false} 
-            className="flex-1"
-            refreshControl={
-              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#9333ea']} />
-            }
-          >
-            <View className="px-5 pt-6">
-              <Text className="text-3xl font-bold text-gray-800 mb-2">Work Schedule</Text>
-              <Text className="text-gray-500 mb-6">View and manage your work days</Text>
-              
-              {/* Calendar */}
-              <CalendarView />
-              
-              {/* Legend */}
-              <View className="flex-row justify-around mt-4 mb-6 pb-3 border-b border-gray-100">
-                <View className="flex-row items-center gap-1">
-                  <View className="w-3 h-3 rounded-full bg-green-500" />
-                  <Text className="text-xs text-gray-600">Open</Text>
-                </View>
-                <View className="flex-row items-center gap-1">
-                  <View className="w-3 h-3 rounded-full bg-green-500" />
-                  <Text className="text-xs text-green-600 font-bold">✓</Text>
-                  <Text className="text-xs text-gray-600">You're assigned</Text>
-                </View>
-                <View className="flex-row items-center gap-1">
-                  <View className="w-3 h-3 rounded-full bg-red-500" />
-                  <Text className="text-xs text-gray-600">Closed</Text>
-                </View>
-                <View className="flex-row items-center gap-1">
-                  <View className="w-3 h-3 rounded-full bg-gray-400" />
-                  <Text className="text-xs text-gray-600">No Schedule</Text>
-                </View>
-              </View>
-              
-              {/* Your Assigned Schedules */}
-              <Text className="text-lg font-bold text-gray-800 mb-3">Your Assigned Days</Text>
-              {staffAssignments.filter(a => a.staff_id === user?.id).length === 0 ? (
-                <View className="bg-white rounded-2xl p-8 items-center">
-                  <Ionicons name="calendar-outline" size={40} color="#d1d5db" />
-                  <Text className="text-gray-400 mt-2 text-center">No assigned work days yet</Text>
-                  <Text className="text-gray-400 text-xs text-center mt-1">
-                    Tap on an open date in the calendar to assign yourself
-                  </Text>
-                </View>
-              ) : (
-                staffAssignments
-                  .filter(a => a.staff_id === user?.id)
-                  .map((assignment) => (
-                    <View key={assignment.id} className="bg-white rounded-2xl p-4 mb-3 shadow-sm border border-gray-100">
-                      <View className="flex-row items-center gap-3">
-                        <View className="bg-green-100 p-2 rounded-full">
-                          <Ionicons name="checkmark-circle" size={20} color="#10b981" />
-                        </View>
-                        <View>
-                          <Text className="text-gray-800 font-semibold">
-                            {formatFullDate(assignment.business_schedules?.business_date || '')}
-                          </Text>
-                          <Text className="text-gray-500 text-xs">
-                            {assignment.business_schedules?.open_time?.substring(0, 5)} - {assignment.business_schedules?.close_time?.substring(0, 5)}
-                          </Text>
-                        </View>
-                      </View>
-                    </View>
-                  ))
-              )}
-            </View>
-          </ScrollView>
+          <StaffSchedule 
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+          />
         );
       
       case 'settings':
@@ -931,145 +964,11 @@ export default function StaffDashboard() {
         {renderContent()}
       </View>
       
-      {/* Update Modal */}
-      <Modal
-        animationType="slide"
-        transparent={true}
-        visible={showUpdateModal}
-        onRequestClose={() => setShowUpdateModal(false)}
-      >
-        <View className="flex-1 justify-center items-center bg-black/50">
-          <View className="bg-white rounded-2xl w-full max-w-md mx-4 max-h-[90%] overflow-hidden">
-            <View className="bg-purple-600 px-6 py-4 flex-row justify-between items-center">
-              <Text className="text-xl font-bold text-white">Update Service</Text>
-              <TouchableOpacity onPress={() => setShowUpdateModal(false)}>
-                <Ionicons name="close" size={24} color="white" />
-              </TouchableOpacity>
-            </View>
-            
-            <ScrollView className="p-6">
-              {/* Customer Info */}
-              <View className="mb-4 p-3 bg-gray-50 rounded-xl">
-                <Text className="text-gray-500 text-sm">Customer</Text>
-                <Text className="text-gray-800 font-semibold">{selectedAppointment?.customer_name}</Text>
-                <Text className="text-gray-500 text-sm mt-2">Service</Text>
-                <Text className="text-gray-800 font-semibold">{selectedAppointment?.service_name}</Text>
-                <Text className="text-gray-500 text-sm mt-2">Service ID</Text>
-                <Text className="text-gray-800 font-semibold">{selectedAppointment?.service_id || 'Not available'}</Text>
-              </View>
-              
-              {/* Appointment Status */}
-              <View className="mb-4">
-                <Text className="text-gray-700 font-semibold mb-2">Appointment Status</Text>
-                <View className="flex-row flex-wrap gap-2">
-                  {['pending', 'confirmed', 'completed', 'cancelled'].map((status) => (
-                    <TouchableOpacity
-                      key={status}
-                      onPress={() => setUpdateFormData(prev => ({ ...prev, status }))}
-                      className={`px-4 py-2 rounded-full ${
-                        updateFormData.status === status 
-                          ? 'bg-purple-600' 
-                          : 'bg-gray-200'
-                      }`}
-                    >
-                      <Text className={`capitalize ${updateFormData.status === status ? 'text-white' : 'text-gray-700'}`}>
-                        {status}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-              
-              {/* Service Status */}
-              <View className="mb-4">
-                <Text className="text-gray-700 font-semibold mb-2">Service Status</Text>
-                <View className="flex-row flex-wrap gap-2">
-                  {['pending', 'in_progress', 'completed', 'cancelled'].map((status) => (
-                    <TouchableOpacity
-                      key={status}
-                      onPress={() => setUpdateFormData(prev => ({ ...prev, service_status: status }))}
-                      className={`px-4 py-2 rounded-full ${
-                        updateFormData.service_status === status 
-                          ? 'bg-purple-600' 
-                          : 'bg-gray-200'
-                      }`}
-                    >
-                      <Text className={`capitalize ${updateFormData.service_status === status ? 'text-white' : 'text-gray-700'}`}>
-                        {status === 'in_progress' ? 'In Progress' : status}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-              
-              {/* Notes Field */}
-              <View className="mb-4">
-                <Text className="text-gray-700 font-semibold mb-2">Notes</Text>
-                <TextInput
-                  value={updateFormData.notes}
-                  onChangeText={(text) => setUpdateFormData(prev => ({ ...prev, notes: text }))}
-                  placeholder="Add notes about this appointment..."
-                  multiline
-                  numberOfLines={3}
-                  textAlignVertical="top"
-                  className="border border-gray-300 rounded-lg p-3 text-gray-700 min-h-[80px]"
-                />
-              </View>
-              
-              {/* Product Usage Section */}
-              <View className="mb-4">
-                <Text className="text-gray-700 font-semibold mb-2">Product Usage</Text>
-                <Text className="text-gray-500 text-sm mb-3">Update quantity used for each product</Text>
-                
-                {productUsages.length === 0 ? (
-                  <View className="bg-yellow-50 rounded-xl p-4">
-                    <Text className="text-yellow-600 text-sm text-center">
-                      No products configured for this service
-                    </Text>
-                  </View>
-                ) : (
-                  productUsages.map((product, index) => (
-                    <View key={product.id} className="bg-gray-50 rounded-xl p-3 mb-3">
-                      <Text className="text-gray-800 font-semibold">{product.product_name}</Text>
-                      <Text className="text-gray-500 text-xs mb-2">
-                        Estimated Usage: {product.estimated_usage} per service
-                      </Text>
-                      <View className="flex-row items-center gap-3">
-                        <Text className="text-gray-600">Quantity Used:</Text>
-                        <TextInput
-                          value={product.quantity_change.toString()}
-                          onChangeText={(value) => handleProductQuantityChange(index, value)}
-                          keyboardType="numeric"
-                          className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-center"
-                          placeholder="0"
-                        />
-                        <Text className="text-gray-600">units</Text>
-                      </View>
-                      <Text className="text-gray-400 text-xs mt-2">
-                        Available Stock: {product.current_quantity} units
-                      </Text>
-                    </View>
-                  ))
-                )}
-              </View>
-              
-              {/* Update Button */}
-              <TouchableOpacity
-                onPress={handleUpdateSubmit}
-                disabled={isUpdating}
-                className="bg-purple-600 py-3 rounded-xl mt-4"
-              >
-                <Text className="text-white text-center font-semibold">
-                  {isUpdating ? 'Updating...' : 'Update Service'}
-                </Text>
-              </TouchableOpacity>
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
+      {/* Remittance Modal */}
+      <RemittanceModal />
       
-      {/* Schedule Options Modal */}
-      <ScheduleOptionsModal />
+      {/* Report Modal */}
+      <ReportModal />
       
       {/* Bottom Navigation */}
       <View className="flex-row justify-around items-center border-t border-gray-200 bg-white py-3">

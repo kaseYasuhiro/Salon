@@ -11,11 +11,11 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('employee_commissions', function (Blueprint $table) {
+        Schema::create('remittances', function (Blueprint $table) {
             $table->id();
-            $table->unsignedBigInteger('employee_id');
-            $table->decimal('commission_amount', 5,2);
-            $table->foreign('employee_id')->references('id')->on('users')->cascadeOnDelete()->cascadeOnUpdate();
+            $table->unsignedBigInteger('business_date_id');
+            $table->decimal('remittance_amount', 10,2);
+            $table->foreign('business_date_id')->references('id')->on('business_schedules')->cascadeOnDelete()->cascadeOnUpdate();
             $table->timestamps();
         });
     }
@@ -25,6 +25,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::dropIfExists('employee_commissions');
+        Schema::dropIfExists('remittances');
     }
 };

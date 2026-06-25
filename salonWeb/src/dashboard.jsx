@@ -8,7 +8,8 @@ import {
   Eye, LogOut, Menu, X, DollarSign,
   User, Phone, MapPin, Star, 
   ChevronRight, Activity, PieChart,
-  AlertCircle, Bell, Search, Crown
+  AlertCircle, Bell, Search, Crown,
+  FileText // Added for Reports icon
 } from 'lucide-react';
 import { useAuth } from "../contexts/auth-context";
 import api from '../api/axios';
@@ -31,6 +32,11 @@ function Dashboard() {
   const [showModal, setShowModal] = useState(false);
   const [feedbacks, setFeedbacks] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  
+  // Remittance states
+  const [remittances, setRemittances] = useState([]);
+  const [weeklyRemittanceData, setWeeklyRemittanceData] = useState([]);
+  const [totalWeeklyRemittance, setTotalWeeklyRemittance] = useState(0);
 
   useEffect(() => {
     const storedToken = getToken();
@@ -42,7 +48,7 @@ function Dashboard() {
     if (!user || !storedToken) {
       navigate('/');
     }
-  }, [user]);
+  }, [user, navigate]);
 
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -50,7 +56,7 @@ function Dashboard() {
     if (!token || !user || (user.role !== 'admin' && user.role !== 'owner')) {
       navigate('/');
     }
-  }, []);
+  }, [user, navigate]);
 
   // Fetch all appointments
   const fetchAllAppointments = async () => {
@@ -139,6 +145,59 @@ function Dashboard() {
     }
   };
 
+  // Fetch remittances
+  const fetchRemittances = async () => {
+    try {
+      const response = await api.get('/remittance');
+      console.log('Remittances:', response.data);
+      if (Array.isArray(response.data)) {
+        setRemittances(response.data);
+        processWeeklyRemittances(response.data);
+      }
+    } catch (error) {
+      console.error('Error fetching remittances:', error);
+    }
+  };
+
+  // Process remittances for weekly view
+  const processWeeklyRemittances = (data) => {
+    // Get last 7 days (including today)
+    const days = [];
+    const today = new Date();
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    
+    // Generate last 7 days
+    for (let i = 6; i >= 0; i--) {
+      const date = new Date(today);
+      date.setDate(date.getDate() - i);
+      const dateStr = date.toISOString().split('T')[0];
+      days.push({
+        date: dateStr,
+        dayName: dayNames[date.getDay()],
+        amount: 0,
+        hasRemittance: false
+      });
+    }
+    
+    // Map remittances to days
+    data.forEach(remittance => {
+      const businessDate = remittance.business_schedules?.business_date;
+      if (businessDate) {
+        const dayIndex = days.findIndex(d => d.date === businessDate);
+        if (dayIndex !== -1) {
+          days[dayIndex].amount = parseFloat(remittance.remittance_amount) || 0;
+          days[dayIndex].hasRemittance = true;
+        }
+      }
+    });
+    
+    setWeeklyRemittanceData(days);
+    
+    // Calculate total weekly remittance
+    const total = days.reduce((sum, day) => sum + day.amount, 0);
+    setTotalWeeklyRemittance(total);
+  };
+
   // Get feedback for a specific appointment
   const getFeedbackForAppointment = (appointmentId) => {
     return feedbacks.find(f => f.appointment_id === appointmentId);
@@ -153,7 +212,8 @@ function Dashboard() {
         fetchServices(),
         fetchInventory(),
         fetchStaff(),
-        fetchFeedbacks()
+        fetchFeedbacks(),
+        fetchRemittances()
       ]);
       setIsLoading(false);
     };
@@ -167,8 +227,9 @@ function Dashboard() {
   const isServicesRoute = location.pathname === '/dashboard/services';
   const isEmployeesRoute = location.pathname === '/dashboard/employees';
   const isInventoryRoute = location.pathname === '/dashboard/inventory';
+  const isReportsRoute = location.pathname === '/dashboard/reports';
 
-  const isNestedRoute = isAppointmentsRoute || isServicesRoute || isEmployeesRoute || isInventoryRoute;
+  const isNestedRoute = isAppointmentsRoute || isServicesRoute || isEmployeesRoute || isInventoryRoute || isReportsRoute;
 
   const stats = [
     { label: 'Total Appointments', value: dashboardStats.totalAppointments.toString(), icon: Calendar, color: 'from-blue-500 to-blue-600', bgColor: 'bg-blue-50', textColor: 'text-blue-600', trend: '+12%' },
@@ -242,7 +303,7 @@ function Dashboard() {
     
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-        <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl mx-4 overflow-hidden max-h-[85vh] overflow-y-auto">
+        <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl mx-4 overflow-hidden max-h-[85vh] overflow-y-auto scrollbar-hide">
           <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-5 py-3 flex items-center justify-between sticky top-0">
             <h2 className="text-lg font-bold text-white">Appointment Details</h2>
             <button onClick={closeModal} className="text-white hover:bg-white/20 rounded-lg p-1">
@@ -356,6 +417,241 @@ function Dashboard() {
     );
   };
 
+  // Render dashboard content
+  const renderDashboardContent = () => (
+    <>
+      {/* Stats Grid - Smaller Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        {stats.map((stat, index) => (
+          <div key={index} className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 p-4 border border-gray-100">
+            <div className="flex items-center justify-between mb-2">
+              <div className={`${stat.bgColor} p-2 rounded-lg`}>
+                <stat.icon className={`${stat.textColor}`} size={16} />
+              </div>
+              <span className={`text-[10px] font-semibold ${stat.trend.startsWith('+') ? 'text-green-600' : 'text-red-600'} bg-green-50 px-1.5 py-0.5 rounded-full`}>
+                {stat.trend}
+              </span>
+            </div>
+            <h3 className="text-gray-500 text-xs font-medium">{stat.label}</h3>
+            <p className="text-xl font-bold text-gray-800 mt-0.5">{stat.value}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Charts Row */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6">
+        {/* Weekly Revenue / Remittance - Compact */}
+        <div className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 p-4 border border-gray-100">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="text-sm font-semibold text-gray-800">Weekly Remittance</h3>
+              <p className="text-[10px] text-gray-500 mt-0.5">Last 7 days remitted profits</p>
+            </div>
+            <div className="flex items-center gap-1">
+              <DollarSign className="text-green-500" size={16} />
+              <span className="text-xs font-semibold text-gray-700">₱{totalWeeklyRemittance.toLocaleString()}</span>
+            </div>
+          </div>
+          <div className="space-y-3">
+            {weeklyRemittanceData.length === 0 ? (
+              <div className="text-center py-8">
+                <AlertCircle size={32} className="text-gray-300 mx-auto mb-2" />
+                <p className="text-xs text-gray-400">No remittance data available</p>
+              </div>
+            ) : (
+              weeklyRemittanceData.map((day, index) => (
+                <div key={day.dayName} className="space-y-1">
+                  <div className="flex justify-between text-xs">
+                    <span className="font-medium text-gray-600">
+                      {day.dayName}
+                      <span className="text-[10px] text-gray-400 ml-1">
+                        {day.hasRemittance ? '✓' : ''}
+                      </span>
+                    </span>
+                    <span className={`font-bold ${day.amount > 0 ? 'text-green-600' : 'text-gray-400'}`}>
+                      {day.amount > 0 ? `₱${day.amount.toFixed(0)}` : '—'}
+                    </span>
+                  </div>
+                  <div className="relative">
+                    <div className="w-full bg-gray-100 rounded-full h-2 overflow-hidden">
+                      <div 
+                        className={`h-2 rounded-full transition-all duration-1000 ease-out ${
+                          day.amount > 0 
+                            ? 'bg-gradient-to-r from-green-500 to-green-600' 
+                            : 'bg-gray-200'
+                        }`}
+                        style={{ 
+                          width: day.amount > 0 
+                            ? `${Math.min((day.amount / Math.max(...weeklyRemittanceData.map(d => d.amount))) * 100, 100)}%` 
+                            : '0%' 
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* Appointment Status - Compact */}
+        <div className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 p-4 border border-gray-100">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="text-sm font-semibold text-gray-800">Appointment Status</h3>
+              <p className="text-[10px] text-gray-500 mt-0.5">Current overview</p>
+            </div>
+            <PieChart size={16} className="text-gray-400" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            {appointmentStatus.map((status, index) => (
+              <div 
+                key={index} 
+                onClick={() => navigate('/dashboard/appointments')}
+                className={`${status.bgColor} rounded-lg p-3 transition-all hover:scale-105 duration-300 cursor-pointer`}
+              >
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className={`${status.color} p-1.5 rounded-lg text-white`}>
+                    <status.icon size={12} />
+                  </div>
+                  <span className="text-lg font-bold text-gray-800">{status.count}</span>
+                </div>
+                <p className={`${status.textColor} font-semibold text-xs`}>{status.label}</p>
+                <p className="text-[10px] text-gray-500 mt-0.5">
+                  {dashboardStats.totalAppointments > 0 
+                    ? `${Math.round((status.count / dashboardStats.totalAppointments) * 100)}% of total` 
+                    : '0% of total'}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Recent Appointments Table - Without Staff Column */}
+      <div className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 border border-gray-100 overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-800">Recent Completed Appointments</h3>
+            <p className="text-[10px] text-gray-500 mt-0.5">Latest customer bookings</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <Search size={14} className="absolute left-2.5 top-1/2 transform -translate-y-1/2 text-gray-400" />
+              <input 
+                type="text" 
+                placeholder="Search..." 
+                className="pl-8 pr-3 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent w-36"
+              />
+            </div>
+            <Link 
+              to="/dashboard/appointments"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-md transition-all duration-300 text-xs font-medium"
+            >
+              <Eye size={12} />
+              <span>View All</span>
+            </Link>
+          </div>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-gradient-to-r from-gray-50 to-gray-100">
+              <tr>
+                <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Customer</th>
+                <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Service</th>
+                <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Date</th>
+                <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Time</th>
+                <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Status</th>
+                <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Rating</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {isLoading ? (
+                <tr>
+                  <td colSpan="6" className="px-4 py-8 text-center text-gray-500 text-sm">
+                    Loading appointments...
+                  </td>
+                </tr>
+              ) : recentCompletedAppointments.length === 0 ? (
+                <tr>
+                  <td colSpan="6" className="px-4 py-8 text-center text-gray-500 text-sm">
+                    No completed appointments found
+                  </td>
+                </tr>
+              ) : (
+                recentCompletedAppointments.map((appointment) => {
+                  const feedback = getFeedbackForAppointment(appointment.id);
+                  return (
+                    <tr 
+                      key={appointment.id} 
+                      onClick={() => handleAppointmentClick(appointment)}
+                      className="hover:bg-pink-50/30 transition-colors duration-200 group cursor-pointer"
+                    >
+                      <td className="px-4 py-2.5 whitespace-nowrap">
+                        <div className="flex items-center">
+                          <div className="w-6 h-6 bg-gradient-to-br from-pink-100 to-pink-200 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+                            <User size={11} className="text-pink-600" />
+                          </div>
+                          <div className="ml-2">
+                            <p className="text-xs font-semibold text-gray-900">{appointment.customer_name}</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-2.5 whitespace-nowrap">
+                        <div className="flex items-center gap-1.5">
+                          <Scissors size={11} className="text-gray-400" />
+                          <span className="text-xs text-gray-600">{appointment.service_name}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-2.5 whitespace-nowrap">
+                        <span className="text-xs text-gray-600">{formatDate(appointment.appointment_date)}</span>
+                      </td>
+                      <td className="px-4 py-2.5 whitespace-nowrap">
+                        <div className="flex items-center gap-1.5">
+                          <Clock size={11} className="text-gray-400" />
+                          <span className="text-xs text-gray-600">{formatTime(appointment.appointment_time)}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-2.5 whitespace-nowrap">
+                        <span className={`px-2 py-0.5 text-[10px] font-semibold rounded-full border ${getStatusColor(appointment.status)}`}>
+                          {appointment.status}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5 whitespace-nowrap">
+                        {feedback ? (
+                          <div className="flex items-center gap-0.5">
+                            <Star size={11} className="text-yellow-400 fill-yellow-400" />
+                            <span className="text-xs font-semibold text-gray-700">{feedback.rating}</span>
+                          </div>
+                        ) : (
+                          <span className="text-xs text-gray-400">No rating</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+        <div className="px-4 py-2.5 border-t border-gray-100 bg-gray-50/50">
+          <div className="flex items-center justify-between">
+            <p className="text-[10px] text-gray-500">
+              Showing {recentCompletedAppointments.length} of {dashboardStats.totalAppointments} appointments
+            </p>
+            <Link 
+              to="/dashboard/appointments"
+              className="flex items-center gap-0.5 text-[10px] text-pink-600 hover:text-pink-700 font-medium"
+            >
+              <span>View All</span>
+              <ChevronRight size={12} />
+            </Link>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
       {/* Appointment Details Modal */}
@@ -455,6 +751,19 @@ function Dashboard() {
               <Users size={18} />
               <span>Employees</span>
             </Link>
+            {/* Reports Link */}
+            <Link 
+              to="/dashboard/reports"
+              onClick={() => setSidebarOpen(false)}
+              className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg transition-all text-sm ${
+                isReportsRoute
+                  ? 'bg-gradient-to-r from-pink-50 to-pink-100 text-pink-600 font-semibold' 
+                  : 'text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              <FileText size={18} />
+              <span>Reports</span>
+            </Link>
           </nav>
 
           <div className="p-3 border-t border-gray-100">
@@ -482,6 +791,7 @@ function Dashboard() {
                     {isServicesRoute && 'Services'}
                     {isEmployeesRoute && 'Employees'}
                     {isInventoryRoute && 'Inventory'}
+                    {isReportsRoute && 'Reports'}
                     {isDashboardRoute && 'Dashboard'}
                   </h1>
                   <p className="text-xs text-gray-500 hidden sm:block">
@@ -489,6 +799,7 @@ function Dashboard() {
                     {isServicesRoute && 'Browse and manage salon services'}
                     {isEmployeesRoute && 'Manage your team members'}
                     {isInventoryRoute && 'Track and manage salon inventory'}
+                    {isReportsRoute && 'View and manage reports'}
                     {isDashboardRoute && 'Welcome back! Here\'s your overview'}
                   </p>
                 </div>
@@ -521,213 +832,7 @@ function Dashboard() {
           {isNestedRoute ? (
             <Outlet />
           ) : (
-            <>
-              {/* Stats Grid - Smaller Cards */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-                {stats.map((stat, index) => (
-                  <div key={index} className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 p-4 border border-gray-100">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className={`${stat.bgColor} p-2 rounded-lg`}>
-                        <stat.icon className={`${stat.textColor}`} size={16} />
-                      </div>
-                      <span className={`text-[10px] font-semibold ${stat.trend.startsWith('+') ? 'text-green-600' : 'text-red-600'} bg-green-50 px-1.5 py-0.5 rounded-full`}>
-                        {stat.trend}
-                      </span>
-                    </div>
-                    <h3 className="text-gray-500 text-xs font-medium">{stat.label}</h3>
-                    <p className="text-xl font-bold text-gray-800 mt-0.5">{stat.value}</p>
-                  </div>
-                ))}
-              </div>
-
-              {/* Charts Row */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6">
-                {/* Weekly Revenue - Compact */}
-                <div className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 p-4 border border-gray-100">
-                  <div className="flex items-center justify-between mb-4">
-                    <div>
-                      <h3 className="text-sm font-semibold text-gray-800">Weekly Revenue</h3>
-                      <p className="text-[10px] text-gray-500 mt-0.5">Last 7 days performance</p>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <DollarSign className="text-green-500" size={16} />
-                      <span className="text-xs font-semibold text-gray-700">₱132.5k</span>
-                    </div>
-                  </div>
-                  <div className="space-y-3">
-                    {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day, index) => (
-                      <div key={day} className="space-y-1">
-                        <div className="flex justify-between text-xs">
-                          <span className="font-medium text-gray-600">{day}</span>
-                          <span className="font-bold text-gray-800">₱{(Math.random() * 30000 + 10000).toFixed(0)}</span>
-                        </div>
-                        <div className="relative">
-                          <div className="w-full bg-gray-100 rounded-full h-2 overflow-hidden">
-                            <div 
-                              className="bg-gradient-to-r from-pink-500 to-pink-600 h-2 rounded-full transition-all duration-1000 ease-out"
-                              style={{ width: `${Math.random() * 80 + 20}%` }}
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Appointment Status - Compact */}
-                <div className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 p-4 border border-gray-100">
-                  <div className="flex items-center justify-between mb-4">
-                    <div>
-                      <h3 className="text-sm font-semibold text-gray-800">Appointment Status</h3>
-                      <p className="text-[10px] text-gray-500 mt-0.5">Current overview</p>
-                    </div>
-                    <PieChart size={16} className="text-gray-400" />
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    {appointmentStatus.map((status, index) => (
-                      <div 
-                        key={index} 
-                        onClick={() => navigate('/dashboard/appointments')}
-                        className={`${status.bgColor} rounded-lg p-3 transition-all hover:scale-105 duration-300 cursor-pointer`}
-                      >
-                        <div className="flex items-center justify-between mb-1.5">
-                          <div className={`${status.color} p-1.5 rounded-lg text-white`}>
-                            <status.icon size={12} />
-                          </div>
-                          <span className="text-lg font-bold text-gray-800">{status.count}</span>
-                        </div>
-                        <p className={`${status.textColor} font-semibold text-xs`}>{status.label}</p>
-                        <p className="text-[10px] text-gray-500 mt-0.5">
-                          {Math.round((status.count / dashboardStats.totalAppointments) * 100)}% of total
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* Recent Appointments Table - Without Staff Column */}
-              <div className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 border border-gray-100 overflow-hidden">
-                <div className="px-4 py-3 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                  <div>
-                    <h3 className="text-sm font-semibold text-gray-800">Recent Completed Appointments</h3>
-                    <p className="text-[10px] text-gray-500 mt-0.5">Latest customer bookings</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="relative">
-                      <Search size={14} className="absolute left-2.5 top-1/2 transform -translate-y-1/2 text-gray-400" />
-                      <input 
-                        type="text" 
-                        placeholder="Search..." 
-                        className="pl-8 pr-3 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent w-36"
-                      />
-                    </div>
-                    <Link 
-                      to="/dashboard/appointments"
-                      className="flex items-center gap-1.5 px-2.5 py-1.5 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-md transition-all duration-300 text-xs font-medium"
-                    >
-                      <Eye size={12} />
-                      <span>View All</span>
-                    </Link>
-                  </div>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead className="bg-gradient-to-r from-gray-50 to-gray-100">
-                      <tr>
-                        <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Customer</th>
-                        <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Service</th>
-                        <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Date</th>
-                        <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Time</th>
-                        <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Status</th>
-                        <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Rating</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {isLoading ? (
-                        <tr>
-                          <td colSpan="6" className="px-4 py-8 text-center text-gray-500 text-sm">
-                            Loading appointments...
-                          </td>
-                        </tr>
-                      ) : recentCompletedAppointments.length === 0 ? (
-                        <tr>
-                          <td colSpan="6" className="px-4 py-8 text-center text-gray-500 text-sm">
-                            No completed appointments found
-                          </td>
-                        </tr>
-                      ) : (
-                        recentCompletedAppointments.map((appointment) => {
-                          const feedback = getFeedbackForAppointment(appointment.id);
-                          return (
-                            <tr 
-                              key={appointment.id} 
-                              onClick={() => handleAppointmentClick(appointment)}
-                              className="hover:bg-pink-50/30 transition-colors duration-200 group cursor-pointer"
-                            >
-                              <td className="px-4 py-2.5 whitespace-nowrap">
-                                <div className="flex items-center">
-                                  <div className="w-6 h-6 bg-gradient-to-br from-pink-100 to-pink-200 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
-                                    <User size={11} className="text-pink-600" />
-                                  </div>
-                                  <div className="ml-2">
-                                    <p className="text-xs font-semibold text-gray-900">{appointment.customer_name}</p>
-                                  </div>
-                                </div>
-                              </td>
-                              <td className="px-4 py-2.5 whitespace-nowrap">
-                                <div className="flex items-center gap-1.5">
-                                  <Scissors size={11} className="text-gray-400" />
-                                  <span className="text-xs text-gray-600">{appointment.service_name}</span>
-                                </div>
-                              </td>
-                              <td className="px-4 py-2.5 whitespace-nowrap">
-                                <span className="text-xs text-gray-600">{formatDate(appointment.appointment_date)}</span>
-                              </td>
-                              <td className="px-4 py-2.5 whitespace-nowrap">
-                                <div className="flex items-center gap-1.5">
-                                  <Clock size={11} className="text-gray-400" />
-                                  <span className="text-xs text-gray-600">{formatTime(appointment.appointment_time)}</span>
-                                </div>
-                              </td>
-                              <td className="px-4 py-2.5 whitespace-nowrap">
-                                <span className={`px-2 py-0.5 text-[10px] font-semibold rounded-full border ${getStatusColor(appointment.status)}`}>
-                                  {appointment.status}
-                                </span>
-                              </td>
-                              <td className="px-4 py-2.5 whitespace-nowrap">
-                                {feedback ? (
-                                  <div className="flex items-center gap-0.5">
-                                    <Star size={11} className="text-yellow-400 fill-yellow-400" />
-                                    <span className="text-xs font-semibold text-gray-700">{feedback.rating}</span>
-                                  </div>
-                                ) : (
-                                  <span className="text-xs text-gray-400">No rating</span>
-                                )}
-                              </td>
-                            </tr>
-                          );
-                        })
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-                <div className="px-4 py-2.5 border-t border-gray-100 bg-gray-50/50">
-                  <div className="flex items-center justify-between">
-                    <p className="text-[10px] text-gray-500">
-                      Showing {recentCompletedAppointments.length} of {dashboardStats.totalAppointments} appointments
-                    </p>
-                    <Link 
-                      to="/dashboard/appointments"
-                      className="flex items-center gap-0.5 text-[10px] text-pink-600 hover:text-pink-700 font-medium"
-                    >
-                      <span>View All</span>
-                      <ChevronRight size={12} />
-                    </Link>
-                  </div>
-                </div>
-              </div>
-            </>
+            renderDashboardContent()
           )}
         </main>
       </div>

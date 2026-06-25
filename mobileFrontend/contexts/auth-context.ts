@@ -229,6 +229,79 @@ interface StaffAssignment {
   business_schedules?: BusinessSchedule;
 }
 
+// New interfaces for remittance and commission
+interface Remittance {
+  id?: number;
+  business_date_id: number;
+  remittance_amount: number;
+  created_at?: string;
+  updated_at?: string;
+  business_schedule?: BusinessSchedule;
+}
+
+interface EmployeeCommission {
+  id?: number;
+  employee_id: number;
+  commission_amount: number;
+  created_at?: string;
+  updated_at?: string;
+  employee?: StaffMember;
+}
+
+interface SubmitRemittanceData {
+  business_date_id: number;
+  remittance_amount: number;
+}
+
+interface AddCommissionData {
+  employee_id: number;
+  commission_amount: number;
+}
+
+// Loss and Damage interfaces
+interface LossDamage {
+  id?: number;
+  date: string;
+  incident_type: 'damage' | 'inventory_loss' | 'theft';
+  category: 'product' | 'service' | 'other';
+  amount: number;
+  description: string;
+  staff_id: number;
+  inventory_id?: number | null;
+  transaction_id?: number | null;
+  status: 'reported' | 'written-off' | 'resolved';
+  created_at?: string;
+  updated_at?: string;
+  user?: User;
+  inventory?: any;
+  transaction?: Transaction;
+}
+
+interface SubmitLossDamageData {
+  date: string;
+  incident_type: string;
+  category: string;
+  amount: number;
+  description: string;
+  staff_id: number;
+  inventory_id?: number | null;
+  transaction_id?: number | null;
+  status?: string;
+}
+
+interface UpdateLossDamageData {
+  id: number;
+  date: string;
+  incident_type: string;
+  category: string;
+  amount: number;
+  description: string;
+  staff_id: number;
+  inventory_id?: number | null;
+  transaction_id?: number | null;
+  status: string;
+}
+
 interface AuthState {
   user: User | null;
   appointments: Appointment[];
@@ -241,6 +314,9 @@ interface AuthState {
   staffFeedbacks: StaffFeedback[];
   businessSchedules: BusinessSchedule[];
   staffAssignments: StaffAssignment[];
+  remittances: Remittance[];
+  employeeCommissions: EmployeeCommission[];
+  lossDamages: LossDamage[];
   isLoading: boolean;
   
   // User methods
@@ -310,6 +386,25 @@ interface AuthState {
   fetchStaffAssignments: () => Promise<StaffAssignment[]>;
   getStaffAssignmentsByDate: (date: string) => StaffAssignment[];
   getStaffByDateAndSpecialty: (date: string, specialtyName: string) => StaffMember[];
+
+  // Remittance methods
+  fetchRemittances: () => Promise<Remittance[]>;
+  submitRemittance: (data: SubmitRemittanceData) => Promise<any>;
+  getRemittancesByDate: (date: string) => Remittance[];
+
+  // Employee Commission methods
+  fetchEmployeeCommissions: () => Promise<EmployeeCommission[]>;
+  addEmployeeCommission: (data: AddCommissionData) => Promise<any>;
+  getCommissionsByEmployee: (employeeId: number) => EmployeeCommission[];
+  getTotalCommissions: () => number;
+
+  // Loss and Damage methods
+  fetchLossDamages: () => Promise<LossDamage[]>;
+  submitLossDamage: (data: SubmitLossDamageData) => Promise<any>;
+  updateLossDamage: (id: number, data: UpdateLossDamageData) => Promise<any>;
+  getLossDamagesByStaff: (staffId: number) => LossDamage[];
+  getTotalLossDamages: () => number;
+  getLossDamagesByDate: (date: string) => LossDamage[];
 }
 
 export const useAuth = create<AuthState>((set, get) => ({
@@ -324,6 +419,9 @@ export const useAuth = create<AuthState>((set, get) => ({
   staffFeedbacks: [],
   businessSchedules: [],
   staffAssignments: [],
+  remittances: [],
+  employeeCommissions: [],
+  lossDamages: [],
   isLoading: false,
 
   getUser: async () => {
@@ -357,6 +455,9 @@ export const useAuth = create<AuthState>((set, get) => ({
       await get().fetchStaffFeedbacks();
       await get().fetchBusinessSchedules();
       await get().fetchStaffAssignments();
+      await get().fetchRemittances();
+      await get().fetchEmployeeCommissions();
+      await get().fetchLossDamages();
     } catch (error) {
       console.log("Login error:", error);
       throw error;
@@ -389,7 +490,10 @@ export const useAuth = create<AuthState>((set, get) => ({
         feedbacks: [],
         staffFeedbacks: [],
         businessSchedules: [],
-        staffAssignments: []
+        staffAssignments: [],
+        remittances: [],
+        employeeCommissions: [],
+        lossDamages: []
       });
     } catch (error) {
       console.log("Logout error:", error);
@@ -989,5 +1093,218 @@ export const useAuth = create<AuthState>((set, get) => ({
           specialty.is_active === 1
       ) || false;
     });
+  },
+
+  // Remittance methods
+  fetchRemittances: async () => {
+    set({ isLoading: true });
+    try {
+      const response = await axios.get('/remittance');
+      console.log('Fetched remittances:', response.data);
+      
+      let remittancesData: Remittance[] = [];
+      if (Array.isArray(response.data)) {
+        remittancesData = response.data.map((item: any) => ({
+          id: item.id,
+          business_date_id: item.business_date_id,
+          remittance_amount: parseFloat(item.remittance_amount) || 0,
+          created_at: item.created_at,
+          updated_at: item.updated_at,
+          business_schedule: item.business_schedule
+        }));
+      }
+      
+      console.log('Processed remittances:', remittancesData);
+      set({ remittances: remittancesData });
+      return remittancesData;
+    } catch (error) {
+      console.error('Error fetching remittances:', error);
+      return [];
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+
+  submitRemittance: async (data: SubmitRemittanceData) => {
+    try {
+      const response = await axios.post('/remittance/submit', {
+        business_date_id: data.business_date_id,
+        remittance_amount: data.remittance_amount
+      });
+      console.log('Remittance submitted:', response.data);
+      
+      await get().fetchRemittances();
+      
+      return response.data;
+    } catch (error) {
+      console.error('Error submitting remittance:', error);
+      throw error;
+    }
+  },
+
+  getRemittancesByDate: (date: string) => {
+    const { remittances, businessSchedules } = get();
+    const schedule = businessSchedules.find(s => s.business_date === date);
+    if (!schedule) return [];
+    return remittances.filter(remittance => remittance.business_date_id === schedule.id);
+  },
+
+  // Employee Commission methods
+  fetchEmployeeCommissions: async () => {
+    set({ isLoading: true });
+    try {
+      const response = await axios.get('/employee/commission');
+      console.log('Fetched employee commissions:', response.data);
+      
+      let commissionsData: EmployeeCommission[] = [];
+      if (Array.isArray(response.data)) {
+        commissionsData = response.data.map((item: any) => ({
+          id: item.id,
+          employee_id: item.employee_id,
+          commission_amount: parseFloat(item.commission_amount) || 0,
+          created_at: item.created_at,
+          updated_at: item.updated_at,
+          employee: item.employee
+        }));
+      }
+      
+      console.log('Processed employee commissions:', commissionsData);
+      set({ employeeCommissions: commissionsData });
+      return commissionsData;
+    } catch (error) {
+      console.error('Error fetching employee commissions:', error);
+      return [];
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+
+  addEmployeeCommission: async (data: AddCommissionData) => {
+    try {
+      const response = await axios.post('/employee/commission/add', {
+        employee_id: data.employee_id,
+        commission_amount: data.commission_amount
+      });
+      console.log('Employee commission added:', response.data);
+      
+      await get().fetchEmployeeCommissions();
+      
+      return response.data;
+    } catch (error) {
+      console.error('Error adding employee commission:', error);
+      throw error;
+    }
+  },
+
+  getCommissionsByEmployee: (employeeId: number) => {
+    const { employeeCommissions } = get();
+    return employeeCommissions.filter(commission => commission.employee_id === employeeId);
+  },
+
+  getTotalCommissions: () => {
+    const { employeeCommissions } = get();
+    return employeeCommissions.reduce((sum, commission) => sum + commission.commission_amount, 0);
+  },
+
+  // Loss and Damage methods
+  fetchLossDamages: async () => {
+    set({ isLoading: true });
+    try {
+      const response = await axios.get('/report');
+      console.log('Fetched loss and damage reports:', response.data);
+      
+      let lossDamagesData: LossDamage[] = [];
+      if (Array.isArray(response.data)) {
+        lossDamagesData = response.data.map((item: any) => ({
+          id: item.id,
+          date: item.date,
+          incident_type: item.incident_type,
+          category: item.category,
+          amount: parseFloat(item.amount) || 0,
+          description: item.description,
+          staff_id: item.staff_id,
+          inventory_id: item.inventory_id,
+          transaction_id: item.transaction_id,
+          status: item.status,
+          created_at: item.created_at,
+          updated_at: item.updated_at,
+          user: item.user,
+          inventory: item.inventory,
+          transaction: item.transaction
+        }));
+      }
+      
+      console.log('Processed loss and damage reports:', lossDamagesData);
+      set({ lossDamages: lossDamagesData });
+      return lossDamagesData;
+    } catch (error) {
+      console.error('Error fetching loss and damage reports:', error);
+      return [];
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+
+  submitLossDamage: async (data: SubmitLossDamageData) => {
+    try {
+      const response = await axios.post('/report/submit', {
+        date: data.date,
+        incident_type: data.incident_type,
+        category: data.category,
+        amount: data.amount,
+        description: data.description,
+        staff_id: data.staff_id,
+        inventory_id: data.inventory_id || null,
+        transaction_id: data.transaction_id || null,
+        status: data.status || 'reported'
+      });
+      console.log('Loss and damage report submitted:', response.data);
+      
+      await get().fetchLossDamages();
+      
+      return response.data;
+    } catch (error) {
+      console.error('Error submitting loss and damage report:', error);
+      throw error;
+    }
+  },
+
+  updateLossDamage: async (id: number, data: UpdateLossDamageData) => {
+    try {
+      const response = await axios.post(`/report/update/${id}`, {
+        date: data.date,
+        incident_type: data.incident_type,
+        category: data.category,
+        amount: data.amount,
+        description: data.description,
+        staff_id: data.staff_id,
+        inventory_id: data.inventory_id || null,
+        transaction_id: data.transaction_id || null,
+        status: data.status
+      });
+      console.log('Loss and damage report updated:', response.data);
+      
+      await get().fetchLossDamages();
+      
+      return response.data;
+    } catch (error) {
+      console.error('Error updating loss and damage report:', error);
+      throw error;
+    }
+  },
+
+  getLossDamagesByStaff: (staffId: number) => {
+    const { lossDamages } = get();
+    return lossDamages.filter(report => report.staff_id === staffId);
+  },
+
+  getTotalLossDamages: () => {
+    const { lossDamages } = get();
+    return lossDamages.reduce((sum, report) => sum + report.amount, 0);
+  },
+
+  getLossDamagesByDate: (date: string) => {
+    const { lossDamages } = get();
+    return lossDamages.filter(report => report.date === date);
   }
 }));

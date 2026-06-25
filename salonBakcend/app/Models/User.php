@@ -10,6 +10,7 @@ use App\Models\StaffSpecialties;
 use App\Models\StaffSchedules;
 use App\Models\AssignStaff;
 use App\Models\StaffFeedback;
+use App\Models\LossDamage;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -62,12 +63,12 @@ class User extends Authenticatable
 
     public function transaction()
     {
-        return $this->hasMany(Transaction::class, 'assigned_employee_id');
+        return $this->hasMany(Transaction::class, 'assigned_employee_id', 'id');
     }
 
     public function employeeCommission()
     {
-        return $this->hasMany(EmployeeCommission::class, 'employee_id');
+        return $this->hasMany(EmployeeCommission::class, 'employee_id', 'id');
     }
 
     public function feedback()
@@ -93,6 +94,11 @@ class User extends Authenticatable
     public function staffFeedack()
     {
         return $this->hasMany(staffFeedback::class, 'staff_id', 'id');
+    }
+
+    public function lossDamage()
+    {
+        return $this->hasMany(LossDamage::class, 'staff_id', 'id');
     }
 
 }

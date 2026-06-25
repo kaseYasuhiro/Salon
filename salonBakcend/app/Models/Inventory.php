@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Models\Products;
 use App\Models\InventoryTransaction;
+use App\Models\LossDamage;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
@@ -26,5 +27,10 @@ class Inventory extends Model
     public function inventoryTransaction()
     {
         return $this->hasMany(InventoryTransaction::class, 'inventory_id');
+    }
+
+    public function lossDamage()
+    {
+        return $this->hasMany(LossDamage::class, 'inventory_id', 'id');
     }
 }

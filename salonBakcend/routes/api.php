@@ -15,6 +15,9 @@ use App\Http\Controllers\BusinessSchedulesController;
 use App\Http\Controllers\AssignStaffController;
 use App\Http\Controllers\FeedbackController;
 use App\Http\Controllers\StaffFeedbackController;
+use App\Http\Controllers\RemittanceController;
+use App\Http\Controllers\EmployeeCommissionController;
+use App\Http\Controllers\LossDamageController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -44,21 +47,17 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/service/add', [ServicesController::class, 'addService']);
     Route::post('/services/update/{id}', [ServicesController::class, 'updateService']);
     Route::post('/services/delete/{id}', [ServicesController::class, 'deleteService']);
-
     Route::get('/employees', [UserController::class, 'getEmployees']);
     Route::post('/employees/update/{id}', [UserController::class, 'updateEmployee']);
     Route::post('/employees/delete/{id}', [UserController::class, 'deleteEmployee']);
     Route::post('/employees/specialty/add', [StaffSpecialtiesController::class, 'addStaffSpecialty']);
     Route::get('/employee/specialties', [JoinedController::class, 'staffWithSpecialties']);
-
     Route::get('/feedbacks', [JoinedController::class, 'viewFeedbacks']);
     route::get('/feedbacks/staff', [JoinedController::class, 'displayStaffReviews']);
-
     Route::get('/inventory', [JoinedController::class, 'invDisplay']);
     Route::post('/inventory/add' , [JoinedController::class, 'addProductsToInventory']);
     Route::post('/inventory/update', [JoinedController::class, 'updateProductsOnInventory']);
     Route::post('/inventory/delete', [JoinedController::class, 'deleteProductsFromInventory']);
-
     Route::get('/service/usage', [JoinedController::class, 'serviceWithUsages']);
     Route::post('/service/usage/add', [ServiceProductUsageController::class, 'addProductUsagePerService']);
     Route::get('/service/usage/{serviceId}', [ServiceProductUsageController::class, 'serviceProductUsage']);
@@ -66,18 +65,19 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/services/specialty/add', [ServiceSpecialtiesController::class, 'addServiceSpecialty']);
     Route::get('/services/specialties', [JoinedController::class, 'serviceWithSpecialties']);
     Route::get('/products', [ProductsController::class, 'displayProducts']);
-
     Route::get('/all-appointments', [JoinedController::class, 'allAppointments']);
     Route::put('/appointments/update/{id}', [JoinedController::class, 'updateAppointment']);
     Route::get('/staff', [JoinedController::class, 'getStaff']);
-
     Route::post('/specialty/add', [SpecialtiesController::class, 'addSpecialty']);
     Route::get('/specialties', [SpecialtiesController::class, 'displaySpecialties']);
-
     Route::post('/daysched/add', [BusinessSchedulesController::class, 'addDateSchedule']);
     Route::get('/daysched', [BusinessSchedulesController::class, 'displayBusinessSchedules']);
-
     Route::get('/assign', [JoinedController::class, 'assignedStaffSchedules']);
+    Route::get('/remittance', [JoinedController::class, 'remittanceReport']);
+    Route::post('/employee/commission/add', [EmployeeCommissionController::class, 'addCommission']);
+    Route::post('/report/update/{id}', [LossDamageController::class, 'updateIncidentReport']);
+    Route::get('/report', [JoinedController::class, 'lossAndDamageReports']);
+
 
 
     //customer side
@@ -89,7 +89,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/feedbacks/submit', [FeedbackController::class, 'submitFeedback']);
     Route::post('/user/{id}/password', [UserController::class, 'updatePassword']);
     Route::post('/feedbacks/staff/submit', [StaffFeedbackController::class, 'submitStaffFeedback']);
-    Route::get('/transactions', [TransactionController::class, 'displayTransaction']);
+    
 
 
     //staff side
@@ -101,10 +101,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/test/service/{serviceId}/product-usages', [JoinedController::class, 'testServiceProductUsages']);
     Route::post('/assign/add', [AssignStaffController::class, 'staffAssignment']);
     Route::post('/profile/{id}/add', [UserController::class, 'addProfileImage']);
-
-    
+    Route::post('/remittance/submit', [RemittanceController::class, 'submitRemittance']);
+    Route::get('/employee/commission', [JoinedController::class, 'employeeCommissions']);
+    Route::get('/transactions', [JoinedController::class, 'transactionWithAssigned']);
+    Route::post('/report/submit', [LossDamageController::class, 'submitIncidentReport']);
 });
-
 
 
 

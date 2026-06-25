@@ -11,12 +11,11 @@ class EmployeeCommission extends Model
     protected $table = 'employee_commissions';
     protected $fillable = [
         'employee_id',
-        'transaction_id',
         'commission_amount',
     ];
 
     public function user()
     {
-        return $this->belongsTo(User::class, 'id');
+        return $this->belongsTo(User::class, 'employee_id', 'id');
     }
 }
