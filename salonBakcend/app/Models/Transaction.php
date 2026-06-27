@@ -34,7 +34,7 @@ class Transaction extends Model
 
     public function inventoryTransaction()
     {
-        return $this->hasMany(InventoryTransaction::class, 'transaction_id');
+        return $this->hasMany(InventoryTransaction::class, 'transaction_id', 'id');
     }
 
     public function appointments()

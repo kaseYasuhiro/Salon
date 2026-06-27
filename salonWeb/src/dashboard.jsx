@@ -9,7 +9,8 @@ import {
   User, Phone, MapPin, Star, 
   ChevronRight, Activity, PieChart,
   AlertCircle, Bell, Search, Crown,
-  FileText // Added for Reports icon
+  FileText, // Added for Reports icon
+  Box // Added for Products icon
 } from 'lucide-react';
 import { useAuth } from "../contexts/auth-context";
 import api from '../api/axios';
@@ -228,8 +229,9 @@ function Dashboard() {
   const isEmployeesRoute = location.pathname === '/dashboard/employees';
   const isInventoryRoute = location.pathname === '/dashboard/inventory';
   const isReportsRoute = location.pathname === '/dashboard/reports';
+  const isProductsRoute = location.pathname === '/dashboard/products';
 
-  const isNestedRoute = isAppointmentsRoute || isServicesRoute || isEmployeesRoute || isInventoryRoute || isReportsRoute;
+  const isNestedRoute = isAppointmentsRoute || isServicesRoute || isEmployeesRoute || isInventoryRoute || isReportsRoute || isProductsRoute;
 
   const stats = [
     { label: 'Total Appointments', value: dashboardStats.totalAppointments.toString(), icon: Calendar, color: 'from-blue-500 to-blue-600', bgColor: 'bg-blue-50', textColor: 'text-blue-600', trend: '+12%' },
@@ -731,7 +733,7 @@ function Dashboard() {
               to="/dashboard/inventory"
               onClick={() => setSidebarOpen(false)}
               className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg transition-all text-sm ${
-                location.pathname === '/dashboard/inventory'
+                isInventoryRoute
                   ? 'bg-gradient-to-r from-pink-50 to-pink-100 text-pink-600 font-semibold'
                   : 'text-gray-600 hover:bg-gray-50'
               }`}
@@ -740,10 +742,22 @@ function Dashboard() {
               <span>Inventory</span>
             </Link>
             <Link 
+              to="/dashboard/products"
+              onClick={() => setSidebarOpen(false)}
+              className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg transition-all text-sm ${
+                isProductsRoute
+                  ? 'bg-gradient-to-r from-pink-50 to-pink-100 text-pink-600 font-semibold'
+                  : 'text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              <Box size={18} />
+              <span>Products</span>
+            </Link>
+            <Link 
               to="/dashboard/employees"
               onClick={() => setSidebarOpen(false)}
               className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg transition-all text-sm ${
-                location.pathname === '/dashboard/employees'
+                isEmployeesRoute
                   ? 'bg-gradient-to-r from-pink-50 to-pink-100 text-pink-600 font-semibold' 
                   : 'text-gray-600 hover:bg-gray-50'
               }`}
@@ -791,6 +805,7 @@ function Dashboard() {
                     {isServicesRoute && 'Services'}
                     {isEmployeesRoute && 'Employees'}
                     {isInventoryRoute && 'Inventory'}
+                    {isProductsRoute && 'Products'}
                     {isReportsRoute && 'Reports'}
                     {isDashboardRoute && 'Dashboard'}
                   </h1>
@@ -799,6 +814,7 @@ function Dashboard() {
                     {isServicesRoute && 'Browse and manage salon services'}
                     {isEmployeesRoute && 'Manage your team members'}
                     {isInventoryRoute && 'Track and manage salon inventory'}
+                    {isProductsRoute && 'Manage salon products'}
                     {isReportsRoute && 'View and manage reports'}
                     {isDashboardRoute && 'Welcome back! Here\'s your overview'}
                   </p>

@@ -26,7 +26,7 @@ class Inventory extends Model
 
     public function inventoryTransaction()
     {
-        return $this->hasMany(InventoryTransaction::class, 'inventory_id');
+        return $this->hasMany(InventoryTransaction::class, 'inventory_id', 'id');
     }
 
     public function lossDamage()

@@ -98,6 +98,10 @@ class JoinedController extends Controller
         return LossDamage::with(['user', 'inventory', 'transaction'])->get();
     }
 
+    public function inventoryTransactions()
+    {
+        return InventoryTransaction::with(['inventory', 'transaction'])->get();
+    }
 
 
 
@@ -142,43 +146,43 @@ class JoinedController extends Controller
         ], 200);
     }
 
-    public function updateProductsOnInventory(Request $request, $id)
-    {
-        $request->validate([
-            'product_name' => ['required', 'string'],
-            'description' => ['required', 'string'],
-            'unit' => ['required', 'string'],
-            'unit_size' => ['required', 'string'],
-            'estimated_usages_per_unit' => ['required', 'numeric'],
+    // public function updateProductsOnInventory(Request $request, $id)
+    // {
+    //     $request->validate([
+    //         'product_name' => ['required', 'string'],
+    //         'description' => ['required', 'string'],
+    //         'unit' => ['required', 'string'],
+    //         'unit_size' => ['required', 'string'],
+    //         'estimated_usages_per_unit' => ['required', 'numeric'],
 
-            'product_quantity' => ['required', 'numeric'],
-            'current_usages' => ['required', 'numeric'],
-            'reorder_level' => ['required', 'numeric'],
-            'expiration_date' => ['required', 'date', 'date_format:m/d/Y']
-        ]);
+    //         'product_quantity' => ['required', 'numeric'],
+    //         'current_usages' => ['required', 'numeric'],
+    //         'reorder_level' => ['required', 'numeric'],
+    //         'expiration_date' => ['required', 'date', 'date_format:Y-m-d']
+    //     ]);
 
-        $product = Products::where('id', $id)->first();
-        $inventory = Inventory::where('id', $id)->first();
+    //     $product = Products::where('id', $id)->first();
+    //     $inventory = Inventory::where('id', $id)->first();
 
-        $product->update([
-            'product_name' => $request->product_name,
-            'description' => $request->description,
-            'unit' => $request->unit,
-            'unit_size' => $request->unit_size,
-            'estimated_usages_per_unit' => $request->estimated_usages_per_unit
-        ]);
+    //     $product->update([
+    //         'product_name' => $request->product_name,
+    //         'description' => $request->description,
+    //         'unit' => $request->unit,
+    //         'unit_size' => $request->unit_size,
+    //         'estimated_usages_per_unit' => $request->estimated_usages_per_unit
+    //     ]);
 
-        $inventory->update([
-            'product_quantity' => $request->product_quantity,
-            'current_usages' => $request->current_usages,
-            'reorder_level' => $request->reorder_level,
-            'expiration_date' => $request->expiration_date
-        ]);
+    //     $inventory->update([
+    //         'product_quantity' => $request->product_quantity,
+    //         'current_usages' => $request->current_usages,
+    //         'reorder_level' => $request->reorder_level,
+    //         'expiration_date' => $request->expiration_date
+    //     ]);
 
-        return response()->json([
-            'message' => 'Inventory Updated Successfully'
-        ], 200);
-    }
+    //     return response()->json([
+    //         'message' => 'Inventory Updated Successfully'
+    //     ], 200);
+    // }
 
     public function deleteProductsFromInventory($id)
     {

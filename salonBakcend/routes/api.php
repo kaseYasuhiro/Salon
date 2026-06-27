@@ -18,6 +18,7 @@ use App\Http\Controllers\StaffFeedbackController;
 use App\Http\Controllers\RemittanceController;
 use App\Http\Controllers\EmployeeCommissionController;
 use App\Http\Controllers\LossDamageController;
+use App\Http\Controllers\InventoryController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -55,8 +56,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/feedbacks', [JoinedController::class, 'viewFeedbacks']);
     route::get('/feedbacks/staff', [JoinedController::class, 'displayStaffReviews']);
     Route::get('/inventory', [JoinedController::class, 'invDisplay']);
-    Route::post('/inventory/add' , [JoinedController::class, 'addProductsToInventory']);
-    Route::post('/inventory/update', [JoinedController::class, 'updateProductsOnInventory']);
+    Route::post('/inventory/add' , [InventoryController::class, 'addStocks']);  
+    Route::post('/inventory/update/{id}', [InventoryController::class, 'inventoryRestock']);
     Route::post('/inventory/delete', [JoinedController::class, 'deleteProductsFromInventory']);
     Route::get('/service/usage', [JoinedController::class, 'serviceWithUsages']);
     Route::post('/service/usage/add', [ServiceProductUsageController::class, 'addProductUsagePerService']);
@@ -65,6 +66,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/services/specialty/add', [ServiceSpecialtiesController::class, 'addServiceSpecialty']);
     Route::get('/services/specialties', [JoinedController::class, 'serviceWithSpecialties']);
     Route::get('/products', [ProductsController::class, 'displayProducts']);
+    Route::post('/products/add', [ProductsController::class, 'addProduct']);
     Route::get('/all-appointments', [JoinedController::class, 'allAppointments']);
     Route::put('/appointments/update/{id}', [JoinedController::class, 'updateAppointment']);
     Route::get('/staff', [JoinedController::class, 'getStaff']);
@@ -108,7 +110,7 @@ Route::middleware('auth:sanctum')->group(function () {
 });
 
 
-
+Route::get('/inventory/transactions', [JoinedController::class, 'inventoryTransactions']);
 
 
 

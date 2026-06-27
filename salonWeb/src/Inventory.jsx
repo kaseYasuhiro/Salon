@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { 
   Package, Search, Plus, Edit, Trash2, Filter,
   AlertCircle, CheckCircle, Clock, DollarSign,
-  TrendingUp, TrendingDown, X, AlertTriangle, Calendar
+  TrendingUp, TrendingDown, X, AlertTriangle, Calendar,
+  Eye, History
 } from 'lucide-react';
 import api from '../api/axios';
 
@@ -11,18 +12,26 @@ function Inventory() {
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [viewMode, setViewMode] = useState('table');
   const [inventory, setInventory] = useState([]);
+  const [products, setProducts] = useState([]);
+  const [filteredProducts, setFilteredProducts] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [showModal, setShowModal] = useState(false);
+  const [showAddStockModal, setShowAddStockModal] = useState(false);
+  const [showRestockModal, setShowRestockModal] = useState(false);
+  const [showTransactionsModal, setShowTransactionsModal] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [formError, setFormError] = useState('');
   const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
+  const [productSearch, setProductSearch] = useState('');
+  const [selectedProduct, setSelectedProduct] = useState(null);
+  const [showProductDropdown, setShowProductDropdown] = useState(false);
+  const [restockQuantity, setRestockQuantity] = useState('');
+  const [transactions, setTransactions] = useState([]);
+  const [selectedInventoryItem, setSelectedInventoryItem] = useState(null);
+  const [isLoadingTransactions, setIsLoadingTransactions] = useState(false);
 
   const [formData, setFormData] = useState({
+    product_id: '',
     product_name: '',
-    description: '',
-    unit: '',
-    unit_size: '',
-    estimated_usages_per_unit: '',
     product_quantity: '',
     current_usages: '',
     reorder_level: '',
@@ -58,6 +67,20 @@ function Inventory() {
     today.setHours(0, 0, 0, 0);
     expDate.setHours(0, 0, 0, 0);
     return expDate <= today;
+  };
+
+  // Fetch products for dropdown
+  const fetchProducts = async () => {
+    try {
+      const response = await api.get('/products');
+      console.log('Fetched products:', response.data);
+      if (Array.isArray(response.data)) {
+        setProducts(response.data);
+        setFilteredProducts(response.data);
+      }
+    } catch (error) {
+      console.error('Error fetching products:', error);
+    }
   };
 
   // Fetch inventory from API
@@ -98,9 +121,46 @@ function Inventory() {
     }
   };
 
+  // Fetch inventory transactions
+  const fetchInventoryTransactions = async () => {
+    setIsLoadingTransactions(true);
+    try {
+      const response = await api.get('/inventory/transactions');
+      console.log('Fetched inventory transactions:', response.data);
+      if (Array.isArray(response.data)) {
+        setTransactions(response.data);
+      }
+    } catch (error) {
+      console.error('Error fetching inventory transactions:', error);
+      showToast('Failed to fetch transactions', 'error');
+    } finally {
+      setIsLoadingTransactions(false);
+    }
+  };
+
   useEffect(() => {
     fetchInventory();
+    fetchProducts();
+    fetchInventoryTransactions();
   }, []);
+
+  // Filter products for dropdown
+  useEffect(() => {
+    if (productSearch) {
+      const filtered = products.filter(p => 
+        p.product_name.toLowerCase().includes(productSearch.toLowerCase())
+      );
+      setFilteredProducts(filtered);
+    } else {
+      setFilteredProducts(products);
+    }
+  }, [productSearch, products]);
+
+  // Filter out products that are already in inventory
+  const getAvailableProducts = () => {
+    const inventoryProductIds = inventory.map(item => item.product_id);
+    return filteredProducts.filter(product => !inventoryProductIds.includes(product.id));
+  };
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -108,39 +168,75 @@ function Inventory() {
     setFormError('');
   };
 
-  // Add product to inventory
-  const handleAddItem = async (e) => {
+  // Handle product selection from dropdown
+  const handleProductSelect = (product) => {
+    setSelectedProduct(product);
+    setFormData(prev => ({
+      ...prev,
+      product_id: product.id,
+      product_name: product.product_name,
+      product_quantity: '',
+      current_usages: '',
+      reorder_level: '',
+      expiration_date: ''
+    }));
+    setProductSearch(product.product_name);
+    setShowProductDropdown(false);
+  };
+
+  // Add stock to inventory
+  const handleAddStock = async (e) => {
     e.preventDefault();
     
-    if (!formData.product_name || !formData.description || !formData.unit || 
-        !formData.unit_size || !formData.estimated_usages_per_unit || 
-        !formData.product_quantity || !formData.current_usages || 
-        !formData.reorder_level || !formData.expiration_date) {
-      setFormError('Please fill in all required fields');
+    if (!formData.product_id) {
+      setFormError('Please select a product');
+      return;
+    }
+    
+    if (!formData.product_quantity || parseInt(formData.product_quantity) <= 0) {
+      setFormError('Please enter a valid quantity');
+      return;
+    }
+
+    if (!formData.current_usages || parseInt(formData.current_usages) < 0) {
+      setFormError('Please enter valid current usages');
+      return;
+    }
+
+    if (!formData.reorder_level || parseInt(formData.reorder_level) < 0) {
+      setFormError('Please enter a valid reorder level');
+      return;
+    }
+
+    if (!formData.expiration_date) {
+      setFormError('Please select an expiration date');
+      return;
+    }
+
+    // Check if product already exists in inventory
+    const existingItem = inventory.find(item => item.product_id === parseInt(formData.product_id));
+    if (existingItem) {
+      setFormError('This product already exists in inventory. Please use the Restock function to update stock.');
       return;
     }
 
     setIsLoading(true);
     try {
       const response = await api.post('/inventory/add', {
-        product_name: formData.product_name,
-        description: formData.description,
-        unit: formData.unit,
-        unit_size: parseFloat(formData.unit_size),
-        estimated_usages_per_unit: parseFloat(formData.estimated_usages_per_unit),
+        product_id: parseInt(formData.product_id),
         product_quantity: parseInt(formData.product_quantity),
         current_usages: parseInt(formData.current_usages),
         reorder_level: parseInt(formData.reorder_level),
         expiration_date: formData.expiration_date
       });
       
-      console.log('Product added:', response.data);
-      showToast(response.data.message || 'Product added to inventory successfully!', 'success');
-      setShowModal(false);
+      console.log('Stock added:', response.data);
+      showToast(response.data.message || 'Stock added successfully!', 'success');
+      setShowAddStockModal(false);
       resetForm();
       fetchInventory();
     } catch (error) {
-      console.error('Error adding product:', error);
+      console.error('Error adding stock:', error);
       
       if (error.response?.data?.message) {
         setFormError(error.response.data.message);
@@ -150,40 +246,40 @@ function Inventory() {
         setFormError(errors.join(', '));
         showToast(errors.join(', '), 'error');
       } else {
-        setFormError('Error adding product to inventory. Please try again.');
-        showToast('Error adding product to inventory', 'error');
+        setFormError('Error adding stock. Please try again.');
+        showToast('Error adding stock', 'error');
       }
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleUpdateItem = async (e) => {
+  // Update stock (restock existing product)
+  const handleRestock = async (e) => {
     e.preventDefault();
     
-    if (!formData.product_quantity && !formData.reorder_level) {
-      setFormError('Please fill in all required fields');
+    if (!restockQuantity || parseInt(restockQuantity) <= 0) {
+      setFormError('Please enter a valid quantity');
       return;
     }
 
     setIsLoading(true);
     try {
-      // Replace with actual API call for updating inventory item
-      // await api.post(`/inventory/update/${editingItem.id}`, {
-      //   product_quantity: formData.product_quantity,
-      //   current_usages: formData.current_usages,
-      //   reorder_level: formData.reorder_level,
-      //   expiration_date: formData.expiration_date
-      // });
+      const response = await api.post(`/inventory/update/${editingItem.id}`, {
+        product_id: parseInt(editingItem.product_id),
+        product_quantity: parseInt(restockQuantity)
+      });
       
-      showToast('Stock updated successfully!', 'success');
-      setShowModal(false);
-      resetForm();
+      console.log('Stock restocked:', response.data);
+      showToast(response.data.message || 'Stock restocked successfully!', 'success');
+      setShowRestockModal(false);
+      setEditingItem(null);
+      setRestockQuantity('');
       fetchInventory();
     } catch (error) {
-      console.error('Error updating item:', error);
-      setFormError(error.response?.data?.message || 'Error updating stock');
-      showToast(error.response?.data?.message || 'Error updating stock', 'error');
+      console.error('Error restocking:', error);
+      setFormError(error.response?.data?.message || 'Error restocking');
+      showToast(error.response?.data?.message || 'Error restocking', 'error');
     } finally {
       setIsLoading(false);
     }
@@ -206,42 +302,31 @@ function Inventory() {
 
   const resetForm = () => {
     setFormData({
+      product_id: '',
       product_name: '',
-      description: '',
-      unit: '',
-      unit_size: '',
-      estimated_usages_per_unit: '',
       product_quantity: '',
       current_usages: '',
       reorder_level: '',
       expiration_date: ''
     });
+    setSelectedProduct(null);
+    setProductSearch('');
     setEditingItem(null);
     setFormError('');
+    setShowProductDropdown(false);
+    setRestockQuantity('');
   };
 
-  const handleEdit = (item) => {
+  const handleOpenRestockModal = (item) => {
     setEditingItem(item);
-    setFormData({
-      product_name: item.product_name || '',
-      description: item.description || '',
-      unit: item.unit || '',
-      unit_size: item.unit_size || '',
-      estimated_usages_per_unit: item.estimated_usages_per_unit || '',
-      product_quantity: item.product_quantity || '',
-      current_usages: item.current_usages || '',
-      reorder_level: item.reorder_level || '',
-      expiration_date: item.expiration_date || ''
-    });
-    setShowModal(true);
+    setRestockQuantity('');
+    setFormError('');
+    setShowRestockModal(true);
   };
 
-  const handleSubmit = (e) => {
-    if (editingItem) {
-      handleUpdateItem(e);
-    } else {
-      handleAddItem(e);
-    }
+  const handleOpenTransactionsModal = (item) => {
+    setSelectedInventoryItem(item);
+    setShowTransactionsModal(true);
   };
 
   const getStatusBadge = (item) => {
@@ -272,27 +357,41 @@ function Inventory() {
     }
   };
 
-  const getProductStatus = (expirationDate) => {
-    if (isExpired(expirationDate)) {
-      return (
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] rounded-full bg-red-100 text-red-700">
-          <AlertCircle size={10} />
-          Expired
-        </span>
-      );
+  const getTransactionTypeBadge = (type) => {
+    switch(type) {
+      case 'usage':
+        return (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] rounded-full bg-red-100 text-red-700">
+            <AlertCircle size={10} />
+            Usage
+          </span>
+        );
+      case 'restock':
+        return (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] rounded-full bg-green-100 text-green-700">
+            <Package size={10} />
+            Restock
+          </span>
+        );
+      default:
+        return (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] rounded-full bg-gray-100 text-gray-700">
+            {type}
+          </span>
+        );
     }
-    return (
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] rounded-full bg-green-100 text-green-700">
-        <CheckCircle size={10} />
-        Valid
-      </span>
-    );
   };
 
   const filteredInventory = inventory.filter(item => {
     if (searchTerm && !(item.product_name || '').toLowerCase().includes(searchTerm.toLowerCase())) return false;
     return true;
   });
+
+  // Get transactions for the selected inventory item
+  const getItemTransactions = () => {
+    if (!selectedInventoryItem) return [];
+    return transactions.filter(t => t.inventory_id === selectedInventoryItem.id);
+  };
 
   if (isLoading && inventory.length === 0) {
     return (
@@ -376,17 +475,17 @@ function Inventory() {
           <button 
             onClick={() => {
               resetForm();
-              setShowModal(true);
+              setShowAddStockModal(true);
             }}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 text-sm font-medium"
           >
             <Plus size={14} />
-            <span>Add Product</span>
+            <span>Add Stock</span>
           </button>
         </div>
       </div>
 
-      {/* Table View - With Product Status Column */}
+      {/* Table View */}
       {viewMode === 'table' && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
           <div className="overflow-x-auto">
@@ -395,11 +494,9 @@ function Inventory() {
                 <tr>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Product</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Quantity</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Current Usages</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Usage Left</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Reorder Level</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Stock Status</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Product Status</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Expiration Date</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
@@ -427,22 +524,25 @@ function Inventory() {
                       {getStatusBadge(item)}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">
-                      {getProductStatus(item.expiration_date)}
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <span className="text-sm text-gray-600">{item.expiration_date || 'N/A'}</span>
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
                       <div className="flex items-center gap-1.5">
                         <button 
-                          onClick={() => handleEdit(item)}
-                          className="p-1 hover:bg-gray-100 rounded-lg transition-colors"
+                          onClick={() => handleOpenTransactionsModal(item)}
+                          className="p-1 hover:bg-blue-50 rounded-lg transition-colors"
+                          title="View Transactions"
                         >
-                          <Edit size={14} className="text-gray-500" />
+                          <History size={14} className="text-blue-600" />
+                        </button>
+                        <button 
+                          onClick={() => handleOpenRestockModal(item)}
+                          className="p-1 hover:bg-green-50 rounded-lg transition-colors"
+                          title="Restock"
+                        >
+                          <Package size={14} className="text-green-600" />
                         </button>
                         <button 
                           onClick={() => handleDeleteItem(item.id)}
-                          className="p-1 hover:bg-gray-100 rounded-lg transition-colors"
+                          className="p-1 hover:bg-red-50 rounded-lg transition-colors"
+                          title="Delete"
                         >
                           <Trash2 size={14} className="text-red-500" />
                         </button>
@@ -477,7 +577,7 @@ function Inventory() {
         </div>
       )}
 
-      {/* Cards View - Smaller Cards */}
+      {/* Cards View */}
       {viewMode === 'cards' && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {filteredInventory.map((item) => (
@@ -489,7 +589,6 @@ function Inventory() {
                   </div>
                   <div className="flex gap-1">
                     {getStatusBadge(item)}
-                    {getProductStatus(item.expiration_date)}
                   </div>
                 </div>
               </div>
@@ -504,16 +603,12 @@ function Inventory() {
                     <p className="text-xs font-semibold text-gray-800">{item.product_quantity}</p>
                   </div>
                   <div>
-                    <p className="text-[10px] text-gray-400">Current Usages</p>
+                    <p className="text-[10px] text-gray-400">Usage Left</p>
                     <p className="text-xs font-semibold text-gray-800">{item.current_usages}</p>
                   </div>
                   <div>
                     <p className="text-[10px] text-gray-400">Reorder Level</p>
                     <p className="text-xs font-semibold text-gray-800">{item.reorder_level}</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] text-gray-400">Expiration</p>
-                    <p className="text-xs text-gray-600">{item.expiration_date || 'N/A'}</p>
                   </div>
                   <div>
                     <p className="text-[10px] text-gray-400">Unit</p>
@@ -523,11 +618,18 @@ function Inventory() {
                 
                 <div className="flex gap-1.5">
                   <button 
-                    onClick={() => handleEdit(item)}
-                    className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 bg-pink-50 text-pink-600 rounded-lg hover:bg-pink-100 transition-colors text-xs font-medium"
+                    onClick={() => handleOpenTransactionsModal(item)}
+                    className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors text-xs font-medium"
                   >
-                    <Edit size={12} />
-                    Edit
+                    <History size={12} />
+                    History
+                  </button>
+                  <button 
+                    onClick={() => handleOpenRestockModal(item)}
+                    className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 bg-green-50 text-green-600 rounded-lg hover:bg-green-100 transition-colors text-xs font-medium"
+                  >
+                    <Package size={12} />
+                    Restock
                   </button>
                   <button 
                     onClick={() => handleDeleteItem(item.id)}
@@ -543,17 +645,15 @@ function Inventory() {
         </div>
       )}
 
-      {/* Add Product Modal - Compact */}
-      {showModal && (
+      {/* Add Stock Modal */}
+      {showAddStockModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden max-h-[85vh] overflow-y-auto">
             <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-5 py-3 flex items-center justify-between sticky top-0">
-              <h2 className="text-lg font-bold text-white">
-                Add New Product
-              </h2>
+              <h2 className="text-lg font-bold text-white">Add New Stock</h2>
               <button 
                 onClick={() => {
-                  setShowModal(false);
+                  setShowAddStockModal(false);
                   resetForm();
                 }}
                 className="text-white hover:bg-white/20 rounded-lg p-1 transition-colors"
@@ -562,7 +662,7 @@ function Inventory() {
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="p-5 space-y-3">
+            <form onSubmit={handleAddStock} className="p-5 space-y-3">
               {formError && (
                 <div className="bg-red-50 border border-red-200 rounded-lg p-2 flex items-center gap-1.5">
                   <AlertCircle size={12} className="text-red-500" />
@@ -570,154 +670,142 @@ function Inventory() {
                 </div>
               )}
               
-              {/* Product Information Section */}
-              <div className="border-b border-gray-200 pb-2 mb-2">
-                <h3 className="text-sm font-semibold text-gray-700">Product Information</h3>
-              </div>
-              
+              {/* Product Search */}
               <div>
                 <label className="block text-gray-700 text-xs font-semibold mb-1">
-                  Product Name *
+                  Search Product *
                 </label>
-                <input
-                  type="text"
-                  name="product_name"
-                  value={formData.product_name}
-                  onChange={handleInputChange}
-                  className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-gray-700 text-xs font-semibold mb-1">
-                  Description *
-                </label>
-                <textarea
-                  name="description"
-                  value={formData.description}
-                  onChange={handleInputChange}
-                  rows="2"
-                  className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 resize-none"
-                  required
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-gray-700 text-xs font-semibold mb-1">
-                    Unit *
-                  </label>
+                <div className="relative">
                   <input
                     type="text"
-                    name="unit"
-                    value={formData.unit}
-                    onChange={handleInputChange}
-                    placeholder="e.g., ml, g, pcs"
+                    value={productSearch}
+                    onChange={(e) => {
+                      setProductSearch(e.target.value);
+                      setShowProductDropdown(true);
+                      if (!e.target.value) {
+                        setSelectedProduct(null);
+                        setFormData(prev => ({
+                          ...prev,
+                          product_id: '',
+                          product_name: '',
+                          product_quantity: '',
+                          current_usages: '',
+                          reorder_level: '',
+                          expiration_date: ''
+                        }));
+                      }
+                    }}
+                    onFocus={() => setShowProductDropdown(true)}
                     className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                    placeholder="Search for a product..."
                     required
                   />
+                  {showProductDropdown && (
+                    <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                      {getAvailableProducts().length === 0 ? (
+                        <div className="px-3 py-2 text-sm text-gray-500">
+                          {filteredProducts.length === 0 ? 'No products found' : 'All products already have stock'}
+                        </div>
+                      ) : (
+                        getAvailableProducts().map((product) => (
+                          <button
+                            key={product.id}
+                            type="button"
+                            onClick={() => handleProductSelect(product)}
+                            className="w-full px-3 py-2 text-sm text-left hover:bg-pink-50 transition-colors border-b border-gray-100 last:border-b-0"
+                          >
+                            <div className="font-medium text-gray-800">{product.product_name}</div>
+                            <div className="text-xs text-gray-500">
+                              {product.unit} ({product.unit_size}) - {product.estimated_usages_per_unit} usages
+                            </div>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
                 </div>
-                <div>
-                  <label className="block text-gray-700 text-xs font-semibold mb-1">
-                    Unit Size *
-                  </label>
-                  <input
-                    type="number"
-                    name="unit_size"
-                    value={formData.unit_size}
-                    onChange={handleInputChange}
-                    placeholder="e.g., 250"
-                    className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
-                    required
-                  />
+              </div>
+
+              {/* Selected Product Info */}
+              {selectedProduct && (
+                <div className="bg-gray-50 rounded-lg p-3">
+                  <p className="text-xs text-gray-500">Selected Product</p>
+                  <p className="text-sm font-semibold text-gray-800">{selectedProduct.product_name}</p>
                 </div>
+              )}
+
+              {/* Stock Information Section */}
+              <div className="border-b border-gray-200 pb-2 mb-2 mt-3">
+                <h3 className="text-sm font-semibold text-gray-700">Stock Information</h3>
               </div>
 
               <div>
                 <label className="block text-gray-700 text-xs font-semibold mb-1">
-                  Estimated Usages Per Unit *
+                  Quantity *
                 </label>
                 <input
                   type="number"
-                  name="estimated_usages_per_unit"
-                  value={formData.estimated_usages_per_unit}
+                  name="product_quantity"
+                  value={formData.product_quantity}
                   onChange={handleInputChange}
-                  placeholder="Number of usages per unit"
-                  step="0.01"
                   className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                  placeholder="Enter quantity"
+                  min="1"
                   required
                 />
               </div>
 
-              {/* Inventory Information Section */}
-              <div className="border-b border-gray-200 pb-2 mb-2 mt-3">
-                <h3 className="text-sm font-semibold text-gray-700">Inventory Information</h3>
+              <div>
+                <label className="block text-gray-700 text-xs font-semibold mb-1">
+                  Current Usages *
+                </label>
+                <input
+                  type="number"
+                  name="current_usages"
+                  value={formData.current_usages}
+                  onChange={handleInputChange}
+                  className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                  placeholder="Current usages"
+                  min="0"
+                  required
+                />
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-gray-700 text-xs font-semibold mb-1">
-                    Product Quantity *
-                  </label>
-                  <input
-                    type="number"
-                    name="product_quantity"
-                    value={formData.product_quantity}
-                    onChange={handleInputChange}
-                    className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-gray-700 text-xs font-semibold mb-1">
-                    Current Usages *
-                  </label>
-                  <input
-                    type="number"
-                    name="current_usages"
-                    value={formData.current_usages}
-                    onChange={handleInputChange}
-                    className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
-                    required
-                  />
-                </div>
+              <div>
+                <label className="block text-gray-700 text-xs font-semibold mb-1">
+                  Reorder Level *
+                </label>
+                <input
+                  type="number"
+                  name="reorder_level"
+                  value={formData.reorder_level}
+                  onChange={handleInputChange}
+                  className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                  placeholder="Reorder level"
+                  min="0"
+                  required
+                />
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-gray-700 text-xs font-semibold mb-1">
-                    Reorder Level *
-                  </label>
-                  <input
-                    type="number"
-                    name="reorder_level"
-                    value={formData.reorder_level}
-                    onChange={handleInputChange}
-                    className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-gray-700 text-xs font-semibold mb-1">
-                    Expiration Date *
-                  </label>
-                  <input
-                    type="date"
-                    name="expiration_date"
-                    value={formData.expiration_date}
-                    onChange={handleInputChange}
-                    className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
-                    required
-                  />
-                </div>
+              <div>
+                <label className="block text-gray-700 text-xs font-semibold mb-1">
+                  Expiration Date *
+                </label>
+                <input
+                  type="date"
+                  name="expiration_date"
+                  value={formData.expiration_date}
+                  onChange={handleInputChange}
+                  className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                  required
+                />
               </div>
 
               <div className="flex gap-2 pt-3">
                 <button
                   type="button"
                   onClick={() => {
-                    setShowModal(false);
+                    setShowAddStockModal(false);
                     resetForm();
                   }}
                   className="flex-1 px-3 py-1.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium"
@@ -729,10 +817,202 @@ function Inventory() {
                   disabled={isLoading}
                   className="flex-1 px-3 py-1.5 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 text-sm font-medium disabled:opacity-50"
                 >
-                  {isLoading ? 'Adding...' : 'Add Product'}
+                  {isLoading ? 'Adding...' : 'Add Stock'}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Restock Modal */}
+      {showRestockModal && editingItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
+            <div className="bg-gradient-to-r from-green-500 to-green-600 px-5 py-3 flex items-center justify-between sticky top-0">
+              <h2 className="text-lg font-bold text-white">Restock Product</h2>
+              <button 
+                onClick={() => {
+                  setShowRestockModal(false);
+                  setEditingItem(null);
+                  setRestockQuantity('');
+                  setFormError('');
+                }}
+                className="text-white hover:bg-white/20 rounded-lg p-1 transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <form onSubmit={handleRestock} className="p-5 space-y-3">
+              {formError && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-2 flex items-center gap-1.5">
+                  <AlertCircle size={12} className="text-red-500" />
+                  <p className="text-red-600 text-xs">{formError}</p>
+                </div>
+              )}
+              
+              {/* Product Info */}
+              <div className="bg-gray-50 rounded-lg p-3">
+                <p className="text-xs text-gray-500">Product</p>
+                <p className="text-sm font-semibold text-gray-800">{editingItem.product_name}</p>
+                <p className="text-xs text-gray-500 mt-1">Current Quantity: {editingItem.product_quantity}</p>
+                <p className="text-xs text-gray-500">Unit: {editingItem.unit} ({editingItem.unit_size})</p>
+              </div>
+
+              <div>
+                <label className="block text-gray-700 text-xs font-semibold mb-1">
+                  Quantity to Add *
+                </label>
+                <input
+                  type="number"
+                  value={restockQuantity}
+                  onChange={(e) => setRestockQuantity(e.target.value)}
+                  className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+                  placeholder="Enter quantity to add"
+                  min="1"
+                  required
+                />
+                <p className="text-xs text-gray-500 mt-1">This will be added to the current stock</p>
+              </div>
+
+              <div className="flex gap-2 pt-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowRestockModal(false);
+                    setEditingItem(null);
+                    setRestockQuantity('');
+                    setFormError('');
+                  }}
+                  className="flex-1 px-3 py-1.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isLoading}
+                  className="flex-1 px-3 py-1.5 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 text-sm font-medium disabled:opacity-50"
+                >
+                  {isLoading ? 'Restocking...' : 'Restock'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Transactions Modal */}
+      {showTransactionsModal && selectedInventoryItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl mx-4 overflow-hidden max-h-[85vh] overflow-y-auto">
+            <div className="bg-gradient-to-r from-blue-500 to-blue-600 px-5 py-3 flex items-center justify-between sticky top-0">
+              <div>
+                <h2 className="text-lg font-bold text-white">Transaction History</h2>
+                <p className="text-blue-100 text-xs mt-0.5">{selectedInventoryItem.product_name}</p>
+              </div>
+              <button 
+                onClick={() => {
+                  setShowTransactionsModal(false);
+                  setSelectedInventoryItem(null);
+                }}
+                className="text-white hover:bg-white/20 rounded-lg p-1 transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="p-5">
+              {/* Product Info Summary */}
+              <div className="grid grid-cols-4 gap-3 mb-4">
+                <div className="bg-gray-50 rounded-lg p-2 text-center">
+                  <p className="text-[10px] text-gray-400">Current Quantity</p>
+                  <p className="text-sm font-semibold text-gray-800">{selectedInventoryItem.product_quantity}</p>
+                </div>
+                <div className="bg-gray-50 rounded-lg p-2 text-center">
+                  <p className="text-[10px] text-gray-400">Usage Left</p>
+                  <p className="text-sm font-semibold text-gray-800">{selectedInventoryItem.current_usages}</p>
+                </div>
+                <div className="bg-gray-50 rounded-lg p-2 text-center">
+                  <p className="text-[10px] text-gray-400">Reorder Level</p>
+                  <p className="text-sm font-semibold text-gray-800">{selectedInventoryItem.reorder_level}</p>
+                </div>
+                <div className="bg-gray-50 rounded-lg p-2 text-center">
+                  <p className="text-[10px] text-gray-400">Unit</p>
+                  <p className="text-sm font-semibold text-gray-800">{selectedInventoryItem.unit}</p>
+                </div>
+              </div>
+
+              {/* Transactions Table */}
+              {isLoadingTransactions ? (
+                <div className="flex items-center justify-center h-32">
+                  <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-gray-50 border-b border-gray-200">
+                      <tr>
+                        <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Type</th>
+                        <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Quantity</th>
+                        <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Transaction ID</th>
+                        <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Appointment ID</th>
+                        <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Date</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {getItemTransactions().length === 0 ? (
+                        <tr>
+                          <td colSpan="5" className="px-4 py-6 text-center text-gray-500 text-sm">
+                            No transactions found for this product
+                          </td>
+                        </tr>
+                      ) : (
+                        getItemTransactions().map((transaction) => (
+                          <tr key={transaction.id} className="hover:bg-gray-50/50 transition-colors duration-200">
+                            <td className="px-4 py-2.5 whitespace-nowrap">
+                              {getTransactionTypeBadge(transaction.transaction_type)}
+                            </td>
+                            <td className="px-4 py-2.5 whitespace-nowrap">
+                              <span className={`text-sm font-semibold ${
+                                transaction.quantity_change < 0 ? 'text-red-600' : 'text-green-600'
+                              }`}>
+                                {transaction.quantity_change}
+                              </span>
+                            </td>
+                            <td className="px-4 py-2.5 whitespace-nowrap text-sm text-gray-600">
+                              #{transaction.transaction_id}
+                            </td>
+                            <td className="px-4 py-2.5 whitespace-nowrap text-sm text-gray-600">
+                              #{transaction.transaction?.appointment_id || 'N/A'}
+                            </td>
+                            <td className="px-4 py-2.5 whitespace-nowrap text-sm text-gray-600">
+                              {new Date(transaction.created_at).toLocaleDateString('en-US', { 
+                                month: 'short', 
+                                day: 'numeric', 
+                                year: 'numeric' 
+                              })}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              <div className="mt-4 flex justify-end">
+                <button
+                  onClick={() => {
+                    setShowTransactionsModal(false);
+                    setSelectedInventoryItem(null);
+                  }}
+                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors text-sm font-medium"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -744,16 +1024,16 @@ function Inventory() {
             <Package size={28} className="text-gray-400" />
           </div>
           <h3 className="text-base font-semibold text-gray-800 mb-1">No inventory items found</h3>
-          <p className="text-sm text-gray-500 mb-3">Click "Add Product" to add your first product</p>
+          <p className="text-sm text-gray-500 mb-3">Click "Add Stock" to add your first product</p>
           <button 
             onClick={() => {
               resetForm();
-              setShowModal(true);
+              setShowAddStockModal(true);
             }}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-pink-500 text-white rounded-lg hover:bg-pink-600 transition-colors text-sm"
           >
             <Plus size={14} />
-            <span>Add Product</span>
+            <span>Add Stock</span>
           </button>
         </div>
       )}

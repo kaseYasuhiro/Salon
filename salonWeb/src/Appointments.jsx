@@ -314,6 +314,25 @@ function Appointments() {
     return appointments.filter(app => app.appointment_date === dateStr);
   };
 
+  // Get appointment status counts for a specific day
+  const getAppointmentStatusCounts = (day) => {
+    const dayAppointments = getAppointmentsForDay(day);
+    const counts = {
+      pending: 0,
+      confirmed: 0,
+      completed: 0,
+      cancelled: 0
+    };
+    
+    dayAppointments.forEach(app => {
+      if (counts[app.status] !== undefined) {
+        counts[app.status]++;
+      }
+    });
+    
+    return counts;
+  };
+
   const handleDayClick = (day) => {
     const year = currentDate.getFullYear();
     const month = String(currentDate.getMonth() + 1).padStart(2, '0');
@@ -480,6 +499,7 @@ function Appointments() {
     if (status === 'confirmed') return <CheckCircle size={12} />;
     if (status === 'pending') return <AlertCircle size={12} />;
     if (status === 'completed') return <CheckCircle size={12} />;
+    if (status === 'cancelled') return <XCircle size={12} />;
     return null;
   };
 
@@ -661,6 +681,7 @@ function Appointments() {
                 const dayStatus = getDayStatus(day);
                 const dayAppointments = getAppointmentsForDay(day);
                 const hasAppointments = dayAppointments.length > 0;
+                const statusCounts = getAppointmentStatusCounts(day);
                 
                 return (
                   <div 
@@ -678,6 +699,35 @@ function Appointments() {
                         </span>
                       )}
                     </div>
+                    
+                    {/* Status Indicators */}
+                    <div className="flex flex-wrap gap-0.5 mt-1">
+                      {statusCounts.pending > 0 && (
+                        <div className="flex items-center gap-0.5 bg-yellow-100 rounded-full px-1.5 py-0.5">
+                          <AlertCircle size={8} className="text-yellow-600" />
+                          <span className="text-[8px] font-medium text-yellow-700">{statusCounts.pending}</span>
+                        </div>
+                      )}
+                      {statusCounts.confirmed > 0 && (
+                        <div className="flex items-center gap-0.5 bg-green-100 rounded-full px-1.5 py-0.5">
+                          <CheckCircle size={8} className="text-green-600" />
+                          <span className="text-[8px] font-medium text-green-700">{statusCounts.confirmed}</span>
+                        </div>
+                      )}
+                      {statusCounts.completed > 0 && (
+                        <div className="flex items-center gap-0.5 bg-blue-100 rounded-full px-1.5 py-0.5">
+                          <CheckCircle size={8} className="text-blue-600" />
+                          <span className="text-[8px] font-medium text-blue-700">{statusCounts.completed}</span>
+                        </div>
+                      )}
+                      {statusCounts.cancelled > 0 && (
+                        <div className="flex items-center gap-0.5 bg-red-100 rounded-full px-1.5 py-0.5">
+                          <XCircle size={8} className="text-red-600" />
+                          <span className="text-[8px] font-medium text-red-700">{statusCounts.cancelled}</span>
+                        </div>
+                      )}
+                    </div>
+                    
                     {hasAppointments && (
                       <div className="space-y-0.5 mt-1">
                         <div className="text-xs text-gray-600 truncate">

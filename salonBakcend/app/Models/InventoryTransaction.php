@@ -19,12 +19,12 @@ class InventoryTransaction extends Model
 
     public function inventory()
     {
-        return $this->belongsTo(Inventory::class, 'id');
+        return $this->belongsTo(Inventory::class, 'inventory_id', 'id');
     }
 
     public function transaction()
     {
-        return $this->belongsTo(Transaction::class, 'id');
+        return $this->belongsTo(Transaction::class, 'transaction_id', 'id');
     }
 }
 
