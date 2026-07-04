@@ -21,6 +21,9 @@ use App\Models\StaffFeedback;
 use App\Models\Remittance;
 use App\Models\EmployeeCommission;
 use App\Models\LossDamage;
+use App\Models\WalkIn;
+use App\Models\WalkInTransaction;
+use App\Models\WalkinAuthorization;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Http\Request;
 
@@ -101,6 +104,21 @@ class JoinedController extends Controller
     public function inventoryTransactions()
     {
         return InventoryTransaction::with(['inventory', 'transaction'])->get();
+    }
+
+    public function displayWalkIns()
+    {
+        return WalkIn::with(['services', 'user'])->get();
+    }
+
+    public function displayWalkinTransactions()
+    {
+        return WalkInTransaction::with(['walkIn', 'inventory'])->get();
+    }
+
+    public function authorizedStaff()
+    {
+        return WalkinAuthorization::with('user')->get();
     }
 
 

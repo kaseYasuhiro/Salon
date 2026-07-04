@@ -11,6 +11,8 @@ use App\Models\StaffSchedules;
 use App\Models\AssignStaff;
 use App\Models\StaffFeedback;
 use App\Models\LossDamage;
+use App\Models\WalkIn;
+use App\Models\WalkinAuthorization;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -99,6 +101,16 @@ class User extends Authenticatable
     public function lossDamage()
     {
         return $this->hasMany(LossDamage::class, 'staff_id', 'id');
+    }
+
+    public function walkIn()
+    {
+        return $this->hasMany(WalkIn::class, 'stylist_id', 'id');
+    }
+
+    public function walkInAuth()
+    {
+        return $this->hasMany(WalkinAuthorization::class, 'staff_id', 'id');
     }
 
 }

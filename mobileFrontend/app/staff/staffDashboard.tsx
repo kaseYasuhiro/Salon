@@ -42,6 +42,7 @@ interface Appointment {
   price: string;
   notes?: string;
   transaction_id: number;
+  is_walk_in?: boolean;
 }
 
 interface InventoryItem {
@@ -56,6 +57,39 @@ interface InventoryItem {
     product_name: string;
     description: string;
     price: number;
+  };
+}
+
+interface WalkIn {
+  id: number;
+  customer_name: string;
+  service_id: number;
+  stylist_id: number;
+  is_finished: number;
+  created_at: string;
+  updated_at: string;
+  services?: {
+    id: number;
+    service_name: string;
+    description: string;
+    price: string;
+    duration_minutes: number;
+    is_multitaskable: number;
+    service_status: string;
+    created_at: string;
+    updated_at: string;
+  };
+  user?: {
+    id: number;
+    first_name: string;
+    last_name: string;
+    profile_image: string | null;
+    email: string;
+    email_verified_at: string | null;
+    phone_number: string;
+    role: string;
+    created_at: string;
+    updated_at: string;
   };
 }
 
@@ -95,7 +129,9 @@ export default function StaffDashboard() {
     fetchRemittances,
     submitLossDamage,
     fetchLossDamages,
-    transactions
+    transactions,
+    walkIns,
+    fetchWalkIns
   } = useAuth();
 
   // Fetch inventory items
@@ -122,67 +158,69 @@ export default function StaffDashboard() {
     return getUTCDateString(today);
   };
 
-  // Calculate today's commission earnings from staffAppointments
-  const getTodayCommissionEarnings = () => {
+  // Calculate today's earnings including walk-ins
+  const getTodayEarnings = () => {
     const todayStr = getTodayDateStr();
+    const currentStaffId = user?.id;
     
     // Get today's completed appointments for this staff member
     const todayCompletedAppointments = staffAppointments.filter(app => {
       const appointmentDate = app.appointment_date;
       const isCompleted = app.service_status === 'completed' || app.status === 'completed';
-      
       return appointmentDate === todayStr && isCompleted;
     });
     
+    // Get today's completed walk-ins for this staff member
+    const todayCompletedWalkIns = walkIns.filter((walkIn: WalkIn) => {
+      const walkInDate = walkIn.created_at ? walkIn.created_at.split('T')[0] : '';
+      const isFinished = walkIn.is_finished === 1;
+      return walkInDate === todayStr && walkIn.stylist_id === currentStaffId && isFinished;
+    });
+    
     // Calculate total earnings from appointments
-    const totalEarnings = todayCompletedAppointments.reduce((sum, app) => {
+    const appointmentEarnings = todayCompletedAppointments.reduce((sum, app) => {
       const price = parseFloat(app.price) || 0;
       return sum + price;
     }, 0);
+    
+    // Calculate total earnings from walk-ins
+    const walkInEarnings = todayCompletedWalkIns.reduce((sum, walkIn) => {
+      const price = parseFloat(walkIn.services?.price || '0');
+      return sum + price;
+    }, 0);
+    
+    // Total earnings (appointments + walk-ins)
+    const totalEarnings = appointmentEarnings + walkInEarnings;
     
     // Get the commission rate for this staff member
     const staffCommission = employeeCommissions.find(c => c.employee_id === user?.id);
     const commissionRate = staffCommission ? staffCommission.commission_amount : 0;
     
     // Calculate commission earnings (total earnings * commission rate)
+    // Both appointments AND walk-ins are affected by the commission rate
     const commissionEarnings = totalEarnings * commissionRate;
+    
+    // Calculate profit (total earnings - commission earnings)
+    const profit = totalEarnings - commissionEarnings;
     
     return {
       totalEarnings,
       commissionRate,
-      commissionEarnings
+      commissionEarnings,
+      profit,
+      appointmentEarnings,
+      walkInEarnings,
+      appointmentCount: todayCompletedAppointments.length,
+      walkInCount: todayCompletedWalkIns.length,
+      totalCount: todayCompletedAppointments.length + todayCompletedWalkIns.length
     };
   };
 
   // Load remittance data
   const loadRemittanceData = () => {
-    const todayStr = getTodayDateStr();
-    
-    // Get today's completed appointments
-    const todayCompletedAppointments = staffAppointments.filter(app => {
-      const appointmentDate = app.appointment_date;
-      const isCompleted = app.service_status === 'completed' || app.status === 'completed';
-      return appointmentDate === todayStr && isCompleted;
-    });
-    
-    // Calculate total earnings
-    const totalEarnings = todayCompletedAppointments.reduce((sum, app) => {
-      const price = parseFloat(app.price) || 0;
-      return sum + price;
-    }, 0);
-    
-    // Get commission rate
-    const staffCommission = employeeCommissions.find(c => c.employee_id === user?.id);
-    const commissionRate = staffCommission ? staffCommission.commission_amount : 0;
-    
-    // Calculate commission earnings
-    const commissionEarnings = totalEarnings * commissionRate;
-    
-    // Calculate total profit (total earnings - commission earnings)
-    const profit = totalEarnings - commissionEarnings;
-    
-    setTotalProfit(profit);
-    setRemitAmount(profit);
+    const earnings = getTodayEarnings();
+    setTotalProfit(earnings.profit);
+    setRemitAmount(earnings.profit);
   };
 
   // Handle open remit modal
@@ -220,7 +258,8 @@ export default function StaffDashboard() {
       await Promise.all([
         fetchStaffAppointments(),
         fetchEmployeeCommissions(),
-        fetchRemittances()
+        fetchRemittances(),
+        fetchWalkIns()
       ]);
     } catch (error: any) {
       console.error('Error submitting remittance:', error);
@@ -228,20 +267,6 @@ export default function StaffDashboard() {
     } finally {
       setIsSubmittingRemit(false);
     }
-  };
-
-  // Handle open report modal
-  const handleOpenReportModal = (appointment: Appointment) => {
-    setReportAppointment(appointment);
-    setReportFormData({
-      incident_type: '',
-      category: '',
-      amount: '',
-      description: '',
-      inventory_id: '',
-      transaction_id: appointment.transaction_id ? appointment.transaction_id.toString() : ''
-    });
-    setShowReportModal(true);
   };
 
   // Handle submit report
@@ -312,9 +337,6 @@ export default function StaffDashboard() {
   const completedEarnings = staffAppointments
     .filter(app => app.service_status === 'completed' || app.status === 'completed')
     .reduce((sum, app) => sum + parseFloat(app.price || '0'), 0);
-  
-  // Calculate today's commission earnings using appointments
-  const { totalEarnings: todayTotalEarnings, commissionRate, commissionEarnings: todayCommissionEarnings } = getTodayCommissionEarnings();
 
   const staffName = user ? `${user.first_name} ${user.last_name}` : 'Staff';
 
@@ -368,6 +390,7 @@ export default function StaffDashboard() {
       fetchRemittances();
       fetchInventoryItems();
       fetchLossDamages();
+      fetchWalkIns();
     }
   }, [user?.id]);
 
@@ -380,10 +403,11 @@ export default function StaffDashboard() {
       fetchEmployeeCommissions(),
       fetchRemittances(),
       fetchInventoryItems(),
-      fetchLossDamages()
+      fetchLossDamages(),
+      fetchWalkIns()
     ]);
     setRefreshing(false);
-  }, [fetchStaffAppointments, fetchEmployeeCommissions, fetchRemittances]);
+  }, [fetchStaffAppointments, fetchEmployeeCommissions, fetchRemittances, fetchWalkIns]);
 
   const handleLogout = async () => {
     try {
@@ -425,6 +449,9 @@ export default function StaffDashboard() {
       await handleSubmitRemittance();
     };
 
+    // Get earnings data for display
+    const earnings = getTodayEarnings();
+
     return (
       <Modal
         animationType="slide"
@@ -433,7 +460,7 @@ export default function StaffDashboard() {
         onRequestClose={() => setShowRemitModal(false)}
       >
         <View className="flex-1 justify-center items-center bg-black/50">
-          <View className="bg-white rounded-2xl w-full max-w-md mx-4 overflow-hidden">
+          <View className="bg-white rounded-2xl w-full max-w-md mx-4 max-h-[90%] overflow-hidden">
             <View className="bg-purple-600 px-6 py-4 flex-row justify-between items-center">
               <Text className="text-xl font-bold text-white">Remit Profit</Text>
               <TouchableOpacity onPress={() => setShowRemitModal(false)}>
@@ -441,50 +468,131 @@ export default function StaffDashboard() {
               </TouchableOpacity>
             </View>
             
-            <ScrollView className="p-6">
+            <ScrollView 
+              className="p-6"
+              showsVerticalScrollIndicator={true}
+              contentContainerStyle={{ paddingBottom: 20 }}
+            >
               <Text className="text-gray-500 text-sm mb-4">Today's Remittance Summary</Text>
               
               {/* Summary Cards */}
               <View className="bg-gray-50 rounded-xl p-4 mb-4">
                 <View className="flex-row justify-between items-center mb-2">
-                  <Text className="text-gray-600">Total Earnings (Today's Services)</Text>
-                  <Text className="text-green-600 font-bold text-lg">₱{todayTotalEarnings.toLocaleString()}</Text>
+                  <Text className="text-gray-600">Appointments Completed</Text>
+                  <Text className="text-blue-600 font-bold">{earnings.appointmentCount}</Text>
                 </View>
                 <View className="flex-row justify-between items-center mb-2">
-                  <Text className="text-gray-600">Commission ({commissionRate * 100}%)</Text>
-                  <Text className="text-orange-600 font-bold text-lg">₱{todayCommissionEarnings.toLocaleString()}</Text>
+                  <Text className="text-gray-600">Walk-ins Completed</Text>
+                  <Text className="text-green-600 font-bold">{earnings.walkInCount}</Text>
                 </View>
+                <View className="flex-row justify-between items-center mb-2 border-t border-gray-200 pt-2">
+                  <Text className="text-gray-600">Total Services Completed</Text>
+                  <Text className="text-purple-600 font-bold">{earnings.totalCount}</Text>
+                </View>
+                <View className="flex-row justify-between items-center mb-2">
+                  <Text className="text-gray-600">Appointment Earnings</Text>
+                  <Text className="text-blue-600 font-bold text-lg">₱{earnings.appointmentEarnings.toLocaleString()}</Text>
+                </View>
+                <View className="flex-row justify-between items-center mb-2">
+                  <Text className="text-gray-600">Walk-in Earnings</Text>
+                  <Text className="text-green-600 font-bold text-lg">₱{earnings.walkInEarnings.toLocaleString()}</Text>
+                </View>
+                <View className="flex-row justify-between items-center mb-2 border-t border-gray-200 pt-2">
+                  <Text className="text-gray-600 font-bold">Total Earnings</Text>
+                  <Text className="text-purple-600 font-bold text-lg">₱{earnings.totalEarnings.toLocaleString()}</Text>
+                </View>
+                
+                {/* Commission Section - Shows both appointments and walk-ins are affected */}
+                <View className="mt-2 bg-purple-50 rounded-xl p-3">
+                  <Text className="text-gray-700 font-semibold text-sm mb-2">Commission Calculation</Text>
+                  <View className="flex-row justify-between items-center mb-1">
+                    <Text className="text-gray-600 text-xs">Commission Rate</Text>
+                    <Text className="text-purple-600 font-bold">{earnings.commissionRate * 100}%</Text>
+                  </View>
+                  <View className="flex-row justify-between items-center mb-1">
+                    <Text className="text-gray-600 text-xs">Applied to Total Earnings (Appointments + Walk-ins)</Text>
+                    <Text className="text-purple-600 font-bold">✓</Text>
+                  </View>
+                  <View className="flex-row justify-between items-center pt-1 border-t border-purple-200">
+                    <Text className="text-gray-700 font-semibold">Commission Amount</Text>
+                    <Text className="text-orange-600 font-bold text-lg">₱{earnings.commissionEarnings.toLocaleString()}</Text>
+                  </View>
+                </View>
+                
                 <View className="border-t border-gray-200 pt-2 mt-2">
                   <View className="flex-row justify-between items-center">
                     <Text className="text-gray-800 font-bold">Total Profit to Remit</Text>
                     <Text className="text-purple-600 font-bold text-xl">₱{totalProfit.toLocaleString()}</Text>
                   </View>
+                  <Text className="text-gray-400 text-xs mt-1">
+                    Total Earnings - Commission ({earnings.commissionRate * 100}%)
+                  </Text>
                 </View>
               </View>
               
-              {/* Today's Appointments List */}
-              {todayAppointments.length > 0 && (
+              {/* Today's Completed Appointments List */}
+              {todayAppointments.filter(app => app.service_status === 'completed' || app.status === 'completed').length > 0 && (
                 <View className="mb-4">
-                  <Text className="text-gray-700 font-semibold mb-2">Today's Appointments</Text>
-                  {todayAppointments.map((app) => (
-                    <View key={app.id} className="bg-gray-50 rounded-xl p-3 mb-2">
-                      <View className="flex-row justify-between items-center">
-                        <View>
-                          <Text className="text-gray-800 font-semibold">{app.service_name}</Text>
-                          <Text className="text-gray-500 text-xs">
-                            {app.customer_name} • {formatTime(app.appointment_time)}
-                          </Text>
+                  <Text className="text-gray-700 font-semibold mb-2">Today's Completed Appointments</Text>
+                  {todayAppointments
+                    .filter(app => app.service_status === 'completed' || app.status === 'completed')
+                    .map((app) => (
+                      <View key={app.id} className="bg-blue-50 rounded-xl p-3 mb-2">
+                        <View className="flex-row justify-between items-center">
+                          <View>
+                            <Text className="text-gray-800 font-semibold">{app.service_name}</Text>
+                            <Text className="text-gray-500 text-xs">
+                              {app.customer_name} • {formatTime(app.appointment_time)}
+                            </Text>
+                          </View>
+                          <Text className="text-blue-600 font-bold">₱{parseFloat(app.price).toLocaleString()}</Text>
                         </View>
-                        <Text className="text-green-600 font-bold">₱{parseFloat(app.price).toLocaleString()}</Text>
                       </View>
-                    </View>
-                  ))}
+                    ))}
                 </View>
               )}
               
-              {todayAppointments.length === 0 && (
+              {/* Today's Completed Walk-ins List */}
+              {(() => {
+                const currentStaffId = user?.id;
+                const todayStr = getTodayDateStr();
+                const completedWalkIns = walkIns.filter((walkIn: WalkIn) => {
+                  const walkInDate = walkIn.created_at ? walkIn.created_at.split('T')[0] : '';
+                  const isFinished = walkIn.is_finished === 1;
+                  return walkInDate === todayStr && walkIn.stylist_id === currentStaffId && isFinished;
+                });
+                
+                if (completedWalkIns.length > 0) {
+                  return (
+                    <View className="mb-4">
+                      <Text className="text-gray-700 font-semibold mb-2">Today's Completed Walk-ins</Text>
+                      {completedWalkIns.map((walkIn) => (
+                        <View key={walkIn.id} className="bg-green-50 rounded-xl p-3 mb-2">
+                          <View className="flex-row justify-between items-center">
+                            <View>
+                              <Text className="text-gray-800 font-semibold">{walkIn.services?.service_name || 'Unknown Service'}</Text>
+                              <Text className="text-gray-500 text-xs">
+                                {walkIn.customer_name} • Walk-in
+                              </Text>
+                            </View>
+                            <Text className="text-green-600 font-bold">₱{parseFloat(walkIn.services?.price || '0').toLocaleString()}</Text>
+                          </View>
+                        </View>
+                      ))}
+                    </View>
+                  );
+                }
+                return null;
+              })()}
+              
+              {todayAppointments.filter(app => app.service_status === 'completed' || app.status === 'completed').length === 0 && 
+               walkIns.filter((walkIn: WalkIn) => {
+                 const walkInDate = walkIn.created_at ? walkIn.created_at.split('T')[0] : '';
+                 const isFinished = walkIn.is_finished === 1;
+                 return walkInDate === getTodayDateStr() && walkIn.stylist_id === user?.id && isFinished;
+               }).length === 0 && (
                 <View className="bg-yellow-50 rounded-xl p-4 mb-4">
-                  <Text className="text-yellow-600 text-center">No completed appointments for today</Text>
+                  <Text className="text-yellow-600 text-center">No completed appointments or walk-ins for today</Text>
                 </View>
               )}
               
@@ -506,19 +614,22 @@ export default function StaffDashboard() {
               {/* Submit Button */}
               <TouchableOpacity
                 onPress={handleSubmit}
-                disabled={localIsSubmitting || todayAppointments.length === 0}
-                className={`py-3 rounded-xl mt-2 ${todayAppointments.length === 0 ? 'bg-gray-400' : 'bg-purple-600'}`}
+                disabled={localIsSubmitting || earnings.totalCount === 0}
+                className={`py-3 rounded-xl mt-2 ${earnings.totalCount === 0 ? 'bg-gray-400' : 'bg-purple-600'}`}
               >
                 <Text className="text-white text-center font-semibold">
                   {localIsSubmitting ? 'Submitting...' : 'Submit Remittance'}
                 </Text>
               </TouchableOpacity>
               
-              {todayAppointments.length === 0 && (
+              {earnings.totalCount === 0 && (
                 <Text className="text-gray-400 text-xs text-center mt-2">
-                  No appointments to remit
+                  No completed services to remit
                 </Text>
               )}
+              
+              {/* Add extra padding at the bottom for better scrolling */}
+              <View className="h-4" />
             </ScrollView>
           </View>
         </View>
@@ -787,7 +898,7 @@ export default function StaffDashboard() {
                     <Ionicons name="cash-outline" size={18} color="#10b981" />
                   </View>
                 </View>
-                <Text className="text-green-600 text-3xl font-bold mt-3">₱{todayCommissionEarnings.toLocaleString()}</Text>
+                <Text className="text-green-600 text-3xl font-bold mt-3">₱{getTodayEarnings().commissionEarnings.toLocaleString()}</Text>
                 <Text className="text-gray-400 text-xs mt-1">Commission Earnings</Text>
               </View>
             </View>
@@ -899,7 +1010,6 @@ export default function StaffDashboard() {
           <StaffAppointments 
             refreshing={refreshing}
             onRefresh={onRefresh}
-            onOpenReportModal={handleOpenReportModal}
           />
         );
       

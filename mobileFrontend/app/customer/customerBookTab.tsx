@@ -753,12 +753,13 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                `Complete your booking`}
             </Text>
             
-            {/* Step 1: Stylist Selection */}
+            {/* Step 1: Stylist Selection - Card Style */}
             {bookingStep === 'stylist' && (
               <>
                 {isLoading ? (
-                  <View className="py-10">
-                    <Text className="text-center text-gray-500">Loading stylists...</Text>
+                  <View className="py-10 items-center">
+                    <ActivityIndicator size="large" color="#ec4899" />
+                    <Text className="text-center text-gray-500 mt-2">Loading stylists...</Text>
                   </View>
                 ) : staff.length === 0 ? (
                   <View className="bg-white rounded-2xl p-8 items-center" style={{ elevation: 2 }}>
@@ -766,65 +767,96 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                     <Text className="text-gray-500 text-center mt-3">No stylists available</Text>
                   </View>
                 ) : (
-                  staff.map((staffMember) => {
-                    const ratingData = getStaffRating(staffMember.id);
-                    const { average, count } = ratingData;
-                    const specialties = getStaffSpecialties(staffMember.id);
-                    const profileImage = (staffMember as any).profile_image;
-                    
-                    return (
-                      <TouchableOpacity 
-                        key={staffMember.id} 
-                        className="bg-white rounded-2xl p-4 mb-3 shadow-sm border-2 border-transparent"
-                        onPress={() => handleStaffSelect(staffMember.id)}
-                        activeOpacity={0.7}
-                        disabled={isProcessing}
-                      >
-                        <View className="flex-row items-start">
-                          <View className="mr-3">
-                            {profileImage ? (
-                              <Image 
-                                source={{ uri: profileImage }} 
-                                className="w-16 h-16 rounded-full"
-                                resizeMode="cover"
-                              />
-                            ) : (
-                              <View className="w-16 h-16 bg-gradient-to-r from-pink-500 to-pink-600 rounded-full items-center justify-center">
-                                <Text className="text-white font-bold text-xl">
-                                  {staffMember.first_name?.charAt(0)}{staffMember.last_name?.charAt(0)}
-                                </Text>
-                              </View>
-                            )}
-                          </View>
-                          
-                          <View className="flex-1">
-                            <Text className="text-lg font-semibold text-gray-800">
-                              {staffMember.first_name} {staffMember.last_name}
-                            </Text>
-                            <Text className="text-gray-500 text-sm mt-0.5">
-                              {specialties}
-                            </Text>
-                            <View className="flex-row items-center mt-1">
-                              <View className="flex-row">
-                                {average > 0 ? (
-                                  renderStars(average)
+                  <ScrollView 
+                    showsVerticalScrollIndicator={false}
+                    className="mb-4"
+                  >
+                    <View className="flex-row flex-wrap justify-between">
+                      {staff.map((staffMember) => {
+                        const ratingData = getStaffRating(staffMember.id);
+                        const { average, count } = ratingData;
+                        const specialties = getStaffSpecialties(staffMember.id);
+                        const profileImage = (staffMember as any).profile_image;
+                        
+                        return (
+                          <TouchableOpacity 
+                            key={staffMember.id} 
+                            className="w-[48%] mb-4"
+                            onPress={() => handleStaffSelect(staffMember.id)}
+                            activeOpacity={0.85}
+                            disabled={isProcessing}
+                          >
+                            <View className="bg-white rounded-2xl shadow-lg overflow-hidden" style={{ elevation: 4 }}>
+                              {/* Profile Image - Main Highlight */}
+                              <View className="relative">
+                                {profileImage ? (
+                                  <Image 
+                                    source={{ uri: profileImage }} 
+                                    className="w-full h-48"
+                                    resizeMode="cover"
+                                  />
                                 ) : (
-                                  <Text className="text-gray-400 text-xs">No ratings yet</Text>
+                                  <View className="w-full h-48 bg-gradient-to-br from-pink-400 to-pink-600 items-center justify-center">
+                                    <Text className="text-white font-bold text-5xl">
+                                      {staffMember.first_name?.charAt(0)}{staffMember.last_name?.charAt(0)}
+                                    </Text>
+                                  </View>
                                 )}
+                                
+                                {/* Rating Badge */}
+                                {average > 0 && (
+                                  <View className="absolute top-3 right-3 bg-black/70 backdrop-blur-sm rounded-full px-3 py-1.5 flex-row items-center">
+                                    <Ionicons name="star" size={14} color="#fbbf24" />
+                                    <Text className="text-white font-bold text-xs ml-1">
+                                      {typeof average === 'number' && !isNaN(average) ? average.toFixed(1) : '0.0'}
+                                    </Text>
+                                    <Text className="text-white/70 text-xs ml-1">
+                                      ({count})
+                                    </Text>
+                                  </View>
+                                )}
+                                
+                                {/* Status Badge */}
+                                <View className="absolute bottom-3 left-3 bg-green-500 rounded-full px-3 py-1">
+                                  <Text className="text-white text-xs font-semibold">Available</Text>
+                                </View>
                               </View>
-                              {count > 0 && (
-                                <Text className="text-gray-500 text-xs ml-1">
-                                  ({typeof average === 'number' && !isNaN(average) ? average.toFixed(1) : '0.0'} · {count} {count === 1 ? 'review' : 'reviews'})
+                              
+                              {/* Staff Info */}
+                              <View className="p-3">
+                                <Text className="text-base font-bold text-gray-800" numberOfLines={1}>
+                                  {staffMember.first_name} {staffMember.last_name}
                                 </Text>
-                              )}
+                                
+                                {/* Specialties */}
+                                <Text className="text-gray-500 text-xs mt-1" numberOfLines={2}>
+                                  {specialties}
+                                </Text>
+                                
+                                {/* Star Rating Row */}
+                                <View className="flex-row items-center mt-2">
+                                  <View className="flex-row">
+                                    {average > 0 ? (
+                                      renderStars(average)
+                                    ) : (
+                                      <Text className="text-gray-400 text-xs">No ratings yet</Text>
+                                    )}
+                                  </View>
+                                </View>
+                                
+                                {/* Book Button */}
+                                <View className="mt-3 pt-3 border-t border-gray-100">
+                                  <View className="bg-pink-500 rounded-full py-2 items-center">
+                                    <Text className="text-white font-semibold text-sm">Select Stylist</Text>
+                                  </View>
+                                </View>
+                              </View>
                             </View>
-                          </View>
-                          
-                          <Ionicons name="chevron-forward" size={20} color="#d1d5db" />
-                        </View>
-                      </TouchableOpacity>
-                    );
-                  })
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  </ScrollView>
                 )}
               </>
             )}

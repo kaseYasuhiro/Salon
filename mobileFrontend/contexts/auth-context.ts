@@ -229,7 +229,7 @@ interface StaffAssignment {
   business_schedules?: BusinessSchedule;
 }
 
-// New interfaces for remittance and commission
+// Remittance and commission interfaces
 interface Remittance {
   id?: number;
   business_date_id: number;
@@ -302,6 +302,70 @@ interface UpdateLossDamageData {
   status: string;
 }
 
+// Walk-in interfaces - updated to match actual data structure
+interface WalkIn {
+  id: number;
+  customer_name: string;
+  service_id: number;
+  stylist_id: number;
+  is_finished: number; // 0 or 1
+  created_at: string;
+  updated_at: string;
+  services?: {
+    id: number;
+    service_name: string;
+    description: string;
+    price: string;
+    duration_minutes: number;
+    is_multitaskable: number;
+    service_status: string;
+    created_at: string;
+    updated_at: string;
+  };
+  user?: {
+    id: number;
+    first_name: string;
+    last_name: string;
+    profile_image: string | null;
+    email: string;
+    email_verified_at: string | null;
+    phone_number: string;
+    role: string;
+    created_at: string;
+    updated_at: string;
+  };
+}
+
+interface SubmitWalkInData {
+  customer_name: string;
+  service_id: number;
+  stylist_id: number;
+  is_finished?: number; // 0 or 1, defaults to 0
+}
+
+interface UpdateWalkInData {
+  customer_name?: string;
+  service_id?: number;
+  stylist_id?: number;
+  is_finished?: number; // 0 or 1
+}
+
+// Walk-in Transaction interfaces
+interface WalkInTransaction {
+  id?: number;
+  walkin_id: number;
+  inventory_id: number;
+  quantity_change: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
+interface SubmitWalkInTransactionData {
+  walkin_id: number;
+  inventory_id: number;
+  quantity_change: number;
+}
+
 interface AuthState {
   user: User | null;
   appointments: Appointment[];
@@ -317,6 +381,8 @@ interface AuthState {
   remittances: Remittance[];
   employeeCommissions: EmployeeCommission[];
   lossDamages: LossDamage[];
+  walkIns: WalkIn[];
+  walkInTransactions: WalkInTransaction[];
   isLoading: boolean;
   
   // User methods
@@ -374,7 +440,7 @@ interface AuthState {
   // Update appointment
   updateAppointment: (id: number, data: UpdateAppointmentData) => Promise<void>;
 
-  //complete appointment/transaction
+  // Complete appointment/transaction
   completeService: (transactionId: number) => Promise<void>;
   updateServiceWithInventory: (transactionId: number, data: any) => Promise<void>;
 
@@ -405,6 +471,18 @@ interface AuthState {
   getLossDamagesByStaff: (staffId: number) => LossDamage[];
   getTotalLossDamages: () => number;
   getLossDamagesByDate: (date: string) => LossDamage[];
+
+  // Walk-in methods
+  fetchWalkIns: () => Promise<WalkIn[]>;
+  submitWalkIn: (data: SubmitWalkInData) => Promise<any>;
+  updateWalkIn: (id: number, data: UpdateWalkInData) => Promise<any>;
+  getWalkInsByDate: (date: string) => WalkIn[];
+  getWalkInsByStaff: (staffId: number) => WalkIn[];
+
+  // Walk-in Transaction methods
+  fetchWalkInTransactions: () => Promise<WalkInTransaction[]>;
+  submitWalkInTransaction: (data: SubmitWalkInTransactionData) => Promise<any>;
+  getWalkInTransactionsByWalkIn: (walkinId: number) => WalkInTransaction[];
 }
 
 export const useAuth = create<AuthState>((set, get) => ({
@@ -422,6 +500,8 @@ export const useAuth = create<AuthState>((set, get) => ({
   remittances: [],
   employeeCommissions: [],
   lossDamages: [],
+  walkIns: [],
+  walkInTransactions: [],
   isLoading: false,
 
   getUser: async () => {
@@ -440,7 +520,6 @@ export const useAuth = create<AuthState>((set, get) => ({
       await setToken(response.data.token);
       await get().getUser();
       
-      // Fetch appropriate data based on user role
       const user = get().user;
       if (user?.role === 'staff') {
         await get().fetchStaffAppointments();
@@ -458,6 +537,8 @@ export const useAuth = create<AuthState>((set, get) => ({
       await get().fetchRemittances();
       await get().fetchEmployeeCommissions();
       await get().fetchLossDamages();
+      await get().fetchWalkIns();
+      await get().fetchWalkInTransactions();
     } catch (error) {
       console.log("Login error:", error);
       throw error;
@@ -493,7 +574,9 @@ export const useAuth = create<AuthState>((set, get) => ({
         staffAssignments: [],
         remittances: [],
         employeeCommissions: [],
-        lossDamages: []
+        lossDamages: [],
+        walkIns: [],
+        walkInTransactions: []
       });
     } catch (error) {
       console.log("Logout error:", error);
@@ -1306,5 +1389,142 @@ export const useAuth = create<AuthState>((set, get) => ({
   getLossDamagesByDate: (date: string) => {
     const { lossDamages } = get();
     return lossDamages.filter(report => report.date === date);
+  },
+
+  // Walk-in methods
+  fetchWalkIns: async () => {
+    set({ isLoading: true });
+    try {
+      const response = await axios.get('/walk-in');
+      console.log('Fetched walk-ins:', response.data);
+      
+      let walkInsData: WalkIn[] = [];
+      if (Array.isArray(response.data)) {
+        walkInsData = response.data.map((item: any) => ({
+          id: item.id,
+          customer_name: item.customer_name,
+          service_id: item.service_id,
+          stylist_id: item.stylist_id,
+          is_finished: item.is_finished,
+          created_at: item.created_at,
+          updated_at: item.updated_at,
+          services: item.services,
+          user: item.user
+        }));
+      }
+      
+      console.log('Processed walk-ins:', walkInsData);
+      set({ walkIns: walkInsData });
+      return walkInsData;
+    } catch (error) {
+      console.error('Error fetching walk-ins:', error);
+      return [];
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+
+  submitWalkIn: async (data: SubmitWalkInData) => {
+    try {
+      const response = await axios.post('/walk-in/add', {
+        customer_name: data.customer_name,
+        service_id: data.service_id,
+        stylist_id: data.stylist_id,
+        is_finished: data.is_finished !== undefined ? data.is_finished : 0
+      });
+      console.log('Walk-in submitted:', response.data);
+      
+      await get().fetchWalkIns();
+      
+      return response.data;
+    } catch (error) {
+      console.error('Error submitting walk-in:', error);
+      throw error;
+    }
+  },
+
+  updateWalkIn: async (id: number, data: UpdateWalkInData) => {
+    try {
+      const response = await axios.post(`/walk-in/update/${id}`, {
+        customer_name: data.customer_name,
+        service_id: data.service_id,
+        stylist_id: data.stylist_id,
+        is_finished: data.is_finished
+      });
+      console.log('Walk-in updated:', response.data);
+      
+      await get().fetchWalkIns();
+      
+      return response.data;
+    } catch (error) {
+      console.error('Error updating walk-in:', error);
+      throw error;
+    }
+  },
+
+  getWalkInsByDate: (date: string) => {
+    const { walkIns } = get();
+    return walkIns.filter(walkIn => {
+      const walkInDate = walkIn.created_at ? walkIn.created_at.split('T')[0] : '';
+      return walkInDate === date;
+    });
+  },
+
+  getWalkInsByStaff: (staffId: number) => {
+    const { walkIns } = get();
+    return walkIns.filter(walkIn => walkIn.stylist_id === staffId);
+  },
+
+  // Walk-in Transaction methods
+  fetchWalkInTransactions: async () => {
+    set({ isLoading: true });
+    try {
+      const response = await axios.get('/walk-in/transaction');
+      console.log('Fetched walk-in transactions:', response.data);
+      
+      let transactionsData: WalkInTransaction[] = [];
+      if (Array.isArray(response.data)) {
+        transactionsData = response.data.map((item: any) => ({
+          id: item.id,
+          walkin_id: item.walkin_id,
+          inventory_id: item.inventory_id,
+          quantity_change: item.quantity_change,
+          created_at: item.created_at,
+          updated_at: item.updated_at
+        }));
+      }
+      
+      console.log('Processed walk-in transactions:', transactionsData);
+      set({ walkInTransactions: transactionsData });
+      return transactionsData;
+    } catch (error) {
+      console.error('Error fetching walk-in transactions:', error);
+      return [];
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+
+  submitWalkInTransaction: async (data: SubmitWalkInTransactionData) => {
+    try {
+      const response = await axios.post('/walk-in/transaction/add', {
+        walkin_id: data.walkin_id,
+        inventory_id: data.inventory_id,
+        quantity_change: data.quantity_change
+      });
+      console.log('Walk-in transaction submitted:', response.data);
+      
+      await get().fetchWalkInTransactions();
+      
+      return response.data;
+    } catch (error) {
+      console.error('Error submitting walk-in transaction:', error);
+      throw error;
+    }
+  },
+
+  getWalkInTransactionsByWalkIn: (walkinId: number) => {
+    const { walkInTransactions } = get();
+    return walkInTransactions.filter(transaction => transaction.walkin_id === walkinId);
   }
 }));

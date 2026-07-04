@@ -19,6 +19,9 @@ use App\Http\Controllers\RemittanceController;
 use App\Http\Controllers\EmployeeCommissionController;
 use App\Http\Controllers\LossDamageController;
 use App\Http\Controllers\InventoryController;
+use App\Http\Controllers\WalkInController;
+use App\Http\Controllers\WalkInTransactionController;
+use App\Http\Controllers\WalkinAuthorizationController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -59,6 +62,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/inventory/add' , [InventoryController::class, 'addStocks']);  
     Route::post('/inventory/update/{id}', [InventoryController::class, 'inventoryRestock']);
     Route::post('/inventory/delete', [JoinedController::class, 'deleteProductsFromInventory']);
+    Route::get('/inventory/transactions', [JoinedController::class, 'inventoryTransactions']);
+    Route::get('/walk-in/transaction', [JoinedController::class, 'displayWalkinTransactions']);
     Route::get('/service/usage', [JoinedController::class, 'serviceWithUsages']);
     Route::post('/service/usage/add', [ServiceProductUsageController::class, 'addProductUsagePerService']);
     Route::get('/service/usage/{serviceId}', [ServiceProductUsageController::class, 'serviceProductUsage']);
@@ -107,10 +112,18 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/employee/commission', [JoinedController::class, 'employeeCommissions']);
     Route::get('/transactions', [JoinedController::class, 'transactionWithAssigned']);
     Route::post('/report/submit', [LossDamageController::class, 'submitIncidentReport']);
+    Route::post('/walk-in/add', [WalkInController::class, 'submitWalkIn']);
+    Route::get('/walk-in', [JoinedController::class, 'displayWalkIns']);
+    Route::post('/walk-in/update/{id}', [WalkInController::class, 'updateWalkIn']);
+    Route::post('/walk-in/transaction/add' , [WalkInTransactionController::class, 'addWalkInTransaction']);
+
 });
 
+Route::post('/walk-in/staff/auth', [WalkinAuthorizationController::class, 'authorizeStaff']);
+Route::get('/walk-in/staff', [JoinedController::class, 'authorizedStaff']);
+Route::post('/walk-in/staff/auth/update', [WalkinAuthorizationController::class, 'updateAuthorization']);
 
-Route::get('/inventory/transactions', [JoinedController::class, 'inventoryTransactions']);
+
 
 
 

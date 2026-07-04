@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Models\ServiceProductUsage;
 use App\Models\Transaction;
 use App\Models\ServiceSpecialties;
+use App\Models\WalkIn;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
@@ -33,5 +34,10 @@ class Services extends Model
     public function serviceSpecialties()
     {
         return $this->hasMany(ServiceSpecialties::class, 'service_id');
+    }
+
+    public function walkIn()
+    {
+        return $this->hasMany(WalkIn::class, 'service_id', 'id');
     }
 }
