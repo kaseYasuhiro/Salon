@@ -7,6 +7,7 @@ import { router } from "expo-router";
 import api from '@/api/axios';
 import StaffAppointments from "../staff/staffAppointments";
 import StaffSchedule from "../staff/staffSchedule";
+import StaffWalkIn from "../staff/staffWalkin";
 
 interface BusinessSchedule {
   id: number;
@@ -93,8 +94,45 @@ interface WalkIn {
   };
 }
 
+interface Remittance {
+  id?: number;
+  business_date_id: number;
+  remittance_amount: number;
+  created_at?: string;
+  updated_at?: string;
+  business_schedule?: BusinessSchedule;
+}
+
+interface EmployeeCommission {
+  id?: number;
+  employee_id: number;
+  commission_amount: number;
+  created_at?: string;
+  updated_at?: string;
+  employee?: {
+    id: number;
+    first_name: string;
+    last_name: string;
+  };
+}
+
+interface LossDamage {
+  id?: number;
+  date: string;
+  incident_type: string;
+  category: string;
+  amount: number;
+  description: string;
+  staff_id: number;
+  inventory_id?: number | null;
+  transaction_id?: number | null;
+  status: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export default function StaffDashboard() {
-  const [activeTab, setActiveTab] = useState<'home' | 'appointments' | 'schedule' | 'settings'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'appointments' | 'schedule' | 'walkin' | 'settings'>('home');
   const [refreshing, setRefreshing] = useState(false);
   
   // Remittance states
@@ -117,22 +155,217 @@ export default function StaffDashboard() {
   });
   const [isSubmittingReport, setIsSubmittingReport] = useState(false);
   
+  // Local state for data
+  const [staffAppointments, setStaffAppointments] = useState<Appointment[]>([]);
+  const [employeeCommissions, setEmployeeCommissions] = useState<EmployeeCommission[]>([]);
+  const [remittances, setRemittances] = useState<Remittance[]>([]);
+  const [walkIns, setWalkIns] = useState<WalkIn[]>([]);
+  const [lossDamages, setLossDamages] = useState<LossDamage[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  
   const { 
-    user, 
-    staffAppointments, 
-    fetchStaffAppointments, 
-    updateServiceWithInventory,
+    user,
     logout,
-    employeeCommissions,
-    fetchEmployeeCommissions,
-    submitRemittance,
-    fetchRemittances,
-    submitLossDamage,
-    fetchLossDamages,
-    transactions,
-    walkIns,
-    fetchWalkIns
   } = useAuth();
+
+  // Fetch staff appointments
+  const fetchStaffAppointments = async () => {
+    setIsLoading(true);
+    try {
+      const userData = user;
+      if (!userData?.id) {
+        console.log("No user ID found");
+        return [];
+      }
+      
+      const response = await api.get(`/staff/${userData.id}/appointments`);
+      console.log("Staff appointments response:", response.data);
+      
+      let appointmentsData: Appointment[] = [];
+      if (Array.isArray(response.data)) {
+        appointmentsData = response.data.map((item: any) => ({
+          id: item.id,
+          service_id: item.service_id,
+          customer_name: item.customer_name || 'Walk-in Customer',
+          customer_phone: item.customer_phone || 'N/A',
+          appointment_date: item.appointment_date,
+          appointment_time: item.appointment_time || '--:--',
+          status: item.status,
+          service_status: item.service_status,
+          service_name: item.service_name,
+          duration_minutes: item.duration_minutes,
+          price: item.price,
+          notes: item.notes,
+          transaction_id: item.transaction_id
+        }));
+      }
+      
+      console.log("Processed staff appointments:", appointmentsData);
+      setStaffAppointments(appointmentsData);
+      return appointmentsData;
+    } catch (error) {
+      console.log("Error fetching staff appointments:", error);
+      return [];
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Fetch employee commissions
+  const fetchEmployeeCommissions = async () => {
+    try {
+      const response = await api.get('/employee/commission');
+      console.log('Fetched employee commissions:', response.data);
+      
+      let commissionsData: EmployeeCommission[] = [];
+      if (Array.isArray(response.data)) {
+        commissionsData = response.data.map((item: any) => ({
+          id: item.id,
+          employee_id: item.employee_id,
+          commission_amount: parseFloat(item.commission_amount) || 0,
+          created_at: item.created_at,
+          updated_at: item.updated_at,
+          employee: item.employee
+        }));
+      }
+      
+      console.log('Processed employee commissions:', commissionsData);
+      setEmployeeCommissions(commissionsData);
+      return commissionsData;
+    } catch (error) {
+      console.error('Error fetching employee commissions:', error);
+      return [];
+    }
+  };
+
+  // Fetch remittances
+  const fetchRemittances = async () => {
+    try {
+      const response = await api.get('/remittance');
+      console.log('Fetched remittances:', response.data);
+      
+      let remittancesData: Remittance[] = [];
+      if (Array.isArray(response.data)) {
+        remittancesData = response.data.map((item: any) => ({
+          id: item.id,
+          business_date_id: item.business_date_id,
+          remittance_amount: parseFloat(item.remittance_amount) || 0,
+          created_at: item.created_at,
+          updated_at: item.updated_at,
+          business_schedule: item.business_schedule
+        }));
+      }
+      
+      console.log('Processed remittances:', remittancesData);
+      setRemittances(remittancesData);
+      return remittancesData;
+    } catch (error) {
+      console.error('Error fetching remittances:', error);
+      return [];
+    }
+  };
+
+  // Fetch walk-ins
+  const fetchWalkIns = async () => {
+    try {
+      const response = await api.get('/walk-in');
+      console.log('Fetched walk-ins:', response.data);
+      
+      let walkInsData: WalkIn[] = [];
+      if (Array.isArray(response.data)) {
+        walkInsData = response.data.map((item: any) => ({
+          id: item.id,
+          customer_name: item.customer_name,
+          service_id: item.service_id,
+          stylist_id: item.stylist_id,
+          is_finished: item.is_finished,
+          created_at: item.created_at,
+          updated_at: item.updated_at,
+          services: item.services,
+          user: item.user
+        }));
+      }
+      
+      console.log('Processed walk-ins:', walkInsData);
+      setWalkIns(walkInsData);
+      return walkInsData;
+    } catch (error) {
+      console.error('Error fetching walk-ins:', error);
+      return [];
+    }
+  };
+
+  // Fetch loss damages
+  const fetchLossDamages = async () => {
+    try {
+      const response = await api.get('/report');
+      console.log('Fetched loss and damage reports:', response.data);
+      
+      let lossDamagesData: LossDamage[] = [];
+      if (Array.isArray(response.data)) {
+        lossDamagesData = response.data.map((item: any) => ({
+          id: item.id,
+          date: item.date,
+          incident_type: item.incident_type,
+          category: item.category,
+          amount: parseFloat(item.amount) || 0,
+          description: item.description,
+          staff_id: item.staff_id,
+          inventory_id: item.inventory_id,
+          transaction_id: item.transaction_id,
+          status: item.status,
+          created_at: item.created_at,
+          updated_at: item.updated_at,
+        }));
+      }
+      
+      console.log('Processed loss and damage reports:', lossDamagesData);
+      setLossDamages(lossDamagesData);
+      return lossDamagesData;
+    } catch (error) {
+      console.error('Error fetching loss and damage reports:', error);
+      return [];
+    }
+  };
+
+  // Submit remittance
+  const submitRemittance = async (data: { business_date_id: number; remittance_amount: number }) => {
+    try {
+      const response = await api.post('/remittance/submit', {
+        business_date_id: data.business_date_id,
+        remittance_amount: data.remittance_amount
+      });
+      console.log('Remittance submitted:', response.data);
+      return response.data;
+    } catch (error) {
+      console.error('Error submitting remittance:', error);
+      throw error;
+    }
+  };
+
+  // Submit loss damage
+  const submitLossDamage = async (data: any) => {
+    try {
+      const response = await api.post('/report/submit', data);
+      console.log('Loss and damage report submitted:', response.data);
+      return response.data;
+    } catch (error) {
+      console.error('Error submitting loss and damage report:', error);
+      throw error;
+    }
+  };
+
+  // Update service with inventory
+  const updateServiceWithInventory = async (transactionId: number, data: any) => {
+    try {
+      const response = await api.put(`/staff/transaction/${transactionId}/update`, data);
+      console.log("Service updated:", response.data);
+      return response.data;
+    } catch (error) {
+      console.log("Error updating service:", error);
+      throw error;
+    }
+  };
 
   // Fetch inventory items
   const fetchInventoryItems = async () => {
@@ -197,7 +430,6 @@ export default function StaffDashboard() {
     const commissionRate = staffCommission ? staffCommission.commission_amount : 0;
     
     // Calculate commission earnings (total earnings * commission rate)
-    // Both appointments AND walk-ins are affected by the commission rate
     const commissionEarnings = totalEarnings * commissionRate;
     
     // Calculate profit (total earnings - commission earnings)
@@ -407,7 +639,7 @@ export default function StaffDashboard() {
       fetchWalkIns()
     ]);
     setRefreshing(false);
-  }, [fetchStaffAppointments, fetchEmployeeCommissions, fetchRemittances, fetchWalkIns]);
+  }, []);
 
   const handleLogout = async () => {
     try {
@@ -461,7 +693,7 @@ export default function StaffDashboard() {
       >
         <View className="flex-1 justify-center items-center bg-black/50">
           <View className="bg-white rounded-2xl w-full max-w-md mx-4 max-h-[90%] overflow-hidden">
-            <View className="bg-purple-600 px-6 py-4 flex-row justify-between items-center">
+            <View className="bg-pink-500 px-6 py-4 flex-row justify-between items-center">
               <Text className="text-xl font-bold text-white">Remit Profit</Text>
               <TouchableOpacity onPress={() => setShowRemitModal(false)}>
                 <Ionicons name="close" size={24} color="white" />
@@ -487,7 +719,7 @@ export default function StaffDashboard() {
                 </View>
                 <View className="flex-row justify-between items-center mb-2 border-t border-gray-200 pt-2">
                   <Text className="text-gray-600">Total Services Completed</Text>
-                  <Text className="text-purple-600 font-bold">{earnings.totalCount}</Text>
+                  <Text className="text-pink-600 font-bold">{earnings.totalCount}</Text>
                 </View>
                 <View className="flex-row justify-between items-center mb-2">
                   <Text className="text-gray-600">Appointment Earnings</Text>
@@ -499,21 +731,21 @@ export default function StaffDashboard() {
                 </View>
                 <View className="flex-row justify-between items-center mb-2 border-t border-gray-200 pt-2">
                   <Text className="text-gray-600 font-bold">Total Earnings</Text>
-                  <Text className="text-purple-600 font-bold text-lg">₱{earnings.totalEarnings.toLocaleString()}</Text>
+                  <Text className="text-pink-600 font-bold text-lg">₱{earnings.totalEarnings.toLocaleString()}</Text>
                 </View>
                 
                 {/* Commission Section - Shows both appointments and walk-ins are affected */}
-                <View className="mt-2 bg-purple-50 rounded-xl p-3">
+                <View className="mt-2 bg-pink-50 rounded-xl p-3">
                   <Text className="text-gray-700 font-semibold text-sm mb-2">Commission Calculation</Text>
                   <View className="flex-row justify-between items-center mb-1">
                     <Text className="text-gray-600 text-xs">Commission Rate</Text>
-                    <Text className="text-purple-600 font-bold">{earnings.commissionRate * 100}%</Text>
+                    <Text className="text-pink-600 font-bold">{earnings.commissionRate * 100}%</Text>
                   </View>
                   <View className="flex-row justify-between items-center mb-1">
                     <Text className="text-gray-600 text-xs">Applied to Total Earnings (Appointments + Walk-ins)</Text>
-                    <Text className="text-purple-600 font-bold">✓</Text>
+                    <Text className="text-pink-600 font-bold">✓</Text>
                   </View>
-                  <View className="flex-row justify-between items-center pt-1 border-t border-purple-200">
+                  <View className="flex-row justify-between items-center pt-1 border-t border-pink-200">
                     <Text className="text-gray-700 font-semibold">Commission Amount</Text>
                     <Text className="text-orange-600 font-bold text-lg">₱{earnings.commissionEarnings.toLocaleString()}</Text>
                   </View>
@@ -522,7 +754,7 @@ export default function StaffDashboard() {
                 <View className="border-t border-gray-200 pt-2 mt-2">
                   <View className="flex-row justify-between items-center">
                     <Text className="text-gray-800 font-bold">Total Profit to Remit</Text>
-                    <Text className="text-purple-600 font-bold text-xl">₱{totalProfit.toLocaleString()}</Text>
+                    <Text className="text-pink-600 font-bold text-xl">₱{totalProfit.toLocaleString()}</Text>
                   </View>
                   <Text className="text-gray-400 text-xs mt-1">
                     Total Earnings - Commission ({earnings.commissionRate * 100}%)
@@ -615,7 +847,7 @@ export default function StaffDashboard() {
               <TouchableOpacity
                 onPress={handleSubmit}
                 disabled={localIsSubmitting || earnings.totalCount === 0}
-                className={`py-3 rounded-xl mt-2 ${earnings.totalCount === 0 ? 'bg-gray-400' : 'bg-purple-600'}`}
+                className={`py-3 rounded-xl mt-2 ${earnings.totalCount === 0 ? 'bg-gray-400' : 'bg-pink-500'}`}
               >
                 <Text className="text-white text-center font-semibold">
                   {localIsSubmitting ? 'Submitting...' : 'Submit Remittance'}
@@ -858,11 +1090,11 @@ export default function StaffDashboard() {
             showsVerticalScrollIndicator={false} 
             className="flex-1"
             refreshControl={
-              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#9333ea']} />
+              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#ec4899']} />
             }
           >
             {/* Header */}
-            <View className="bg-purple-600 px-5 pt-12 pb-8" style={{ borderBottomLeftRadius: 30, borderBottomRightRadius: 30 }}>
+            <View className="bg-pink-500 px-5 pt-12 pb-8" style={{ borderBottomLeftRadius: 30, borderBottomRightRadius: 30 }}>
               <View className="flex-row justify-between items-center">
                 <View>
                   <Text className="text-white text-2xl font-semibold">
@@ -883,11 +1115,11 @@ export default function StaffDashboard() {
               <View className="bg-white rounded-2xl p-5 w-[48%] shadow-lg">
                 <View className="flex-row justify-between items-center">
                   <Text className="text-gray-500 text-sm font-medium">Today</Text>
-                  <View className="bg-purple-100 p-2 rounded-full">
-                    <Ionicons name="calendar" size={18} color="#9333ea" />
+                  <View className="bg-pink-100 p-2 rounded-full">
+                    <Ionicons name="calendar" size={18} color="#ec4899" />
                   </View>
                 </View>
-                <Text className="text-purple-600 text-3xl font-bold mt-3">{todayAppointments.length}</Text>
+                <Text className="text-pink-500 text-3xl font-bold mt-3">{todayAppointments.length}</Text>
                 <Text className="text-gray-400 text-xs mt-1">Appointments</Text>
               </View>
 
@@ -907,7 +1139,7 @@ export default function StaffDashboard() {
             <View className="px-5 mt-4">
               <TouchableOpacity
                 onPress={handleOpenRemitModal}
-                className="bg-gradient-to-r from-purple-500 to-purple-700 py-4 rounded-2xl shadow-lg"
+                className="bg-gradient-to-r from-pink-500 to-pink-600 py-4 rounded-2xl shadow-lg"
               >
                 <View className="flex-row items-center justify-center gap-3">
                   <Ionicons name="cash-outline" size={24} color="white" />
@@ -922,7 +1154,7 @@ export default function StaffDashboard() {
               <View className="flex-row justify-between items-center mb-4">
                 <Text className="text-xl font-bold text-gray-800">Today's Appointments</Text>
                 <TouchableOpacity onPress={() => setActiveTab('appointments')}>
-                  <Text className="text-purple-600 font-semibold">View All</Text>
+                  <Text className="text-pink-500 font-semibold">View All</Text>
                 </TouchableOpacity>
               </View>
 
@@ -937,8 +1169,8 @@ export default function StaffDashboard() {
                     <View className="flex-row justify-between items-start mb-3">
                       <View className="flex-1">
                         <View className="flex-row items-center mb-2">
-                          <View className="bg-purple-100 p-2 rounded-full mr-3">
-                            <Ionicons name="person-outline" size={20} color="#9333ea" />
+                          <View className="bg-pink-100 p-2 rounded-full mr-3">
+                            <Ionicons name="person-outline" size={20} color="#ec4899" />
                           </View>
                           <View>
                             <Text className="text-gray-800 font-bold text-lg">
@@ -966,11 +1198,11 @@ export default function StaffDashboard() {
                       
                       <View className={`px-3 py-1.5 rounded-full ${
                         app.service_status === 'completed' ? 'bg-green-100' :
-                        app.service_status === 'in_progress' ? 'bg-blue-100' : 'bg-purple-100'
+                        app.service_status === 'in_progress' ? 'bg-blue-100' : 'bg-pink-100'
                       }`}>
                         <Text className={`text-xs font-semibold ${
                           app.service_status === 'in_progress' ? 'text-blue-700' :
-                          app.service_status === 'completed' ? 'text-green-700' : 'text-purple-700'
+                          app.service_status === 'completed' ? 'text-green-700' : 'text-pink-700'
                         }`}>
                           {app.service_status === 'in_progress' ? 'IN PROGRESS' : 
                            app.service_status === 'completed' ? 'COMPLETED' : 
@@ -980,7 +1212,7 @@ export default function StaffDashboard() {
                     </View>
                     
                     <View className="flex-row justify-between items-center mt-2 pt-2 border-t border-gray-100">
-                      <Text className="text-purple-600 font-bold text-lg">₱{parseFloat(app.price).toLocaleString()}</Text>
+                      <Text className="text-pink-500 font-bold text-lg">₱{parseFloat(app.price).toLocaleString()}</Text>
                     </View>
                   </View>
                 ))
@@ -989,7 +1221,7 @@ export default function StaffDashboard() {
 
             {/* Total Earnings Card */}
             <View className="px-5 mt-4 mb-6">
-              <View className="bg-gradient-to-r from-purple-500 to-purple-700 rounded-2xl p-5">
+              <View className="bg-gradient-to-r from-pink-500 to-pink-600 rounded-2xl p-5">
                 <View className="flex-row justify-between items-start">
                   <View>
                     <Text className="text-white opacity-90 text-sm">Total Earnings</Text>
@@ -1020,6 +1252,16 @@ export default function StaffDashboard() {
             onRefresh={onRefresh}
           />
         );
+
+      case 'walkin':
+        return (
+          <StaffWalkIn 
+            onSuccess={() => {
+              // Refresh data after adding a walk-in
+              onRefresh();
+            }}
+          />
+        );
       
       case 'settings':
         return (
@@ -1029,8 +1271,8 @@ export default function StaffDashboard() {
               
               {/* Profile Card */}
               <View className="bg-white rounded-2xl p-6 mb-4 items-center shadow-sm">
-                <View className="bg-purple-100 p-4 rounded-full mb-3">
-                  <Ionicons name="person" size={50} color="#9333ea" />
+                <View className="bg-pink-100 p-4 rounded-full mb-3">
+                  <Ionicons name="person" size={50} color="#ec4899" />
                 </View>
                 <Text className="text-xl font-bold text-gray-800">{staffName}</Text>
                 <Text className="text-gray-500">Salon Staff</Text>
@@ -1041,12 +1283,12 @@ export default function StaffDashboard() {
               {/* Options */}
               <View className="bg-white rounded-2xl overflow-hidden shadow-sm mb-4">
                 <TouchableOpacity className="flex-row items-center px-5 py-4 border-b border-gray-100">
-                  <Ionicons name="notifications-outline" size={22} color="#9333ea" />
+                  <Ionicons name="notifications-outline" size={22} color="#ec4899" />
                   <Text className="ml-3 flex-1 text-gray-700">Notifications</Text>
                   <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
                 </TouchableOpacity>
                 <TouchableOpacity className="flex-row items-center px-5 py-4">
-                  <Ionicons name="lock-closed-outline" size={22} color="#9333ea" />
+                  <Ionicons name="lock-closed-outline" size={22} color="#ec4899" />
                   <Text className="ml-3 flex-1 text-gray-700">Privacy & Security</Text>
                   <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
                 </TouchableOpacity>
@@ -1089,9 +1331,9 @@ export default function StaffDashboard() {
           <Ionicons 
             name={activeTab === 'home' ? "home" : "home-outline"} 
             size={24} 
-            color={activeTab === 'home' ? "#9333ea" : "#9ca3af"} 
+            color={activeTab === 'home' ? "#ec4899" : "#9ca3af"} 
           />
-          <Text className={`text-xs mt-1 ${activeTab === 'home' ? 'text-purple-600 font-semibold' : 'text-gray-400'}`}>
+          <Text className={`text-xs mt-1 ${activeTab === 'home' ? 'text-pink-500 font-semibold' : 'text-gray-400'}`}>
             Home
           </Text>
         </TouchableOpacity>
@@ -1103,10 +1345,24 @@ export default function StaffDashboard() {
           <Ionicons 
             name={activeTab === 'appointments' ? "calendar" : "calendar-outline"} 
             size={24} 
-            color={activeTab === 'appointments' ? "#9333ea" : "#9ca3af"} 
+            color={activeTab === 'appointments' ? "#ec4899" : "#9ca3af"} 
           />
-          <Text className={`text-xs mt-1 ${activeTab === 'appointments' ? 'text-purple-600 font-semibold' : 'text-gray-400'}`}>
+          <Text className={`text-xs mt-1 ${activeTab === 'appointments' ? 'text-pink-500 font-semibold' : 'text-gray-400'}`}>
             Appointments
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          className="items-center py-1 px-5"
+          onPress={() => setActiveTab('walkin')}
+        >
+          <Ionicons 
+            name={activeTab === 'walkin' ? "person-add" : "person-add-outline"} 
+            size={24} 
+            color={activeTab === 'walkin' ? "#ec4899" : "#9ca3af"} 
+          />
+          <Text className={`text-xs mt-1 ${activeTab === 'walkin' ? 'text-pink-500 font-semibold' : 'text-gray-400'}`}>
+            Walk-in
           </Text>
         </TouchableOpacity>
 
@@ -1117,9 +1373,9 @@ export default function StaffDashboard() {
           <Ionicons 
             name={activeTab === 'schedule' ? "calendar" : "calendar-outline"} 
             size={24} 
-            color={activeTab === 'schedule' ? "#9333ea" : "#9ca3af"} 
+            color={activeTab === 'schedule' ? "#ec4899" : "#9ca3af"} 
           />
-          <Text className={`text-xs mt-1 ${activeTab === 'schedule' ? 'text-purple-600 font-semibold' : 'text-gray-400'}`}>
+          <Text className={`text-xs mt-1 ${activeTab === 'schedule' ? 'text-pink-500 font-semibold' : 'text-gray-400'}`}>
             Schedule
           </Text>
         </TouchableOpacity>
@@ -1131,9 +1387,9 @@ export default function StaffDashboard() {
           <Ionicons 
             name={activeTab === 'settings' ? "settings" : "settings-outline"} 
             size={24} 
-            color={activeTab === 'settings' ? "#9333ea" : "#9ca3af"} 
+            color={activeTab === 'settings' ? "#ec4899" : "#9ca3af"} 
           />
-          <Text className={`text-xs mt-1 ${activeTab === 'settings' ? 'text-purple-600 font-semibold' : 'text-gray-400'}`}>
+          <Text className={`text-xs mt-1 ${activeTab === 'settings' ? 'text-pink-500 font-semibold' : 'text-gray-400'}`}>
             Settings
           </Text>
         </TouchableOpacity>

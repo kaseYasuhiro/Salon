@@ -3,7 +3,7 @@ import {
   Users, UserPlus, Search, Edit, Trash2,
   Mail, Phone, Star, Clock, Award,
   Activity, Briefcase, CheckCircle, XCircle, Scissors, X, AlertCircle,
-  Plus, Tag
+  Plus, Tag, UserCheck, UserX
 } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../contexts/auth-context';
@@ -15,14 +15,19 @@ function Employees() {
   const [employees, setEmployees] = useState([]);
   const [specialtiesList, setSpecialtiesList] = useState([]);
   const [staffFeedbacks, setStaffFeedbacks] = useState([]);
+  const [walkInAuthorizations, setWalkInAuthorizations] = useState({});
+  const [walkInAuthIds, setWalkInAuthIds] = useState({}); // Store the ID for updating
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [showSpecialtyModal, setShowSpecialtyModal] = useState(false);
+  const [showWalkInModal, setShowWalkInModal] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [editingEmployee, setEditingEmployee] = useState(null);
   const [formError, setFormError] = useState('');
   const [specialtyError, setSpecialtyError] = useState('');
   const [isAddingSpecialty, setIsAddingSpecialty] = useState(false);
+  const [isUpdatingWalkIn, setIsUpdatingWalkIn] = useState(false);
   const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
 
   const [formData, setFormData] = useState({
@@ -38,12 +43,19 @@ function Employees() {
   const [specialtyFormData, setSpecialtyFormData] = useState({
     staff_id: '',
     specialty_id: '',
-    is_active: true
+    is_active: true,
+  });
+
+  const [walkInFormData, setWalkInFormData] = useState({
+    staff_id: '',
+    isAuthorizedForWalkin: false,
+    auth_id: null // Store the authorization record ID
   });
 
   const [stats, setStats] = useState([
     { label: 'Total Staff', value: '0', icon: Users, bgColor: 'bg-pink-50', textColor: 'text-pink-600' },
     { label: 'Active Staff', value: '0', icon: CheckCircle, bgColor: 'bg-green-50', textColor: 'text-green-600' },
+    { label: 'Walk-in Authorized', value: '0', icon: UserCheck, bgColor: 'bg-blue-50', textColor: 'text-blue-600' },
   ]);
 
   // Toast notification
@@ -80,6 +92,58 @@ function Employees() {
     }
   };
 
+  // Fetch walk-in authorizations using GET /walk-in/staff
+  const fetchWalkInAuthorizations = async () => {
+    try {
+      setIsRefreshing(true);
+      const response = await api.get('/walk-in/staff');
+      console.log('Fetched walk-in authorizations:', response.data);
+      
+      if (Array.isArray(response.data)) {
+        const authMap = {};
+        const authIdMap = {};
+        let authorizedCount = 0;
+        
+        // Group by staff_id and get the latest authorization
+        const latestAuths = {};
+        response.data.forEach(auth => {
+          const staffId = auth.staff_id || auth.staffId;
+          if (!staffId) return;
+          
+          // Keep the latest record (highest ID) for each staff member
+          if (!latestAuths[staffId] || auth.id > latestAuths[staffId].id) {
+            latestAuths[staffId] = auth;
+          }
+        });
+        
+        // Process the latest authorizations
+        Object.values(latestAuths).forEach(auth => {
+          const isAuthorized = auth.isAuthorizedForWalkIn === 1 || auth.isAuthorizedForWalkin === 1;
+          const staffId = auth.staff_id || auth.staffId;
+          
+          if (staffId) {
+            authMap[staffId] = isAuthorized;
+            authIdMap[staffId] = auth.id; // Store the record ID for updates
+            if (isAuthorized) authorizedCount++;
+          }
+        });
+        
+        setWalkInAuthorizations(authMap);
+        setWalkInAuthIds(authIdMap);
+        
+        setStats(prev => {
+          const newStats = [...prev];
+          newStats[2] = { ...newStats[2], value: authorizedCount.toString() };
+          return newStats;
+        });
+      }
+    } catch (error) {
+      console.error('Error fetching walk-in authorizations:', error);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
   // Fetch employees with their specialties using the /employee/specialties endpoint
   const fetchEmployees = async () => {
     setIsLoading(true);
@@ -92,10 +156,12 @@ function Employees() {
         
         const activeEmployees = response.data.filter(e => e.status === 'active' || e.status === null).length;
         
-        setStats([
-          { ...stats[0], value: response.data.length.toString() },
-          { ...stats[1], value: activeEmployees.toString() },
-        ]);
+        setStats(prev => {
+          const newStats = [...prev];
+          newStats[0] = { ...newStats[0], value: response.data.length.toString() };
+          newStats[1] = { ...newStats[1], value: activeEmployees.toString() };
+          return newStats;
+        });
       }
     } catch (error) {
       console.error('Error fetching employees:', error);
@@ -104,8 +170,16 @@ function Employees() {
     }
   };
 
+  // Refresh all data
+  const refreshAllData = async () => {
+    await Promise.all([
+      fetchEmployees(),
+      fetchWalkInAuthorizations()
+    ]);
+  };
+
   useEffect(() => {
-    fetchEmployees();
+    refreshAllData();
     fetchSpecialtiesList();
     fetchStaffFeedbacks();
   }, []);
@@ -123,6 +197,14 @@ function Employees() {
       [name]: type === 'checkbox' ? checked : value 
     }));
     setSpecialtyError('');
+  };
+
+  const handleWalkInInputChange = (e) => {
+    const { type, checked } = e.target;
+    setWalkInFormData(prev => ({ 
+      ...prev, 
+      isAuthorizedForWalkin: type === 'checkbox' ? checked : !prev.isAuthorizedForWalkin 
+    }));
   };
 
   // Get specialty name by ID
@@ -189,13 +271,58 @@ function Employees() {
       setShowSpecialtyModal(false);
       setSelectedEmployee(null);
       resetSpecialtyForm();
-      fetchEmployees();
+      refreshAllData();
     } catch (error) {
       console.error('Error adding specialty:', error);
       setSpecialtyError(error.response?.data?.message || 'Error adding specialty');
       showToast(error.response?.data?.message || 'Error adding specialty', 'error');
     } finally {
       setIsAddingSpecialty(false);
+    }
+  };
+
+  // Update walk-in authorization - CORRECTED ROUTE
+  const handleUpdateWalkIn = async (e) => {
+    e.preventDefault();
+    
+    setIsUpdatingWalkIn(true);
+    try {
+      const { staff_id, isAuthorizedForWalkin, auth_id } = walkInFormData;
+      
+      // If we have an auth_id, use the update endpoint with ID in URL
+      if (auth_id) {
+        // The route is: /walk-in/staff/auth/update/{id}
+        await api.post(`/walk-in/staff/auth/update/${auth_id}`, {
+          staff_id: staff_id,
+          isAuthorizedForWalkin: isAuthorizedForWalkin ? 1 : 0
+        });
+      } else {
+        // If no auth_id exists, create a new one using the auth endpoint
+        await api.post('/walk-in/staff/auth', {
+          staff_id: staff_id,
+          isAuthorizedForWalkin: isAuthorizedForWalkin ? 1 : 0
+        });
+      }
+      
+      showToast(
+        isAuthorizedForWalkin 
+          ? 'Staff authorized for walk-in successfully!' 
+          : 'Walk-in authorization revoked successfully!',
+        'success'
+      );
+      
+      setShowWalkInModal(false);
+      setSelectedEmployee(null);
+      resetWalkInForm();
+      
+      // Refresh all data to show updated authorization status
+      await refreshAllData();
+      
+    } catch (error) {
+      console.error('Error updating walk-in authorization:', error);
+      showToast(error.response?.data?.message || 'Error updating authorization', 'error');
+    } finally {
+      setIsUpdatingWalkIn(false);
     }
   };
 
@@ -234,7 +361,7 @@ function Employees() {
       showToast('Staff member added successfully!', 'success');
       setShowModal(false);
       resetForm();
-      fetchEmployees();
+      refreshAllData();
     } catch (error) {
       console.error('Error adding employee:', error);
       if (error.response?.data?.message) {
@@ -272,7 +399,7 @@ function Employees() {
       showToast(response.data.message || 'Staff member updated successfully!', 'success');
       setShowModal(false);
       resetForm();
-      fetchEmployees();
+      refreshAllData();
     } catch (error) {
       console.error('Error updating employee:', error);
       setFormError(error.response?.data?.message || 'Error updating employee');
@@ -287,7 +414,7 @@ function Employees() {
       try {
         const response = await api.post(`/employees/delete/${id}`);
         showToast(response.data.message || 'Staff member deleted successfully!', 'success');
-        fetchEmployees();
+        refreshAllData();
       } catch (error) {
         console.error('Error deleting employee:', error);
         showToast(error.response?.data?.message || 'Error deleting employee', 'error');
@@ -313,9 +440,17 @@ function Employees() {
     setSpecialtyFormData({
       staff_id: '',
       specialty_id: '',
-      is_active: true
+      is_active: true,
     });
     setSpecialtyError('');
+  };
+
+  const resetWalkInForm = () => {
+    setWalkInFormData({
+      staff_id: '',
+      isAuthorizedForWalkin: false,
+      auth_id: null
+    });
   };
 
   const handleEdit = (employee) => {
@@ -333,15 +468,28 @@ function Employees() {
   };
 
   const handleEmployeeClick = (employee) => {
-    console.log('Selected employee:', employee);
-    console.log('Staff specialties:', employee.staff_specialties);
     setSelectedEmployee(employee);
     setSpecialtyFormData({
       staff_id: employee.id,
       specialty_id: '',
-      is_active: true
+      is_active: true,
+    });
+    setWalkInFormData({
+      staff_id: employee.id,
+      isAuthorizedForWalkin: walkInAuthorizations[employee.id] || false,
+      auth_id: walkInAuthIds[employee.id] || null // Store the auth record ID
     });
     setShowSpecialtyModal(true);
+  };
+
+  const handleWalkInClick = (employee) => {
+    setSelectedEmployee(employee);
+    setWalkInFormData({
+      staff_id: employee.id,
+      isAuthorizedForWalkin: walkInAuthorizations[employee.id] || false,
+      auth_id: walkInAuthIds[employee.id] || null // Store the auth record ID
+    });
+    setShowWalkInModal(true);
   };
 
   const handleSubmit = (e) => {
@@ -409,7 +557,7 @@ function Employees() {
       )}
 
       {/* Stats Grid - Compact */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         {stats.map((stat, index) => (
           <div key={index} className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 p-4 border border-gray-100">
             <div className={`${stat.bgColor} w-10 h-10 rounded-xl flex items-center justify-center mb-2`}>
@@ -477,14 +625,17 @@ function Employees() {
           {filteredEmployees.map((employee) => {
             const avgRating = getAverageStaffRating(employee.id);
             const reviewCount = getStaffReviewCount(employee.id);
+            const isAuthorized = walkInAuthorizations[employee.id] || false;
             
             return (
               <div 
                 key={employee.id} 
-                onClick={() => handleEmployeeClick(employee)}
                 className="bg-white rounded-xl shadow-sm hover:shadow-lg transition-all duration-300 border border-gray-100 overflow-hidden cursor-pointer group"
               >
-                <div className="relative h-24 bg-gradient-to-r from-pink-50 to-purple-50 flex items-center justify-center">
+                <div 
+                  onClick={() => handleEmployeeClick(employee)}
+                  className="relative h-24 bg-gradient-to-r from-pink-50 to-purple-50 flex items-center justify-center"
+                >
                   <div className="w-14 h-14 bg-gradient-to-r from-pink-500 to-pink-600 rounded-xl flex items-center justify-center shadow-lg">
                     <span className="text-white text-xl font-bold">
                       {getInitials(employee.first_name, employee.last_name)}
@@ -500,6 +651,24 @@ function Employees() {
                       </div>
                     </div>
                   )}
+                  {/* Walk-in Authorization Badge */}
+                  <div className="absolute top-1.5 right-1.5">
+                    {isAuthorized ? (
+                      <div className="bg-green-500 rounded-full px-1.5 py-0.5 shadow-md">
+                        <div className="flex items-center gap-0.5">
+                          <UserCheck size={10} className="text-white" />
+                          <span className="text-[8px] font-semibold text-white">Walk-in</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="bg-gray-400 rounded-full px-1.5 py-0.5 shadow-md">
+                        <div className="flex items-center gap-0.5">
+                          <UserX size={10} className="text-white" />
+                          <span className="text-[8px] font-semibold text-white">No Walk-in</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
                 
                 <div className="p-3">
@@ -576,6 +745,20 @@ function Employees() {
                     <button 
                       onClick={(e) => {
                         e.stopPropagation();
+                        handleWalkInClick(employee);
+                      }}
+                      className={`flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg transition-colors text-xs font-medium ${
+                        isAuthorized 
+                          ? 'bg-green-50 text-green-600 hover:bg-green-100' 
+                          : 'bg-gray-50 text-gray-600 hover:bg-gray-100'
+                      }`}
+                    >
+                      {isAuthorized ? <UserCheck size={12} /> : <UserX size={12} />}
+                      {isAuthorized ? 'Authorized' : 'Authorize'}
+                    </button>
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
                         handleDeleteEmployee(employee.id);
                       }}
                       className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors text-xs font-medium"
@@ -600,6 +783,7 @@ function Employees() {
                 <tr>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Staff Member</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Role</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Walk-in</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Rating</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Specialties</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Email</th>
@@ -611,14 +795,17 @@ function Employees() {
                 {filteredEmployees.map((employee) => {
                   const avgRating = getAverageStaffRating(employee.id);
                   const reviewCount = getStaffReviewCount(employee.id);
+                  const isAuthorized = walkInAuthorizations[employee.id] || false;
                   
                   return (
                     <tr 
                       key={employee.id} 
-                      onClick={() => handleEmployeeClick(employee)}
-                      className="hover:bg-pink-50/30 transition-colors duration-200 cursor-pointer"
+                      className="hover:bg-pink-50/30 transition-colors duration-200"
                     >
-                      <td className="px-4 py-3 whitespace-nowrap">
+                      <td 
+                        onClick={() => handleEmployeeClick(employee)}
+                        className="px-4 py-3 whitespace-nowrap cursor-pointer"
+                      >
                         <div className="flex items-center gap-2">
                           <div className="w-8 h-8 bg-gradient-to-r from-pink-500 to-pink-600 rounded-lg flex items-center justify-center">
                             <span className="text-white text-xs font-bold">
@@ -639,6 +826,31 @@ function Employees() {
                         </div>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
+                        <button
+                          onClick={() => handleWalkInClick(employee)}
+                          className={`px-2 py-1 rounded-lg text-xs font-medium transition-all duration-200 flex items-center gap-1 ${
+                            isAuthorized 
+                              ? 'bg-green-100 text-green-700 hover:bg-green-200' 
+                              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                          }`}
+                        >
+                          {isAuthorized ? (
+                            <>
+                              <UserCheck size={12} />
+                              <span>Authorized</span>
+                            </>
+                          ) : (
+                            <>
+                              <UserX size={12} />
+                              <span>Not Authorized</span>
+                            </>
+                          )}
+                        </button>
+                      </td>
+                      <td 
+                        onClick={() => handleEmployeeClick(employee)}
+                        className="px-4 py-3 whitespace-nowrap cursor-pointer"
+                      >
                         <div className="flex items-center gap-1">
                           <div className="flex items-center gap-0.5">
                             {renderStars(avgRating)}
@@ -653,7 +865,10 @@ function Employees() {
                           )}
                         </div>
                       </td>
-                      <td className="px-4 py-3">
+                      <td 
+                        onClick={() => handleEmployeeClick(employee)}
+                        className="px-4 py-3 cursor-pointer"
+                      >
                         <div className="flex flex-wrap gap-1">
                           {employee.staff_specialties && employee.staff_specialties.length > 0 ? (
                             employee.staff_specialties.slice(0, 2).map((specialty, idx) => (
@@ -685,19 +900,23 @@ function Employees() {
                       <td className="px-4 py-3 whitespace-nowrap">
                         <div className="flex items-center gap-1.5">
                           <button 
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleEdit(employee);
-                            }}
+                            onClick={() => handleEdit(employee)}
                             className="p-1 hover:bg-gray-100 rounded-lg transition-colors"
                           >
                             <Edit size={14} className="text-gray-500" />
                           </button>
                           <button 
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDeleteEmployee(employee.id);
-                            }}
+                            onClick={() => handleWalkInClick(employee)}
+                            className={`p-1 rounded-lg transition-colors ${
+                              isAuthorized 
+                                ? 'hover:bg-green-100 text-green-600' 
+                                : 'hover:bg-gray-100 text-gray-500'
+                            }`}
+                          >
+                            {isAuthorized ? <UserCheck size={14} /> : <UserX size={14} />}
+                          </button>
+                          <button 
+                            onClick={() => handleDeleteEmployee(employee.id)}
                             className="p-1 hover:bg-gray-100 rounded-lg transition-colors"
                           >
                             <Trash2 size={14} className="text-red-500" />
@@ -860,7 +1079,7 @@ function Employees() {
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
             <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-5 py-3 flex items-center justify-between">
               <h2 className="text-lg font-bold text-white">
-                Assign Specialty to {selectedEmployee.first_name}
+                Manage {selectedEmployee.first_name}
               </h2>
               <button 
                 onClick={() => {
@@ -874,49 +1093,98 @@ function Employees() {
               </button>
             </div>
 
-            <form onSubmit={handleAddSpecialty} className="p-5 space-y-3">
-              {specialtyError && (
-                <div className="bg-red-50 border border-red-200 rounded-lg p-2 flex items-center gap-1.5">
-                  <AlertCircle size={12} className="text-red-500" />
-                  <p className="text-red-600 text-xs">{specialtyError}</p>
+            <div className="p-5 space-y-4">
+              {/* Walk-in Authorization Section - Separate from Specialty */}
+              <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-800">Walk-in Authorization</h3>
+                    <p className="text-xs text-gray-500">Allow this staff to accept walk-in customers</p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setShowSpecialtyModal(false);
+                      setSelectedEmployee(selectedEmployee);
+                      handleWalkInClick(selectedEmployee);
+                    }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 flex items-center gap-1 ${
+                      walkInAuthorizations[selectedEmployee.id]
+                        ? 'bg-green-100 text-green-700 hover:bg-green-200' 
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                  >
+                    {walkInAuthorizations[selectedEmployee.id] ? (
+                      <>
+                        <UserCheck size={14} />
+                        <span>Authorized</span>
+                      </>
+                    ) : (
+                      <>
+                        <UserX size={14} />
+                        <span>Not Authorized</span>
+                      </>
+                    )}
+                  </button>
                 </div>
-              )}
-
-              <div>
-                <label className="block text-gray-700 text-xs font-semibold mb-1">
-                  Select Specialty *
-                </label>
-                <select
-                  name="specialty_id"
-                  value={specialtyFormData.specialty_id}
-                  onChange={handleSpecialtyInputChange}
-                  className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
-                  required
-                >
-                  <option value="">Select a specialty...</option>
-                  {specialtiesList.map((specialty) => (
-                    <option key={specialty.id} value={specialty.id}>
-                      {formatSpecialtyName(specialty.specialty_name)}
-                    </option>
-                  ))}
-                </select>
               </div>
 
-              <div>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    name="is_active"
-                    checked={specialtyFormData.is_active}
-                    onChange={handleSpecialtyInputChange}
-                    className="w-3.5 h-3.5 text-pink-500 border-gray-300 rounded focus:ring-pink-500"
-                  />
-                  <span className="text-gray-700 text-xs font-semibold">
-                    Active Status
-                  </span>
-                </label>
+              {/* Add Specialty Section - Optional */}
+              <div className="border-t border-gray-200 pt-4">
+                <h3 className="text-sm font-semibold text-gray-800 mb-3">Add Specialty (Optional)</h3>
+                <p className="text-xs text-gray-500 mb-3">Add a specialty to this staff member. This step is optional.</p>
+                <form onSubmit={handleAddSpecialty} className="space-y-3">
+                  {specialtyError && (
+                    <div className="bg-red-50 border border-red-200 rounded-lg p-2 flex items-center gap-1.5">
+                      <AlertCircle size={12} className="text-red-500" />
+                      <p className="text-red-600 text-xs">{specialtyError}</p>
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="block text-gray-700 text-xs font-semibold mb-1">
+                      Select Specialty
+                    </label>
+                    <select
+                      name="specialty_id"
+                      value={specialtyFormData.specialty_id}
+                      onChange={handleSpecialtyInputChange}
+                      className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                    >
+                      <option value="">Select a specialty (optional)...</option>
+                      {specialtiesList.map((specialty) => (
+                        <option key={specialty.id} value={specialty.id}>
+                          {formatSpecialtyName(specialty.specialty_name)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        name="is_active"
+                        checked={specialtyFormData.is_active}
+                        onChange={handleSpecialtyInputChange}
+                        className="w-3.5 h-3.5 text-pink-500 border-gray-300 rounded focus:ring-pink-500"
+                      />
+                      <span className="text-gray-700 text-xs font-semibold">
+                        Active Status
+                      </span>
+                    </label>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={isAddingSpecialty}
+                    className="w-full px-3 py-1.5 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 text-sm font-medium disabled:opacity-50"
+                  >
+                    {isAddingSpecialty ? 'Assigning...' : 'Assign Specialty'}
+                  </button>
+                </form>
               </div>
 
+              {/* Current Specialties - Display Only */}
               {selectedEmployee.staff_specialties && selectedEmployee.staff_specialties.length > 0 && (
                 <div className="border-t border-gray-200 pt-3">
                   <label className="block text-gray-700 text-xs font-semibold mb-2">
@@ -940,14 +1208,87 @@ function Employees() {
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
 
-              <div className="flex gap-2 pt-3">
+      {/* Walk-in Authorization Modal - UPDATED ROUTE */}
+      {showWalkInModal && selectedEmployee && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
+            <div className="bg-gradient-to-r from-green-500 to-green-600 px-5 py-3 flex items-center justify-between">
+              <h2 className="text-lg font-bold text-white">
+                Walk-in Authorization for {selectedEmployee.first_name}
+              </h2>
+              <button 
+                onClick={() => {
+                  setShowWalkInModal(false);
+                  setSelectedEmployee(null);
+                  resetWalkInForm();
+                }}
+                className="text-white hover:bg-white/20 rounded-lg p-1 transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateWalkIn} className="p-5 space-y-4">
+              <div className="text-center">
+                <div className="w-16 h-16 bg-gradient-to-r from-green-400 to-green-600 rounded-full flex items-center justify-center mx-auto mb-3">
+                  <span className="text-white text-2xl font-bold">
+                    {getInitials(selectedEmployee.first_name, selectedEmployee.last_name)}
+                  </span>
+                </div>
+                <h3 className="text-lg font-semibold text-gray-800">
+                  {selectedEmployee.first_name} {selectedEmployee.last_name}
+                </h3>
+                <p className="text-sm text-gray-500">Staff Member</p>
+              </div>
+
+              {/* Show existing authorization status */}
+              <div className="bg-gray-50 rounded-lg p-3 text-center">
+                <p className="text-xs text-gray-500">Current Status</p>
+                <p className={`text-sm font-semibold ${
+                  walkInFormData.isAuthorizedForWalkin ? 'text-green-600' : 'text-gray-600'
+                }`}>
+                  {walkInFormData.isAuthorizedForWalkin ? '✅ Authorized for Walk-in' : '❌ Not Authorized for Walk-in'}
+                </p>
+                {walkInFormData.auth_id && (
+                  <p className="text-xs text-gray-400 mt-1">Authorization ID: #{walkInFormData.auth_id}</p>
+                )}
+              </div>
+
+              {/* Checkbox for walk-in authorization */}
+              <div className="bg-gray-50 rounded-lg p-4">
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    name="isAuthorizedForWalkin"
+                    checked={walkInFormData.isAuthorizedForWalkin}
+                    onChange={handleWalkInInputChange}
+                    className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500"
+                  />
+                  <div>
+                    <span className="text-gray-700 font-semibold text-sm">
+                      {walkInFormData.isAuthorizedForWalkin ? 'Revoke Authorization' : 'Authorize for Walk-in'}
+                    </span>
+                    <p className="text-xs text-gray-400">
+                      {walkInFormData.isAuthorizedForWalkin 
+                        ? 'Remove walk-in access for this staff member' 
+                        : 'Allow this staff member to accept walk-in customers'}
+                    </p>
+                  </div>
+                </label>
+              </div>
+
+              <div className="flex gap-2 pt-2">
                 <button
                   type="button"
                   onClick={() => {
-                    setShowSpecialtyModal(false);
+                    setShowWalkInModal(false);
                     setSelectedEmployee(null);
-                    resetSpecialtyForm();
+                    resetWalkInForm();
                   }}
                   className="flex-1 px-3 py-1.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium"
                 >
@@ -955,10 +1296,10 @@ function Employees() {
                 </button>
                 <button
                   type="submit"
-                  disabled={isAddingSpecialty}
-                  className="flex-1 px-3 py-1.5 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 text-sm font-medium disabled:opacity-50"
+                  disabled={isUpdatingWalkIn}
+                  className="flex-1 px-3 py-1.5 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 text-sm font-medium disabled:opacity-50"
                 >
-                  {isAddingSpecialty ? 'Assigning...' : 'Assign'}
+                  {isUpdatingWalkIn ? 'Updating...' : 'Update Authorization'}
                 </button>
               </div>
             </form>

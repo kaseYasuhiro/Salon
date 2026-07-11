@@ -255,33 +255,31 @@ function Products() {
         ))}
       </div>
 
-      {/* Controls Bar */}
+      {/* Controls Bar - Search and Add Product Button */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div className="flex gap-2">
-          <button 
-            onClick={() => {
-              resetForm();
-              setShowModal(true);
-            }}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 text-sm font-medium"
-          >
-            <Plus size={14} />
-            <span>Add Product</span>
-          </button>
-        </div>
-        
-        <div className="flex flex-wrap gap-2">
-          <div className="relative">
+        <div className="flex flex-wrap gap-2 flex-1">
+          <div className="relative flex-1 sm:max-w-xs">
             <Search size={14} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
             <input 
               type="text" 
               placeholder="Search products..." 
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-9 pr-3 py-1.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent text-sm w-48"
+              className="w-full pl-9 pr-3 py-1.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent text-sm"
             />
           </div>
         </div>
+        
+        <button 
+          onClick={() => {
+            resetForm();
+            setShowModal(true);
+          }}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 text-sm font-medium whitespace-nowrap"
+        >
+          <Plus size={14} />
+          <span>Add Product</span>
+        </button>
       </div>
 
       {/* Products Grid - Card View */}

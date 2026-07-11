@@ -36,6 +36,7 @@ interface WalkIn {
   customer_name: string;
   service_id: number;
   stylist_id: number;
+  amount_paid: number;
   is_finished: number;
   created_at: string;
   updated_at: string;
@@ -110,7 +111,6 @@ export default function StaffAppointments({
   onRefresh
 }: StaffAppointmentsProps) {
   const [showUpdateModal, setShowUpdateModal] = useState(false);
-  const [showWalkInModal, setShowWalkInModal] = useState(false);
   const [showWalkInUpdateModal, setShowWalkInUpdateModal] = useState(false);
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
   const [selectedWalkIn, setSelectedWalkIn] = useState<WalkIn | null>(null);
@@ -124,43 +124,222 @@ export default function StaffAppointments({
   const [activeTab, setActiveTab] = useState<'all' | 'appointments' | 'walkins'>('all');
   const [isUpdatingWalkIn, setIsUpdatingWalkIn] = useState(false);
   
-  // Walk-in form state
-  const [walkInFormData, setWalkInFormData] = useState({
-    customer_name: '',
-    stylist_id: 0,
-    service_id: 0,
-  });
-  const [isSubmittingWalkIn, setIsSubmittingWalkIn] = useState(false);
-  
   // Walk-in update form state
   const [walkInUpdateData, setWalkInUpdateData] = useState({
     customer_name: '',
-    service_id: 0,
-    stylist_id: 0,
+    amount_paid: 0,
     is_finished: 0
   });
   
   // Walk-in product usage state
   const [walkInProductUsages, setWalkInProductUsages] = useState<ProductUsage[]>([]);
   
+  // Local state for data
+  const [staffAppointments, setStaffAppointments] = useState<Appointment[]>([]);
+  const [staff, setStaff] = useState<any[]>([]);
+  const [services, setServices] = useState<any[]>([]);
+  const [walkIns, setWalkIns] = useState<WalkIn[]>([]);
+  const [walkInTransactions, setWalkInTransactions] = useState<any[]>([]);
+  
   const { 
-    user, 
-    staffAppointments, 
-    fetchStaffAppointments, 
-    updateServiceWithInventory,
-    staff,
-    services,
-    submitWalkIn,
-    walkIns,
-    fetchWalkIns,
-    updateWalkIn,
-    submitWalkInTransaction,
-    fetchWalkInTransactions,
+    user,
   } = useAuth();
 
   // States for business schedules and staff assignments
   const [businessSchedules, setBusinessSchedules] = useState<BusinessSchedule[]>([]);
   const [staffAssignments, setStaffAssignments] = useState<StaffAssignment[]>([]);
+
+  // Fetch staff appointments
+  const fetchStaffAppointments = async () => {
+    try {
+      const userData = user;
+      if (!userData?.id) {
+        console.log("No user ID found");
+        return [];
+      }
+      
+      const response = await api.get(`/staff/${userData.id}/appointments`);
+      console.log("Staff appointments response:", response.data);
+      
+      let appointmentsData: Appointment[] = [];
+      if (Array.isArray(response.data)) {
+        appointmentsData = response.data.map((item: any) => ({
+          id: item.id,
+          service_id: item.service_id,
+          customer_name: item.customer_name || 'Walk-in Customer',
+          customer_phone: item.customer_phone || 'N/A',
+          appointment_date: item.appointment_date,
+          appointment_time: item.appointment_time || '--:--',
+          status: item.status,
+          service_status: item.service_status,
+          service_name: item.service_name,
+          duration_minutes: item.duration_minutes,
+          price: item.price,
+          notes: item.notes,
+          transaction_id: item.transaction_id
+        }));
+      }
+      
+      console.log("Processed staff appointments:", appointmentsData);
+      setStaffAppointments(appointmentsData);
+      return appointmentsData;
+    } catch (error) {
+      console.log("Error fetching staff appointments:", error);
+      return [];
+    }
+  };
+
+  // Fetch staff
+  const fetchStaff = async () => {
+    try {
+      const response = await api.get("/employee/specialties");
+      console.log("Fetched staff with specialties:", response.data);
+      
+      let staffData: any[] = [];
+      if (Array.isArray(response.data)) {
+        staffData = response.data;
+      }
+      
+      setStaff(staffData);
+      return staffData;
+    } catch (error) {
+      console.log("Error fetching staff:", error);
+      return [];
+    }
+  };
+
+  // Fetch services
+  const fetchServices = async () => {
+    try {
+      const response = await api.get("/services");
+      console.log("Fetched services:", response.data);
+      
+      let servicesData: any[] = [];
+      if (Array.isArray(response.data)) {
+        servicesData = response.data.map((service: any) => ({
+          id: service.id,
+          service_name: service.service_name,
+          description: service.description,
+          price: parseFloat(service.price),
+          is_multitaskable: service.is_multitaskable,
+          duration_minutes: service.duration_minutes,
+          service_status: service.service_status,
+          created_at: service.created_at,
+          updated_at: service.updated_at,
+        }));
+      }
+      
+      setServices(servicesData);
+      return servicesData;
+    } catch (error) {
+      console.log("Error fetching services:", error);
+      return [];
+    }
+  };
+
+  // Fetch walk-ins
+  const fetchWalkIns = async () => {
+    try {
+      const response = await api.get('/walk-in');
+      console.log('Fetched walk-ins:', response.data);
+      
+      let walkInsData: WalkIn[] = [];
+      if (Array.isArray(response.data)) {
+        walkInsData = response.data.map((item: any) => ({
+          id: item.id,
+          customer_name: item.customer_name,
+          service_id: item.service_id,
+          stylist_id: item.stylist_id,
+          amount_paid: item.amount_paid || 0,
+          is_finished: item.is_finished,
+          created_at: item.created_at,
+          updated_at: item.updated_at,
+          services: item.services,
+          user: item.user
+        }));
+      }
+      
+      console.log('Processed walk-ins:', walkInsData);
+      setWalkIns(walkInsData);
+      return walkInsData;
+    } catch (error) {
+      console.error('Error fetching walk-ins:', error);
+      return [];
+    }
+  };
+
+  // Update walk-in
+  const updateWalkIn = async (id: number, data: any) => {
+    try {
+      const response = await api.post(`/walk-in/update/${id}`, {
+        customer_name: data.customer_name,
+        service_id: data.service_id,
+        stylist_id: data.stylist_id,
+        amount_paid: data.amount_paid,
+        is_finished: data.is_finished
+      });
+      console.log('Walk-in updated:', response.data);
+      return response.data;
+    } catch (error) {
+      console.error('Error updating walk-in:', error);
+      throw error;
+    }
+  };
+
+  // Fetch walk-in transactions
+  const fetchWalkInTransactions = async () => {
+    try {
+      const response = await api.get('/walk-in/transaction');
+      console.log('Fetched walk-in transactions:', response.data);
+      
+      let transactionsData: any[] = [];
+      if (Array.isArray(response.data)) {
+        transactionsData = response.data.map((item: any) => ({
+          id: item.id,
+          walkin_id: item.walkin_id,
+          inventory_id: item.inventory_id,
+          quantity_change: item.quantity_change,
+          created_at: item.created_at,
+          updated_at: item.updated_at
+        }));
+      }
+      
+      console.log('Processed walk-in transactions:', transactionsData);
+      setWalkInTransactions(transactionsData);
+      return transactionsData;
+    } catch (error) {
+      console.error('Error fetching walk-in transactions:', error);
+      return [];
+    }
+  };
+
+  // Submit walk-in transaction
+  const submitWalkInTransaction = async (data: { walkin_id: number; inventory_id: number; quantity_change: number }) => {
+    try {
+      const response = await api.post('/walk-in/transaction/add', {
+        walkin_id: data.walkin_id,
+        inventory_id: data.inventory_id,
+        quantity_change: data.quantity_change
+      });
+      console.log('Walk-in transaction submitted:', response.data);
+      return response.data;
+    } catch (error) {
+      console.error('Error submitting walk-in transaction:', error);
+      throw error;
+    }
+  };
+
+  // Update service with inventory
+  const updateServiceWithInventory = async (transactionId: number, data: any) => {
+    try {
+      const response = await api.put(`/staff/transaction/${transactionId}/update`, data);
+      console.log("Service updated:", response.data);
+      return response.data;
+    } catch (error) {
+      console.log("Error updating service:", error);
+      throw error;
+    }
+  };
 
   // Fetch business schedules
   const fetchBusinessSchedules = async () => {
@@ -258,8 +437,7 @@ export default function StaffAppointments({
       // Populate the walk-in update form with current data
       setWalkInUpdateData({
         customer_name: item.customer_name,
-        service_id: item.service_id || 0,
-        stylist_id: item.walk_in_data.stylist_id,
+        amount_paid: item.walk_in_data.amount_paid || 0,
         is_finished: item.walk_in_data.is_finished
       });
       
@@ -365,61 +543,6 @@ export default function StaffAppointments({
     }
   };
 
-  // Walk-in functions
-  const handleOpenWalkInModal = () => {
-    setWalkInFormData({
-      customer_name: '',
-      stylist_id: 0,
-      service_id: 0,
-    });
-    setShowWalkInModal(true);
-  };
-
-  const handleSubmitWalkIn = async () => {
-    // Validate form
-    if (!walkInFormData.customer_name.trim()) {
-      Alert.alert("Validation Error", "Please enter the customer's name");
-      return;
-    }
-    
-    if (!walkInFormData.stylist_id || walkInFormData.stylist_id === 0) {
-      Alert.alert("Validation Error", "Please select a stylist");
-      return;
-    }
-    
-    if (!walkInFormData.service_id || walkInFormData.service_id === 0) {
-      Alert.alert("Validation Error", "Please select a service");
-      return;
-    }
-
-    setIsSubmittingWalkIn(true);
-    try {
-      const data = {
-        customer_name: walkInFormData.customer_name.trim(),
-        service_id: walkInFormData.service_id,
-        stylist_id: walkInFormData.stylist_id,
-        is_finished: 0
-      };
-      
-      console.log("Submitting walk-in with data:", data);
-      await submitWalkIn(data);
-      
-      Alert.alert("Success", "Walk-in customer added successfully!");
-      setShowWalkInModal(false);
-      setWalkInFormData({
-        customer_name: '',
-        stylist_id: 0,
-        service_id: 0,
-      });
-      await Promise.all([fetchStaffAppointments(), fetchWalkIns(), fetchStaffAssignments()]);
-    } catch (error: any) {
-      console.error("Error submitting walk-in:", error);
-      Alert.alert("Error", error.response?.data?.message || "Failed to add walk-in customer");
-    } finally {
-      setIsSubmittingWalkIn(false);
-    }
-  };
-
   // Walk-in Update functions
   const handleWalkInUpdate = async () => {
     if (!selectedWalkIn) return;
@@ -427,16 +550,6 @@ export default function StaffAppointments({
     // Validate form
     if (!walkInUpdateData.customer_name.trim()) {
       Alert.alert("Validation Error", "Please enter the customer's name");
-      return;
-    }
-    
-    if (!walkInUpdateData.stylist_id || walkInUpdateData.stylist_id === 0) {
-      Alert.alert("Validation Error", "Please select a stylist");
-      return;
-    }
-    
-    if (!walkInUpdateData.service_id || walkInUpdateData.service_id === 0) {
-      Alert.alert("Validation Error", "Please select a service");
       return;
     }
     
@@ -456,11 +569,12 @@ export default function StaffAppointments({
     
     setIsUpdatingWalkIn(true);
     try {
-      // Update walk-in details
+      // Update walk-in details - include service_id and stylist_id from the existing walk-in
       const updateData = {
         customer_name: walkInUpdateData.customer_name.trim(),
-        service_id: walkInUpdateData.service_id,
-        stylist_id: walkInUpdateData.stylist_id,
+        service_id: selectedWalkIn.service_id,
+        stylist_id: selectedWalkIn.stylist_id,
+        amount_paid: walkInUpdateData.amount_paid,
         is_finished: walkInUpdateData.is_finished
       };
       
@@ -626,8 +740,8 @@ export default function StaffAppointments({
         <View className="flex-row justify-between items-start mb-3">
           <View className="flex-1">
             <View className="flex-row items-center mb-2">
-              <View className={`p-2 rounded-full mr-3 ${isWalkIn ? 'bg-green-100' : 'bg-purple-100'}`}>
-                <Ionicons name={isWalkIn ? "walk-outline" : "person-outline"} size={20} color={isWalkIn ? "#16a34a" : "#9333ea"} />
+              <View className={`p-2 rounded-full mr-3 ${isWalkIn ? 'bg-green-100' : 'bg-pink-100'}`}>
+                <Ionicons name={isWalkIn ? "walk-outline" : "person-outline"} size={20} color={isWalkIn ? "#16a34a" : "#ec4899"} />
               </View>
               <View>
                 <View className="flex-row items-center">
@@ -646,6 +760,11 @@ export default function StaffAppointments({
                 {isWalkIn && item.walk_in_data?.created_at && (
                   <Text className="text-gray-400 text-xs">
                     Created: {formatDate(item.walk_in_data.created_at)}
+                  </Text>
+                )}
+                {isWalkIn && item.walk_in_data?.amount_paid !== undefined && item.walk_in_data?.amount_paid !== null && (
+                  <Text className="text-green-600 text-xs">
+                    Paid: ₱{item.walk_in_data.amount_paid.toLocaleString()}
                   </Text>
                 )}
               </View>
@@ -671,11 +790,11 @@ export default function StaffAppointments({
           
           <View className={`px-3 py-1.5 rounded-full ${
             item.service_status === 'completed' ? 'bg-green-100' :
-            item.service_status === 'in_progress' ? 'bg-blue-100' : 'bg-purple-100'
+            item.service_status === 'in_progress' ? 'bg-blue-100' : 'bg-pink-100'
           }`}>
             <Text className={`text-xs font-semibold ${
               item.service_status === 'in_progress' ? 'text-blue-700' :
-              item.service_status === 'completed' ? 'text-green-700' : 'text-purple-700'
+              item.service_status === 'completed' ? 'text-green-700' : 'text-pink-700'
             }`}>
               {item.service_status === 'in_progress' ? 'IN PROGRESS' : 
                item.service_status === 'completed' ? 'COMPLETED' : 
@@ -685,7 +804,7 @@ export default function StaffAppointments({
         </View>
         
         <View className="flex-row justify-between items-center mt-2 pt-2 border-t border-gray-100">
-          <Text className="text-purple-600 font-bold text-lg">₱{parseFloat(item.price).toLocaleString()}</Text>
+          <Text className="text-pink-500 font-bold text-lg">₱{parseFloat(item.price).toLocaleString()}</Text>
           
           {!isCompleted && (
             <TouchableOpacity 
@@ -706,10 +825,15 @@ export default function StaffAppointments({
   // Get today's staff for the stylist selection
   const todayStaff = getTodayStaff();
 
-  // Load business schedules and staff assignments on mount
+  // Load data on mount
   useEffect(() => {
     fetchBusinessSchedules();
     fetchStaffAssignments();
+    fetchStaff();
+    fetchServices();
+    fetchStaffAppointments();
+    fetchWalkIns();
+    fetchWalkInTransactions();
   }, []);
 
   return (
@@ -718,19 +842,12 @@ export default function StaffAppointments({
         showsVerticalScrollIndicator={false} 
         className="flex-1"
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#9333ea']} />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#ec4899']} />
         }
       >
         <View className="px-5 pt-6">
           <View className="flex-row justify-between items-center mb-2">
             <Text className="text-3xl font-bold text-gray-800">My Appointments</Text>
-            <TouchableOpacity 
-              className="bg-green-600 px-4 py-2 rounded-xl flex-row items-center"
-              onPress={handleOpenWalkInModal}
-            >
-              <Ionicons name="person-add" size={20} color="white" />
-              <Text className="text-white font-semibold ml-2">Walk-in</Text>
-            </TouchableOpacity>
           </View>
           <Text className="text-gray-500 mb-4">All your assigned appointments</Text>
           
@@ -742,7 +859,7 @@ export default function StaffAppointments({
               onPress={() => setActiveTab('all')}
             >
               <Text className={`text-center font-semibold ${
-                activeTab === 'all' ? 'text-purple-600' : 'text-gray-600'
+                activeTab === 'all' ? 'text-pink-600' : 'text-gray-600'
               }`}>
                 All ({getAllCount()})
               </Text>
@@ -754,7 +871,7 @@ export default function StaffAppointments({
               onPress={() => setActiveTab('appointments')}
             >
               <Text className={`text-center font-semibold ${
-                activeTab === 'appointments' ? 'text-purple-600' : 'text-gray-600'
+                activeTab === 'appointments' ? 'text-pink-600' : 'text-gray-600'
               }`}>
                 Appointments ({getAppointmentsCount()})
               </Text>
@@ -766,7 +883,7 @@ export default function StaffAppointments({
               onPress={() => setActiveTab('walkins')}
             >
               <Text className={`text-center font-semibold ${
-                activeTab === 'walkins' ? 'text-purple-600' : 'text-gray-600'
+                activeTab === 'walkins' ? 'text-pink-600' : 'text-gray-600'
               }`}>
                 Walk-ins ({getWalkInsCount()})
               </Text>
@@ -818,7 +935,7 @@ export default function StaffAppointments({
       >
         <View className="flex-1 justify-center items-center bg-black/50">
           <View className="bg-white rounded-2xl w-full max-w-md mx-4 max-h-[90%] overflow-hidden">
-            <View className="bg-purple-600 px-6 py-4 flex-row justify-between items-center">
+            <View className="bg-pink-500 px-6 py-4 flex-row justify-between items-center">
               <Text className="text-xl font-bold text-white">Update Service</Text>
               <TouchableOpacity onPress={() => setShowUpdateModal(false)}>
                 <Ionicons name="close" size={24} color="white" />
@@ -844,7 +961,7 @@ export default function StaffAppointments({
                       onPress={() => setUpdateFormData(prev => ({ ...prev, status }))}
                       className={`px-4 py-2 rounded-full ${
                         updateFormData.status === status 
-                          ? 'bg-purple-600' 
+                          ? 'bg-pink-500' 
                           : 'bg-gray-200'
                       }`}
                     >
@@ -865,7 +982,7 @@ export default function StaffAppointments({
                       onPress={() => setUpdateFormData(prev => ({ ...prev, service_status: status }))}
                       className={`px-4 py-2 rounded-full ${
                         updateFormData.service_status === status 
-                          ? 'bg-purple-600' 
+                          ? 'bg-pink-500' 
                           : 'bg-gray-200'
                       }`}
                     >
@@ -929,7 +1046,7 @@ export default function StaffAppointments({
               <TouchableOpacity
                 onPress={handleUpdateSubmit}
                 disabled={isUpdating}
-                className="bg-purple-600 py-3 rounded-xl mt-4"
+                className="bg-pink-500 py-3 rounded-xl mt-4"
               >
                 <Text className="text-white text-center font-semibold">
                   {isUpdating ? 'Updating...' : 'Update Service'}
@@ -986,6 +1103,12 @@ export default function StaffAppointments({
                     </Text>
                   </View>
                 </View>
+                <View className="flex-row justify-between items-center mt-1">
+                  <Text className="text-gray-600 text-sm">Amount Paid:</Text>
+                  <Text className="text-green-600 font-semibold">
+                    ₱{selectedWalkIn?.amount_paid?.toLocaleString() || '0.00'}
+                  </Text>
+                </View>
               </View>
 
               {/* Customer Name */}
@@ -999,53 +1122,23 @@ export default function StaffAppointments({
                 />
               </View>
 
-              {/* Select Stylist - Show only today's assigned staff */}
+              {/* Amount Paid */}
               <View className="mb-4">
-                <Text className="text-gray-700 font-semibold mb-2">Select Stylist *</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} className="flex-row gap-2">
-                  {todayStaff.map((staffMember) => {
-                    const isSelected = walkInUpdateData.stylist_id === staffMember.id;
-                    return (
-                      <TouchableOpacity
-                        key={staffMember.id}
-                        onPress={() => setWalkInUpdateData(prev => ({ ...prev, stylist_id: staffMember.id }))}
-                        className={`px-4 py-2 rounded-full ${
-                          isSelected ? 'bg-green-600' : 'bg-gray-200'
-                        }`}
-                      >
-                        <Text className={isSelected ? 'text-white' : 'text-gray-700'}>
-                          {staffMember.first_name} {staffMember.last_name}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
-                {walkInUpdateData.stylist_id === 0 && (
-                  <Text className="text-red-500 text-xs mt-1">Please select a stylist</Text>
-                )}
-              </View>
-
-              {/* Select Service */}
-              <View className="mb-4">
-                <Text className="text-gray-700 font-semibold mb-2">Select Service *</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} className="flex-row gap-2">
-                  {services.filter(s => s.service_status === 'active').map((service) => {
-                    const isSelected = walkInUpdateData.service_id === service.id;
-                    return (
-                      <TouchableOpacity
-                        key={service.id}
-                        onPress={() => setWalkInUpdateData(prev => ({ ...prev, service_id: service.id }))}
-                        className={`px-4 py-2 rounded-full ${
-                          isSelected ? 'bg-green-600' : 'bg-gray-200'
-                        }`}
-                      >
-                        <Text className={isSelected ? 'text-white' : 'text-gray-700'}>
-                          {service.service_name} (₱{service.price})
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
+                <Text className="text-gray-700 font-semibold mb-2">Amount Paid *</Text>
+                <View className="flex-row items-center bg-gray-50 rounded-xl px-4 py-3 border border-gray-200">
+                  <Text className="text-gray-800 font-bold text-lg mr-2">₱</Text>
+                  <TextInput
+                    value={walkInUpdateData.amount_paid.toString()}
+                    onChangeText={(text) => {
+                      const num = parseFloat(text) || 0;
+                      setWalkInUpdateData(prev => ({ ...prev, amount_paid: num }));
+                    }}
+                    keyboardType="numeric"
+                    className="flex-1 text-lg text-gray-800"
+                    placeholder="0.00"
+                  />
+                </View>
+                <Text className="text-gray-400 text-xs mt-1">Enter the amount paid by the customer</Text>
               </View>
 
               {/* Status Toggle */}
@@ -1123,10 +1216,7 @@ export default function StaffAppointments({
                   Customer: {walkInUpdateData.customer_name || 'Not set'}
                 </Text>
                 <Text className="text-gray-600 text-sm">
-                  Stylist: {staff.find(s => s.id === walkInUpdateData.stylist_id)?.first_name} {staff.find(s => s.id === walkInUpdateData.stylist_id)?.last_name || 'Not selected'}
-                </Text>
-                <Text className="text-gray-600 text-sm">
-                  Service: {services.find(s => s.id === walkInUpdateData.service_id)?.service_name || 'Not selected'}
+                  Amount Paid: ₱{walkInUpdateData.amount_paid.toLocaleString()}
                 </Text>
                 <Text className="text-gray-600 text-sm">
                   Status: {walkInUpdateData.is_finished === 1 ? '✅ Finished' : '⏳ Pending'}
@@ -1152,114 +1242,6 @@ export default function StaffAppointments({
                   </Text>
                 </TouchableOpacity>
               </View>
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Add Walk-in Modal */}
-      <Modal
-        animationType="slide"
-        transparent={true}
-        visible={showWalkInModal}
-        onRequestClose={() => setShowWalkInModal(false)}
-      >
-        <View className="flex-1 justify-center items-center bg-black/50">
-          <View className="bg-white rounded-2xl w-full max-w-md mx-4 max-h-[90%] overflow-hidden">
-            <View className="bg-green-600 px-6 py-4 flex-row justify-between items-center">
-              <Text className="text-xl font-bold text-white">Add Walk-in Customer</Text>
-              <TouchableOpacity onPress={() => setShowWalkInModal(false)}>
-                <Ionicons name="close" size={24} color="white" />
-              </TouchableOpacity>
-            </View>
-            
-            <ScrollView className="p-6">
-              <View className="mb-4">
-                <Text className="text-gray-700 font-semibold mb-2">Customer Name *</Text>
-                <TextInput
-                  value={walkInFormData.customer_name}
-                  onChangeText={(text) => setWalkInFormData(prev => ({ ...prev, customer_name: text }))}
-                  placeholder="Enter customer name"
-                  className="border border-gray-300 rounded-lg px-4 py-3 text-gray-700"
-                />
-              </View>
-
-              {/* Select Stylist - Show only today's assigned staff */}
-              <View className="mb-4">
-                <Text className="text-gray-700 font-semibold mb-2">Select Stylist *</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} className="flex-row gap-2">
-                  {todayStaff.map((staffMember) => {
-                    const isSelected = walkInFormData.stylist_id === staffMember.id;
-                    return (
-                      <TouchableOpacity
-                        key={staffMember.id}
-                        onPress={() => setWalkInFormData(prev => ({ ...prev, stylist_id: staffMember.id }))}
-                        className={`px-4 py-2 rounded-full ${
-                          isSelected ? 'bg-green-600' : 'bg-gray-200'
-                        }`}
-                      >
-                        <Text className={isSelected ? 'text-white' : 'text-gray-700'}>
-                          {staffMember.first_name} {staffMember.last_name}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
-                {walkInFormData.stylist_id === 0 && (
-                  <Text className="text-red-500 text-xs mt-1">Please select a stylist</Text>
-                )}
-              </View>
-
-              <View className="mb-4">
-                <Text className="text-gray-700 font-semibold mb-2">Select Service *</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} className="flex-row gap-2">
-                  {services.filter(s => s.service_status === 'active').map((service) => {
-                    const isSelected = walkInFormData.service_id === service.id;
-                    return (
-                      <TouchableOpacity
-                        key={service.id}
-                        onPress={() => setWalkInFormData(prev => ({ ...prev, service_id: service.id }))}
-                        className={`px-4 py-2 rounded-full ${
-                          isSelected ? 'bg-green-600' : 'bg-gray-200'
-                        }`}
-                      >
-                        <Text className={isSelected ? 'text-white' : 'text-gray-700'}>
-                          {service.service_name} (₱{service.price})
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
-                {walkInFormData.service_id === 0 && (
-                  <Text className="text-red-500 text-xs mt-1">Please select a service</Text>
-                )}
-              </View>
-
-              {(walkInFormData.stylist_id > 0 || walkInFormData.service_id > 0) && (
-                <View className="mb-4 p-3 bg-gray-50 rounded-xl">
-                  <Text className="text-gray-600 text-sm font-semibold mb-1">Summary</Text>
-                  {walkInFormData.stylist_id > 0 && (
-                    <Text className="text-gray-600 text-sm">
-                      Stylist: {staff.find(s => s.id === walkInFormData.stylist_id)?.first_name} {staff.find(s => s.id === walkInFormData.stylist_id)?.last_name}
-                    </Text>
-                  )}
-                  {walkInFormData.service_id > 0 && (
-                    <Text className="text-gray-600 text-sm">
-                      Service: {services.find(s => s.id === walkInFormData.service_id)?.service_name}
-                    </Text>
-                  )}
-                </View>
-              )}
-
-              <TouchableOpacity
-                onPress={handleSubmitWalkIn}
-                disabled={isSubmittingWalkIn}
-                className="bg-green-600 py-3 rounded-xl mt-4"
-              >
-                <Text className="text-white text-center font-semibold">
-                  {isSubmittingWalkIn ? 'Adding...' : 'Add Walk-in Customer'}
-                </Text>
-              </TouchableOpacity>
             </ScrollView>
           </View>
         </View>

@@ -9,7 +9,6 @@ import api from '../api/axios';
 
 function Services() {
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState('all');
   const [viewMode, setViewMode] = useState('grid');
   const [services, setServices] = useState([]);
   const [allProducts, setAllProducts] = useState([]);
@@ -50,18 +49,11 @@ function Services() {
     specialty_id: ''
   });
 
-  const categories = [
-    { id: 'all', name: 'All Services', icon: Scissors },
-    { id: 'hair', name: 'Hair', icon: Scissors },
-    { id: 'nails', name: 'Nails', icon: Hand },
-    { id: 'spa', name: 'Spa', icon: Sparkles },
-  ];
-
   const [stats, setStats] = useState([
     { label: 'Total Services', value: '0', icon: Scissors, bgColor: 'bg-pink-50', textColor: 'text-pink-600' },
     { label: 'Active Services', value: '0', icon: Activity, bgColor: 'bg-green-50', textColor: 'text-green-600' },
     { label: 'Popular Services', value: '0', icon: Star, bgColor: 'bg-yellow-50', textColor: 'text-yellow-600' },
-    { label: 'Avg. Price', value: '$0', icon: DollarSign, bgColor: 'bg-blue-50', textColor: 'text-blue-600' },
+    { label: 'Avg. Price', value: '₱0', icon: DollarSign, bgColor: 'bg-blue-50', textColor: 'text-blue-600' },
   ]);
 
   // Toast notification
@@ -116,7 +108,7 @@ function Services() {
         { ...stats[0], value: servicesWithSpecialties.length.toString() },
         { ...stats[1], value: activeServices.toString() },
         { ...stats[2], value: stats[2].value },
-        { ...stats[3], value: `$${avgPrice.toFixed(0)}` },
+        { ...stats[3], value: `₱${avgPrice.toFixed(0)}` },
       ]);
       
     } catch (error) {
@@ -471,19 +463,6 @@ function Services() {
   };
 
   const filteredServices = services.filter(service => {
-    if (selectedCategory !== 'all') {
-      const categoryMap = {
-        hair: ['hair', 'cut', 'style', 'color', 'rebond', 'treatment'],
-        nails: ['manicure', 'pedicure', 'nail'],
-        spa: ['facial', 'wax', 'spa', 'massage']
-      };
-      const keywords = categoryMap[selectedCategory] || [];
-      const matchesCategory = keywords.some(keyword => 
-        service.service_name.toLowerCase().includes(keyword) ||
-        (service.description && service.description.toLowerCase().includes(keyword))
-      );
-      if (!matchesCategory) return false;
-    }
     if (searchTerm && !service.service_name.toLowerCase().includes(searchTerm.toLowerCase())) return false;
     return true;
   });
@@ -567,16 +546,6 @@ function Services() {
             />
           </div>
           
-          <select 
-            value={selectedCategory}
-            onChange={(e) => setSelectedCategory(e.target.value)}
-            className="px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-pink-500"
-          >
-            {categories.map(cat => (
-              <option key={cat.id} value={cat.id}>{cat.name}</option>
-            ))}
-          </select>
-          
           <button 
             onClick={() => {
               resetForm();
@@ -588,24 +557,6 @@ function Services() {
             <span>Add Service</span>
           </button>
         </div>
-      </div>
-
-      {/* Categories Tabs - Compact */}
-      <div className="flex flex-wrap gap-1.5 border-b border-gray-200 pb-3">
-        {categories.map((category) => (
-          <button
-            key={category.id}
-            onClick={() => setSelectedCategory(category.id)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all duration-200 text-sm ${
-              selectedCategory === category.id
-                ? 'bg-pink-500 text-white shadow-md'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-            }`}
-          >
-            <category.icon size={14} />
-            <span className="text-sm font-medium">{category.name}</span>
-          </button>
-        ))}
       </div>
 
       {/* Grid View - Smaller Cards */}
@@ -672,8 +623,7 @@ function Services() {
                 
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-0.5 text-green-600 font-bold">
-                    <DollarSign size={12} />
-                    <span className="text-sm">${parseFloat(service.price).toFixed(2)}</span>
+                    <span className="text-sm">₱{parseFloat(service.price).toFixed(2)}</span>
                   </div>
                   <div className="flex items-center gap-0.5 text-gray-500 text-xs">
                     <Clock size={10} />
@@ -771,8 +721,7 @@ function Services() {
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">
                       <div className="flex items-center gap-0.5">
-                        <DollarSign size={10} className="text-gray-400" />
-                        <span className="text-xs font-semibold text-gray-800">${parseFloat(service.price).toFixed(2)}</span>
+                        <span className="text-xs font-semibold text-gray-800">₱{parseFloat(service.price).toFixed(2)}</span>
                       </div>
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">
@@ -814,7 +763,7 @@ function Services() {
         </div>
       )}
 
-      {/* Service Details Modal - Same as before but keep compact design */}
+      {/* Service Details Modal */}
       {showUsageModal && selectedService && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl mx-4 overflow-hidden max-h-[85vh] overflow-y-auto">
@@ -839,7 +788,7 @@ function Services() {
                 <div className="bg-gray-50 rounded-lg p-3 space-y-1.5">
                   <p className="text-xs text-gray-600"><span className="font-semibold">Description:</span> {selectedService.description}</p>
                   <p className="text-xs text-gray-600"><span className="font-semibold">Duration:</span> {selectedService.duration_minutes} minutes</p>
-                  <p className="text-xs text-gray-600"><span className="font-semibold">Price:</span> ${parseFloat(selectedService.price).toFixed(2)}</p>
+                  <p className="text-xs text-gray-600"><span className="font-semibold">Price:</span> ₱{parseFloat(selectedService.price).toFixed(2)}</p>
                   <p className="text-xs text-gray-600"><span className="font-semibold">Status:</span> 
                     <span className={`ml-1.5 px-1.5 py-0.5 text-[10px] rounded-full ${
                       selectedService.service_status === 'active' 
@@ -1155,7 +1104,7 @@ function Services() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-gray-700 text-xs font-semibold mb-1">
-                    Price ($) *
+                    Price (₱) *
                   </label>
                   <input
                     type="number"

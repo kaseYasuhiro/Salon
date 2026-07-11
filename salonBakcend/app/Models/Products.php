@@ -15,7 +15,8 @@ class Products extends Model
         'description',
         'unit',
         'unit_size',
-        'estimated_usages_per_unit'
+        'estimated_usages_per_unit',
+        'is_active'
     ];
 
     public function ServiceProductUsages()

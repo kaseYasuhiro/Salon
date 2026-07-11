@@ -20,7 +20,8 @@ class ProductsController extends Controller
             'description' => ['required', 'string'],
             'unit' => ['required', 'string'],
             'unit_size' => ['required', 'numeric'],
-            'estimated_usages_per_unit' => ['required', 'numeric']
+            'estimated_usages_per_unit' => ['required', 'numeric'],
+            'is_active' => ['required', 'boolean']
         ]);
 
         Products::create([
@@ -28,7 +29,8 @@ class ProductsController extends Controller
             'description' => $request->description,
             'unit' => $request->unit,
             'unit_size' => $request->unit_size,
-            'estimated_usages_per_unit' => $request->estimated_usages_per_unit
+            'estimated_usages_per_unit' => $request->estimated_usages_per_unit,
+            'is_active' => $request->is_active
         ]);
 
         return response()->json([

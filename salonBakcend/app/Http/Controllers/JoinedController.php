@@ -309,7 +309,7 @@ class JoinedController extends Controller
     {   
         $user = $request->user();
         
-        if (!in_array($user->role, ['admin', 'owner', 'staff'])) {
+        if (!in_array($user->role, ['admin', 'owner', 'staff', 'customer'])) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
         

@@ -18,7 +18,6 @@ function Appointments() {
   const [isLoading, setIsLoading] = useState(true);
   const [selectedDayAppointments, setSelectedDayAppointments] = useState([]);
   const [showModal, setShowModal] = useState(false);
-  const [showEditModal, setShowEditModal] = useState(false);
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [showAssignStaffModal, setShowAssignStaffModal] = useState(false);
   const [selectedDay, setSelectedDay] = useState(null);
@@ -404,80 +403,55 @@ function Appointments() {
     });
   };
 
-  const handleEditClick = (appointment) => {
-    setEditingAppointment(appointment);
-    setEditFormData({
-      appointment_time: appointment.appointment_time ? appointment.appointment_time.substring(0, 5) : '',
-      assigned_employee_id: appointment.assigned_employee_id || '',
-      status: appointment.status || 'pending',
-      notes: appointment.notes || ''
-    });
-    setShowEditModal(true);
-  };
-
-  const handleEditFormChange = (e) => {
-    const { name, value } = e.target;
-    setEditFormData(prev => ({ ...prev, [name]: value }));
-  };
-
-  const handleUpdateAppointment = async () => {
+  // Update appointment status
+  const handleUpdateAppointmentStatus = async (appointmentId, newStatus) => {
     setIsUpdating(true);
     try {
-      let formattedTime = editFormData.appointment_time;
-      if (formattedTime && formattedTime.includes(':')) {
-        formattedTime = `${formattedTime}:00`;
-      }
-      
-      const updateData = {
-        appointment_time: formattedTime,
-        assigned_employee_id: editFormData.assigned_employee_id || null,
-        status: editFormData.status,
-        notes: editFormData.notes
-      };
-      
-      Object.keys(updateData).forEach(key => {
-        if (updateData[key] === undefined || updateData[key] === '') {
-          delete updateData[key];
-        }
+      const response = await api.put(`/appointments/update/${appointmentId}`, {
+        status: newStatus
       });
       
-      console.log('Sending update data:', updateData);
+      console.log('Appointment status updated:', response.data);
       
-      const response = await api.put(`/appointments/update/${editingAppointment.appointment_id}`, updateData);
-      console.log('Appointment updated:', response.data);
-      
-      let updatedStaffName = 'Unassigned';
-      if (editFormData.assigned_employee_id) {
-        const selectedStaff = staffList.find(s => s.id == editFormData.assigned_employee_id);
-        if (selectedStaff) {
-          updatedStaffName = selectedStaff.name;
-        } else {
-          updatedStaffName = `Staff ID: ${editFormData.assigned_employee_id}`;
-        }
-      }
-      
+      // Update the appointment in the local state
       setAppointments(prevAppointments => 
         prevAppointments.map(app => 
-          app.appointment_id === editingAppointment.appointment_id 
-            ? { 
-                ...app, 
-                appointment_time: formattedTime || app.appointment_time,
-                status: editFormData.status,
-                assigned_employee_id: editFormData.assigned_employee_id || null,
-                staff_name: updatedStaffName
-              }
+          app.appointment_id === appointmentId 
+            ? { ...app, status: newStatus }
             : app
         )
       );
       
-      alert('Appointment updated successfully!');
-      setShowEditModal(false);
-      setEditingAppointment(null);
+      // Also update the selected day appointments if they're being viewed
+      if (selectedDayAppointments.length > 0) {
+        setSelectedDayAppointments(prev => 
+          prev.map(app => 
+            app.appointment_id === appointmentId 
+              ? { ...app, status: newStatus }
+              : app
+          )
+        );
+      }
+      
+      alert(`Appointment ${newStatus === 'confirmed' ? 'confirmed' : 'cancelled'} successfully!`);
+      
+      // Refresh stats
+      const total = appointments.length;
+      const pending = appointments.filter(a => a.status === 'pending').length;
+      const completed = appointments.filter(a => a.status === 'completed').length;
+      const today = new Date().toISOString().split('T')[0];
+      const todayAppointments = appointments.filter(a => a.appointment_date === today).length;
+      
+      setStats([
+        { ...stats[0], value: total.toString(), change: `+${total}`, changeType: 'up' },
+        { ...stats[1], value: todayAppointments.toString(), change: `+${todayAppointments}`, changeType: 'up' },
+        { ...stats[2], value: pending.toString(), change: `${pending}`, changeType: pending > 0 ? 'up' : 'down' },
+        { ...stats[3], value: completed.toString(), change: `+${completed}`, changeType: 'up' },
+      ]);
       
     } catch (error) {
-      console.error('Error updating appointment:', error);
-      const errorMessage = error.response?.data?.message || error.response?.data?.errors?.appointment_time?.[0] || 'Failed to update appointment';
-      alert(errorMessage);
+      console.error('Error updating appointment status:', error);
+      alert(error.response?.data?.message || 'Failed to update appointment status');
     } finally {
       setIsUpdating(false);
     }
@@ -815,7 +789,7 @@ function Appointments() {
         </div>
       )}
 
-      {/* Appointment Details Modal */}
+      {/* Appointment Details Modal with Confirm and Cancel Buttons */}
       {showModal && selectedDayAppointments.length > 0 && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden max-h-[80vh] overflow-y-auto">
@@ -833,66 +807,93 @@ function Appointments() {
 
             <div className="p-4">
               <div className="space-y-3">
-                {selectedDayAppointments.map((appointment) => (
-                  <div key={appointment.id} className="bg-gray-50 rounded-lg p-3 hover:shadow-md transition-shadow">
-                    <div className="flex justify-between items-start mb-2">
-                      <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 bg-gradient-to-br from-pink-100 to-pink-200 rounded-full flex items-center justify-center">
-                          <User size={14} className="text-pink-600" />
+                {selectedDayAppointments.map((appointment) => {
+                  const isPending = appointment.status === 'pending';
+                  
+                  return (
+                    <div key={appointment.id} className="bg-gray-50 rounded-lg p-3 hover:shadow-md transition-shadow">
+                      <div className="flex justify-between items-start mb-2">
+                        <div className="flex items-center gap-2">
+                          <div className="w-8 h-8 bg-gradient-to-br from-pink-100 to-pink-200 rounded-full flex items-center justify-center">
+                            <User size={14} className="text-pink-600" />
+                          </div>
+                          <div>
+                            <h3 className="font-semibold text-gray-800 text-sm">{appointment.customer_name}</h3>
+                            <div className="flex items-center gap-1 mt-0.5">
+                              <Phone size={10} className="text-gray-400" />
+                              <span className="text-xs text-gray-500">{appointment.customer_phone || 'N/A'}</span>
+                            </div>
+                          </div>
                         </div>
-                        <div>
-                          <h3 className="font-semibold text-gray-800 text-sm">{appointment.customer_name}</h3>
-                          <div className="flex items-center gap-1 mt-0.5">
-                            <Phone size={10} className="text-gray-400" />
-                            <span className="text-xs text-gray-500">{appointment.customer_phone || 'N/A'}</span>
+                        <div className={`px-2 py-0.5 rounded-full text-xs ${getStatusColor(appointment.status)}`}>
+                          <div className="flex items-center gap-1">
+                            {getStatusIcon(appointment.status)}
+                            <span className="text-xs capitalize">{appointment.status}</span>
                           </div>
                         </div>
                       </div>
-                      <div className={`px-2 py-0.5 rounded-full text-xs ${getStatusColor(appointment.status)}`}>
-                        <div className="flex items-center gap-1">
-                          {getStatusIcon(appointment.status)}
-                          <span className="text-xs capitalize">{appointment.status}</span>
+
+                      <div className="grid grid-cols-2 gap-2 ml-10">
+                        <div className="flex items-center gap-1.5">
+                          <Scissors size={12} className="text-gray-400" />
+                          <span className="text-xs text-gray-600">{appointment.service_name || 'Service'}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <Clock size={12} className="text-gray-400" />
+                          <span className="text-xs text-gray-600">{formatTime(appointment.appointment_time)}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <User size={12} className="text-gray-400" />
+                          <span className="text-xs text-gray-600">Staff: {appointment.staff_name || 'Unassigned'}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <Calendar size={12} className="text-gray-400" />
+                          <span className="text-xs text-gray-600">{appointment.duration_minutes} min</span>
                         </div>
                       </div>
-                    </div>
 
-                    <div className="grid grid-cols-2 gap-2 ml-10">
-                      <div className="flex items-center gap-1.5">
-                        <Scissors size={12} className="text-gray-400" />
-                        <span className="text-xs text-gray-600">{appointment.service_name || 'Service'}</span>
+                      <div className="mt-2 pt-2 border-t border-gray-200 ml-10">
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs font-semibold text-gray-700">Total</span>
+                          <span className="text-pink-600 font-bold text-sm">₱{parseFloat(appointment.price).toLocaleString()}</span>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-1.5">
-                        <Clock size={12} className="text-gray-400" />
-                        <span className="text-xs text-gray-600">{formatTime(appointment.appointment_time)}</span>
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <User size={12} className="text-gray-400" />
-                        <span className="text-xs text-gray-600">Staff: {appointment.staff_name || 'Unassigned'}</span>
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <Calendar size={12} className="text-gray-400" />
-                        <span className="text-xs text-gray-600">{appointment.duration_minutes} min</span>
-                      </div>
-                    </div>
 
-                    <div className="mt-2 pt-2 border-t border-gray-200 ml-10">
-                      <div className="flex justify-between items-center">
-                        <span className="text-xs font-semibold text-gray-700">Total</span>
-                        <span className="text-pink-600 font-bold text-sm">₱{parseFloat(appointment.price).toLocaleString()}</span>
-                      </div>
+                      {/* Confirm and Cancel Buttons - Only show for pending appointments */}
+                      {isPending && (
+                        <div className="mt-3 ml-10 flex gap-2">
+                          <button 
+                            onClick={() => handleUpdateAppointmentStatus(appointment.appointment_id, 'confirmed')}
+                            disabled={isUpdating}
+                            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-green-500 hover:bg-green-600 text-white rounded-md transition-colors text-xs font-medium disabled:opacity-50"
+                          >
+                            <CheckCircle size={14} />
+                            Confirm
+                          </button>
+                          <button 
+                            onClick={() => handleUpdateAppointmentStatus(appointment.appointment_id, 'cancelled')}
+                            disabled={isUpdating}
+                            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white rounded-md transition-colors text-xs font-medium disabled:opacity-50"
+                          >
+                            <XCircle size={14} />
+                            Cancel
+                          </button>
+                        </div>
+                      )}
+                      
+                      {/* Show status message for non-pending appointments */}
+                      {!isPending && (
+                        <div className="mt-3 ml-10">
+                          <div className="text-center text-xs text-gray-500 bg-gray-100 rounded-md py-1.5">
+                            {appointment.status === 'confirmed' ? '✅ Appointment confirmed' : 
+                             appointment.status === 'completed' ? '✅ Appointment completed' : 
+                             appointment.status === 'cancelled' ? '❌ Appointment cancelled' : ''}
+                          </div>
+                        </div>
+                      )}
                     </div>
-
-                    <div className="mt-2 ml-10">
-                      <button 
-                        onClick={() => handleEditClick(appointment)}
-                        className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 bg-blue-50 text-blue-600 rounded-md hover:bg-blue-100 transition-colors text-xs font-medium"
-                      >
-                        <Edit size={12} />
-                        Edit
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -1097,129 +1098,6 @@ function Appointments() {
         </div>
       )}
 
-      {/* Edit Appointment Modal */}
-      {showEditModal && editingAppointment && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-auto overflow-hidden max-h-[85vh] flex flex-col">
-            <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-5 py-3 flex items-center justify-between flex-shrink-0">
-              <h2 className="text-lg font-bold text-white">Edit Appointment</h2>
-              <button 
-                onClick={() => { setShowEditModal(false); setEditingAppointment(null); }}
-                className="text-white hover:bg-white/20 rounded-lg p-1 transition-colors"
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            <div className="p-4 overflow-y-auto flex-1">
-              <div className="space-y-3">
-                <div>
-                  <label className="block text-gray-700 text-xs font-semibold mb-1">Customer</label>
-                  <input
-                    type="text"
-                    value={editingAppointment.customer_name || ''}
-                    disabled
-                    className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg bg-gray-50 text-gray-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-gray-700 text-xs font-semibold mb-1">Service</label>
-                  <input
-                    type="text"
-                    value={editingAppointment.service_name || ''}
-                    disabled
-                    className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg bg-gray-50 text-gray-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-gray-700 text-xs font-semibold mb-1">Appointment Time *</label>
-                  <input
-                    type="time"
-                    name="appointment_time"
-                    value={editFormData.appointment_time}
-                    onChange={handleEditFormChange}
-                    className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-gray-700 text-xs font-semibold mb-1">Assign Staff</label>
-                  <select
-                    name="assigned_employee_id"
-                    value={editFormData.assigned_employee_id || ''}
-                    onChange={handleEditFormChange}
-                    className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
-                  >
-                    <option value="">Select Staff</option>
-                    {staffList.map(staff => (
-                      <option key={staff.id} value={staff.id}>{staff.name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-gray-700 text-xs font-semibold mb-1">Appointment Status</label>
-                  <select
-                    name="status"
-                    value={editFormData.status}
-                    onChange={handleEditFormChange}
-                    className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
-                  >
-                    <option value="pending">Pending</option>
-                    <option value="confirmed">Confirmed</option>
-                    <option value="completed">Completed</option>
-                    <option value="cancelled">Cancelled</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-gray-700 text-xs font-semibold mb-1">Notes</label>
-                  <textarea
-                    name="notes"
-                    value={editFormData.notes || ''}
-                    onChange={handleEditFormChange}
-                    rows="2"
-                    className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 resize-none"
-                    placeholder="Add notes..."
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="px-4 py-3 border-t border-gray-100 bg-gray-50 flex-shrink-0">
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => { setShowEditModal(false); setEditingAppointment(null); }}
-                  className="flex-1 px-3 py-1.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium text-sm transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleUpdateAppointment}
-                  disabled={isUpdating}
-                  className="flex-1 px-3 py-1.5 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-lg font-medium text-sm disabled:opacity-50 flex items-center justify-center gap-1.5 transition-all"
-                >
-                  {isUpdating ? (
-                    <>
-                      <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                      Saving...
-                    </>
-                  ) : (
-                    <>
-                      <Save size={14} />
-                      Update
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* List View */}
       {viewMode === 'list' && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
@@ -1238,56 +1116,83 @@ function Appointments() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {filteredAppointments.map((appointment) => (
-                  <tr key={appointment.id} className="hover:bg-pink-50/30 transition-colors duration-200">
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <div className="flex items-center gap-2">
-                        <div className="w-7 h-7 bg-gradient-to-br from-pink-100 to-pink-200 rounded-full flex items-center justify-center">
-                          <User size={12} className="text-pink-600" />
+                {filteredAppointments.map((appointment) => {
+                  const isPending = appointment.status === 'pending';
+                  
+                  return (
+                    <tr key={appointment.id} className="hover:bg-pink-50/30 transition-colors duration-200">
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <div className="flex items-center gap-2">
+                          <div className="w-7 h-7 bg-gradient-to-br from-pink-100 to-pink-200 rounded-full flex items-center justify-center">
+                            <User size={12} className="text-pink-600" />
+                          </div>
+                          <span className="text-sm font-medium text-gray-900">{appointment.customer_name}</span>
                         </div>
-                        <span className="text-sm font-medium text-gray-900">{appointment.customer_name}</span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <div className="flex items-center gap-1.5">
-                        <Scissors size={12} className="text-gray-400" />
-                        <span className="text-sm text-gray-600">{appointment.service_name}</span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">{formatDate(appointment.appointment_date)}</td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <div className="flex items-center gap-1.5">
-                        <Clock size={12} className="text-gray-400" />
-                        <span className="text-sm text-gray-600">{formatTime(appointment.appointment_time)}</span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <div className="flex items-center gap-1.5">
-                        <User size={12} className="text-gray-400" />
-                        <span className="text-sm text-gray-600">{appointment.staff_name}</span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full ${getStatusColor(appointment.status)}`}>
-                        {getStatusIcon(appointment.status)}
-                        {appointment.status?.charAt(0).toUpperCase() + appointment.status?.slice(1) || 'Unknown'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <div className="flex items-center gap-1.5">
-                        <Phone size={11} className="text-gray-400" />
-                        <span className="text-xs text-gray-500">{appointment.customer_phone}</span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <div className="flex items-center gap-2">
-                        <button onClick={() => handleEditClick(appointment)} className="p-1 hover:bg-gray-100 rounded-lg transition-colors">
-                          <Edit size={14} className="text-gray-500" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <div className="flex items-center gap-1.5">
+                          <Scissors size={12} className="text-gray-400" />
+                          <span className="text-sm text-gray-600">{appointment.service_name}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">{formatDate(appointment.appointment_date)}</td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <div className="flex items-center gap-1.5">
+                          <Clock size={12} className="text-gray-400" />
+                          <span className="text-sm text-gray-600">{formatTime(appointment.appointment_time)}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <div className="flex items-center gap-1.5">
+                          <User size={12} className="text-gray-400" />
+                          <span className="text-sm text-gray-600">{appointment.staff_name}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full ${getStatusColor(appointment.status)}`}>
+                          {getStatusIcon(appointment.status)}
+                          {appointment.status?.charAt(0).toUpperCase() + appointment.status?.slice(1) || 'Unknown'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <div className="flex items-center gap-1.5">
+                          <Phone size={11} className="text-gray-400" />
+                          <span className="text-xs text-gray-500">{appointment.customer_phone}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <div className="flex items-center gap-2">
+                          {isPending ? (
+                            <>
+                              <button 
+                                onClick={() => handleUpdateAppointmentStatus(appointment.appointment_id, 'confirmed')}
+                                disabled={isUpdating}
+                                className="p-1 hover:bg-green-100 rounded-lg transition-colors text-green-600 disabled:opacity-50"
+                                title="Confirm Appointment"
+                              >
+                                <CheckCircle size={16} />
+                              </button>
+                              <button 
+                                onClick={() => handleUpdateAppointmentStatus(appointment.appointment_id, 'cancelled')}
+                                disabled={isUpdating}
+                                className="p-1 hover:bg-red-100 rounded-lg transition-colors text-red-600 disabled:opacity-50"
+                                title="Cancel Appointment"
+                              >
+                                <XCircle size={16} />
+                              </button>
+                            </>
+                          ) : (
+                            <span className="text-xs text-gray-400">
+                              {appointment.status === 'confirmed' ? 'Confirmed' : 
+                               appointment.status === 'completed' ? 'Completed' : 
+                               appointment.status === 'cancelled' ? 'Cancelled' : ''}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

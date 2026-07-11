@@ -671,7 +671,7 @@ function Dashboard() {
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-xl font-bold bg-gradient-to-r from-pink-600 to-pink-500 bg-clip-text text-transparent">
-                  Salon Pro
+                  Reshel Oco Hair Salon
                 </h2>
                 <p className="text-[10px] text-gray-500 mt-0.5">Salon Management System</p>
               </div>
@@ -686,7 +686,7 @@ function Dashboard() {
                 </div>
                 <div>
                   <p className="text-[10px] text-gray-500">Logged in as</p>
-                  <p className="text-xs font-semibold text-gray-800">Super Admin</p>
+                  <p className="text-xs font-semibold text-gray-800">Owner</p>
                 </div>
               </div>
             </div>

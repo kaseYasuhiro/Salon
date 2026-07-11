@@ -121,7 +121,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
 Route::post('/walk-in/staff/auth', [WalkinAuthorizationController::class, 'authorizeStaff']);
 Route::get('/walk-in/staff', [JoinedController::class, 'authorizedStaff']);
-Route::post('/walk-in/staff/auth/update', [WalkinAuthorizationController::class, 'updateAuthorization']);
+Route::post('/walk-in/staff/auth/update/{id}', [WalkinAuthorizationController::class, 'updateAuthorization']);
 
 
 

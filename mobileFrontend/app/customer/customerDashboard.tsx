@@ -4,30 +4,129 @@ import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "@/contexts/auth-context";
 import { router } from "expo-router";
+import api from '@/api/axios';
 import CustomerBooking from "./customerBookTab";
 import CustomerHistoryTab from "./customerHistoryTab";
 import CustomerSettingsTab from "./customerSettingsTab";
 
+// Define types locally
+interface Appointment {
+  id: number;
+  customer_id: number;
+  appointment_date: string;
+  appointment_time: string;
+  status: string;
+  service_status: string;
+  service_name: string;
+  duration_minutes: number;
+  price: string;
+  assigned_employee_id?: number;
+  stylist_name?: string;
+}
+
+interface Service {
+  id: number;
+  service_name: string;
+  description: string;
+  price: number;
+  duration_minutes: number;
+  service_status?: string;
+  is_multitaskable: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export default function CustomerDashboard() {
-  const [activeTab, setActiveTab] = useState('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'book' | 'history' | 'settings'>('home');
   const [refreshing, setRefreshing] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [services, setServices] = useState<Service[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [totalSpent, setTotalSpent] = useState(0);
+  const [upcomingCount, setUpcomingCount] = useState(0);
   
   const { 
-    user, 
-    appointments,
-    isLoading, 
-    fetchUserAppointments,
-    fetchServices,
-    getUpcomingAppointments,
-    getTotalSpent,
-    logout 
+    user,
+    logout,
   } = useAuth();
 
-  // Get computed data
-  const upcomingAppointments = getUpcomingAppointments();
-  const totalSpent = getTotalSpent();
-  const upcomingCount = upcomingAppointments.length;
+  // Fetch user appointments
+  const fetchUserAppointments = async () => {
+    setIsLoading(true);
+    try {
+      const response = await api.get("/appointments");
+      console.log("Raw appointments response:", response.data);
+      
+      let appointmentsData: Appointment[] = [];
+      if (Array.isArray(response.data)) {
+        appointmentsData = response.data.map((item: any) => ({
+          id: item.id,
+          customer_id: item.customer_id,
+          appointment_date: item.appointment_date,
+          appointment_time: item.appointment_time,
+          status: item.status,
+          service_status: item.service_status,
+          service_name: item.service_name,
+          duration_minutes: item.duration_minutes,
+          price: item.price,
+          assigned_employee_id: item.assigned_employee_id,
+          stylist_name: item.stylist_name
+        }));
+      }
+      
+      console.log("Processed appointments data:", appointmentsData);
+      setAppointments(appointmentsData);
+      
+      // Calculate computed values
+      const upcoming = appointmentsData.filter((item: Appointment) => {
+        const status = item.status;
+        return status === "pending" || status === "confirmed";
+      });
+      setUpcomingCount(upcoming.length);
+      
+      const total = appointmentsData
+        .filter((item: Appointment) => item.service_status === "completed")
+        .reduce((sum: number, item: Appointment) => sum + parseFloat(item.price || "0"), 0);
+      setTotalSpent(total);
+      
+      return appointmentsData;
+    } catch (error) {
+      console.log("Error fetching appointments:", error);
+      return [];
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Fetch services
+  const fetchServices = async () => {
+    try {
+      const response = await api.get("/services");
+      console.log("Fetched services:", response.data);
+      
+      let servicesData: Service[] = [];
+      if (Array.isArray(response.data)) {
+        servicesData = response.data.map((service: any) => ({
+          id: service.id,
+          service_name: service.service_name,
+          description: service.description,
+          price: parseFloat(service.price),
+          is_multitaskable: service.is_multitaskable,
+          duration_minutes: service.duration_minutes,
+          service_status: service.service_status,
+          created_at: service.created_at,
+          updated_at: service.updated_at,
+        }));
+      }
+      
+      setServices(servicesData);
+      return servicesData;
+    } catch (error) {
+      console.log("Error fetching services:", error);
+      return [];
+    }
+  };
 
   // Helper function to format date
   const formatDate = (date: string) => {
@@ -49,7 +148,7 @@ export default function CustomerDashboard() {
       fetchServices()
     ]);
     setRefreshing(false);
-  }, [fetchUserAppointments, fetchServices]);
+  }, []);
 
   const handleLogout = async () => {
     try {
@@ -75,6 +174,13 @@ export default function CustomerDashboard() {
       case 'cancelled': return 'bg-red-100 text-red-700';
       default: return 'bg-gray-100 text-gray-700';
     }
+  };
+
+  const getUpcomingAppointments = () => {
+    return appointments.filter((item: Appointment) => {
+      const status = item.status;
+      return status === "pending" || status === "confirmed";
+    });
   };
 
   const renderContent = () => {
@@ -146,7 +252,7 @@ export default function CustomerDashboard() {
                 <View className="py-10">
                   <Text className="text-center text-gray-500">Loading appointments...</Text>
                 </View>
-              ) : upcomingAppointments.length === 0 ? (
+              ) : getUpcomingAppointments().length === 0 ? (
                 <View className="bg-white rounded-2xl p-8 items-center" style={{ elevation: 2 }}>
                   <Ionicons name="calendar-outline" size={50} color="#d1d5db" />
                   <Text className="text-gray-500 text-center mt-3">No upcoming appointments</Text>
@@ -155,7 +261,7 @@ export default function CustomerDashboard() {
                   </TouchableOpacity>
                 </View>
               ) : (
-                upcomingAppointments.map((item) => (
+                getUpcomingAppointments().map((item: Appointment) => (
                   <View key={item.id} className="bg-white rounded-2xl p-4 mb-4 shadow-sm">
                     <View className="flex-row justify-between items-start">
                       <View className="flex-1">

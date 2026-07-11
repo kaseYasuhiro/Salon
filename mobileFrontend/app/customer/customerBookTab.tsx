@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { View, Text, TouchableOpacity, ScrollView, Alert, Modal, ActivityIndicator, Image } from "react-native";
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from "@/contexts/auth-context";
+import api from '@/api/axios';
 
 interface ReceiptData {
   bookingId: string;
@@ -51,6 +52,62 @@ interface StaffAssignment {
   business_schedules?: BusinessSchedule;
 }
 
+interface Service {
+  id: number;
+  service_name: string;
+  description: string;
+  price: number;
+  duration_minutes: number;
+  service_status?: string;
+  is_multitaskable: number;
+  service_specialties?: any[];
+  created_at?: string;
+  updated_at?: string;
+}
+
+interface StaffMember {
+  id: number;
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone_number: string;
+  role: string;
+  profile_image?: string;
+  staff_specialties: Array<{
+    id: number;
+    staff_id: number;
+    specialty_id: number;
+    is_active: number;
+    specialties?: {
+      id: number;
+      specialty_name: string;
+    };
+  }>;
+}
+
+interface StaffFeedback {
+  id: number;
+  staff_id: number;
+  rating: number;
+}
+
+interface Appointment {
+  id: number;
+  appointment_id: number;
+  service_id: number;
+  customer_name: string;
+  customer_phone: string;
+  customer_email: string;
+  appointment_date: string;
+  appointment_time: string;
+  status: string;
+  service_status: string;
+  assigned_employee_id?: number;
+  service_name: string;
+  duration_minutes: number;
+  price: string;
+}
+
 interface CustomerBookingProps {
   onBookingSuccess?: () => void;
 }
@@ -70,21 +127,208 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
   const [showReceipt, setShowReceipt] = useState(false);
   const [receiptData, setReceiptData] = useState<ReceiptData | null>(null);
   
-  const availableTimes = ['09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00'];
+  // Local state for data from API
+  const [staff, setStaff] = useState<StaffMember[]>([]);
+  const [services, setServices] = useState<Service[]>([]);
+  const [serviceSpecialties, setServiceSpecialties] = useState<any[]>([]);
+  const [businessSchedules, setBusinessSchedules] = useState<BusinessSchedule[]>([]);
+  const [staffAssignments, setStaffAssignments] = useState<StaffAssignment[]>([]);
+  const [staffFeedbacks, setStaffFeedbacks] = useState<StaffFeedback[]>([]);
+  const [allAppointments, setAllAppointments] = useState<Appointment[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  
+  // Maximum appointments per time slot
+  const MAX_APPOINTMENTS_PER_TIME = 3;
   
   const { 
-    user, 
-    isLoading, 
-    fetchUserAppointments,
-    getActiveServices,
-    completeBooking,
-    staff,
-    getServiceSpecialties,
-    businessSchedules,
-    staffAssignments,
-    getAverageStaffRating,
-    getStaffFeedbacks
+    user,
   } = useAuth();
+
+  // Fetch staff
+  const fetchStaff = async () => {
+    try {
+      const response = await api.get("/employee/specialties");
+      console.log("Fetched staff with specialties:", response.data);
+      
+      let staffData: StaffMember[] = [];
+      if (Array.isArray(response.data)) {
+        staffData = response.data;
+      }
+      
+      setStaff(staffData);
+      return staffData;
+    } catch (error) {
+      console.log("Error fetching staff:", error);
+      return [];
+    }
+  };
+
+  // Fetch services
+  const fetchServices = async () => {
+    try {
+      const response = await api.get("/services");
+      console.log("Fetched services:", response.data);
+      
+      let servicesData: Service[] = [];
+      if (Array.isArray(response.data)) {
+        servicesData = response.data.map((service: any) => ({
+          id: service.id,
+          service_name: service.service_name,
+          description: service.description,
+          price: parseFloat(service.price),
+          is_multitaskable: service.is_multitaskable,
+          duration_minutes: service.duration_minutes,
+          service_status: service.service_status,
+          created_at: service.created_at,
+          updated_at: service.updated_at,
+        }));
+      }
+      
+      setServices(servicesData);
+      return servicesData;
+    } catch (error) {
+      console.log("Error fetching services:", error);
+      return [];
+    }
+  };
+
+  // Fetch service specialties
+  const fetchServiceSpecialties = async () => {
+    try {
+      const response = await api.get("/services/specialties");
+      console.log("Fetched service specialties:", response.data);
+      
+      let specialtiesData: any[] = [];
+      if (Array.isArray(response.data)) {
+        specialtiesData = response.data;
+      }
+      
+      setServiceSpecialties(specialtiesData);
+      return specialtiesData;
+    } catch (error) {
+      console.log("Error fetching service specialties:", error);
+      return [];
+    }
+  };
+
+  // Fetch business schedules
+  const fetchBusinessSchedules = async () => {
+    try {
+      const response = await api.get('/daysched');
+      console.log('Fetched business schedules:', response.data);
+      let schedulesData: BusinessSchedule[] = [];
+      if (Array.isArray(response.data)) {
+        schedulesData = response.data;
+      }
+      setBusinessSchedules(schedulesData);
+      return schedulesData;
+    } catch (error) {
+      console.error('Error fetching business schedules:', error);
+      return [];
+    }
+  };
+
+  // Fetch staff assignments
+  const fetchStaffAssignments = async () => {
+    try {
+      const response = await api.get('/assign');
+      console.log('Fetched staff assignments:', response.data);
+      let assignmentsData: StaffAssignment[] = [];
+      if (Array.isArray(response.data)) {
+        assignmentsData = response.data;
+      }
+      setStaffAssignments(assignmentsData);
+      return assignmentsData;
+    } catch (error) {
+      console.error('Error fetching staff assignments:', error);
+      return [];
+    }
+  };
+
+  // Fetch staff feedbacks
+  const fetchStaffFeedbacks = async () => {
+    try {
+      const response = await api.get("/feedbacks/staff");
+      console.log("Raw staff feedbacks response:", response.data);
+      
+      let staffFeedbacksData: StaffFeedback[] = [];
+      if (Array.isArray(response.data)) {
+        staffFeedbacksData = response.data.map((item: any) => ({
+          id: item.id || 0,
+          staff_id: item.staff_id || 0,
+          rating: parseFloat(item.rating) || 0
+        }));
+      }
+      
+      console.log("Processed staff feedbacks:", staffFeedbacksData);
+      setStaffFeedbacks(staffFeedbacksData);
+      return staffFeedbacksData;
+    } catch (error) {
+      console.log("Error fetching staff feedbacks:", error);
+      return [];
+    }
+  };
+
+  // Fetch all appointments
+  const fetchAllAppointments = async () => {
+    try {
+      const response = await api.get('/all-appointments');
+      console.log('Fetched all appointments:', response.data);
+      
+      let appointmentsData: Appointment[] = [];
+      if (Array.isArray(response.data)) {
+        appointmentsData = response.data.map((item: any) => ({
+          id: item.id,
+          appointment_id: item.appointment_id,
+          service_id: item.service_id,
+          customer_name: item.customer_name,
+          customer_phone: item.customer_phone,
+          customer_email: item.customer_email,
+          appointment_date: item.appointment_date,
+          appointment_time: item.appointment_time,
+          status: item.status,
+          service_status: item.service_status,
+          assigned_employee_id: item.assigned_employee_id,
+          service_name: item.service_name,
+          duration_minutes: item.duration_minutes,
+          price: item.price
+        }));
+      }
+      
+      console.log('Processed appointments:', appointmentsData);
+      setAllAppointments(appointmentsData);
+      return appointmentsData;
+    } catch (error) {
+      console.error('Error fetching all appointments:', error);
+      return [];
+    }
+  };
+
+  // Complete booking
+  const completeBooking = async (data: any) => {
+    try {
+      const response = await api.post("/booking/complete", data);
+      console.log("Booking completed:", response.data);
+      return response.data;
+    } catch (error) {
+      console.log("Error completing booking:", error);
+      throw error;
+    }
+  };
+
+  // Load all data on mount
+  useEffect(() => {
+    setIsLoading(true);
+    Promise.all([
+      fetchStaff(),
+      fetchServices(),
+      fetchServiceSpecialties(),
+      fetchBusinessSchedules(),
+      fetchStaffAssignments(),
+      fetchStaffFeedbacks(),
+      fetchAllAppointments()
+    ]).finally(() => setIsLoading(false));
+  }, []);
 
   // Get schedule for a specific date
   const getScheduleForDate = (dateStr: string): BusinessSchedule | null => {
@@ -126,6 +370,11 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     return { status: 'closed', schedule };
   };
 
+  // Get active services
+  const getActiveServices = () => {
+    return services.filter(service => service.service_status === 'active');
+  };
+
   // Get services based on staff's specialty
   const getServicesForStaff = () => {
     if (!selectedStaffId) return [];
@@ -151,21 +400,33 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     });
   };
 
+  // Get service specialties
+  const getServiceSpecialties = (serviceId: number) => {
+    return serviceSpecialties.filter(item => item.service_id === serviceId);
+  };
+
   // Check if selected services are multitaskable
   const areServicesMultitaskable = () => {
     if (selectedServiceIds.length === 0) return false;
     if (selectedServiceIds.length === 1) return true;
     
-    const services = getServicesForStaff();
-    const selectedServices = services.filter(s => selectedServiceIds.includes(s.id));
+    const servicesForStaff = getServicesForStaff();
+    const selectedServices = servicesForStaff.filter(s => selectedServiceIds.includes(s.id));
     return selectedServices.every(s => s.is_multitaskable === 1);
   };
 
   // Get service price
   const getServicePrice = () => {
-    const services = getServicesForStaff();
-    const selectedServices = services.filter(s => selectedServiceIds.includes(s.id));
+    const servicesForStaff = getServicesForStaff();
+    const selectedServices = servicesForStaff.filter(s => selectedServiceIds.includes(s.id));
     return selectedServices.reduce((sum, s) => sum + s.price, 0);
+  };
+
+  // Get total duration of selected services
+  const getTotalDuration = () => {
+    const servicesForStaff = getServicesForStaff();
+    const selectedServices = servicesForStaff.filter(s => selectedServiceIds.includes(s.id));
+    return selectedServices.reduce((sum, s) => sum + s.duration_minutes, 0);
   };
 
   const getAmount = () => {
@@ -224,6 +485,95 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     return dateUTC < todayUTC;
   };
 
+  // Generate time slots based on open_time and close_time
+  const generateTimeSlots = (openTime: string, closeTime: string): string[] => {
+    const slots: string[] = [];
+    const startHour = parseInt(openTime.split(':')[0]);
+    const startMinute = parseInt(openTime.split(':')[1]);
+    const endHour = parseInt(closeTime.split(':')[0]);
+    const endMinute = parseInt(closeTime.split(':')[1]);
+    
+    let currentHour = startHour;
+    let currentMinute = startMinute;
+    
+    while (currentHour < endHour || (currentHour === endHour && currentMinute < endMinute)) {
+      const hourStr = String(currentHour).padStart(2, '0');
+      const minuteStr = String(currentMinute).padStart(2, '0');
+      slots.push(`${hourStr}:${minuteStr}`);
+      
+      currentMinute += 30;
+      if (currentMinute >= 60) {
+        currentMinute = 0;
+        currentHour++;
+      }
+    }
+    
+    return slots;
+  };
+
+  // Get appointments for a specific date and time range (considering duration)
+  const getAppointmentsForTimeRange = (date: Date, time: string, durationMinutes: number): Appointment[] => {
+    const dateStr = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
+    const [hours, minutes] = time.split(':').map(Number);
+    const startMinutes = hours * 60 + minutes;
+    const endMinutes = startMinutes + durationMinutes;
+    
+    // Filter appointments by date and time range
+    return allAppointments.filter(app => {
+      if (app.status === 'cancelled') return false;
+      if (app.appointment_date !== dateStr) return false;
+      
+      // Parse appointment time
+      const [appHours, appMinutes] = app.appointment_time.split(':').map(Number);
+      const appStartMinutes = appHours * 60 + appMinutes;
+      const appEndMinutes = appStartMinutes + app.duration_minutes;
+      
+      // Check if the time ranges overlap
+      return (appStartMinutes < endMinutes && appEndMinutes > startMinutes);
+    });
+  };
+
+  // Get appointment count for a specific time range
+  const getAppointmentCountForTimeRange = (date: Date, time: string, durationMinutes: number): number => {
+    return getAppointmentsForTimeRange(date, time, durationMinutes).length;
+  };
+
+  // Get appointments for a specific date and time (exact match - for display)
+  const getAppointmentsForDateTime = (date: Date, time: string): Appointment[] => {
+    const dateStr = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
+    const timeStr = time + ':00';
+    
+    return allAppointments.filter(app => {
+      if (app.status === 'cancelled') return false;
+      if (app.appointment_date !== dateStr) return false;
+      const appTime = app.appointment_time;
+      if (appTime === timeStr || appTime === time) return true;
+      return false;
+    });
+  };
+
+  // Get appointment count for a specific date and time (exact match)
+  const getAppointmentCountForDateTime = (date: Date, time: string): number => {
+    return getAppointmentsForDateTime(date, time).length;
+  };
+
+  // Check if a time slot is available for booking (considering duration)
+  const isTimeSlotAvailable = (date: Date, time: string): boolean => {
+    const totalDuration = getTotalDuration();
+    const count = getAppointmentCountForTimeRange(date, time, totalDuration);
+    return count < MAX_APPOINTMENTS_PER_TIME;
+  };
+
+  // Get time slot status for display
+  const getTimeSlotStatus = (date: Date, time: string): 'available' | 'partial' | 'full' => {
+    const totalDuration = getTotalDuration();
+    const count = getAppointmentCountForTimeRange(date, time, totalDuration);
+    
+    if (count === 0) return 'available';
+    if (count < MAX_APPOINTMENTS_PER_TIME) return 'partial';
+    return 'full';
+  };
+
   const getTimeSlotsForDate = (date: Date): string[] => {
     const scheduleStatus = getScheduleStatus(date);
     if (scheduleStatus.status !== 'open' || !scheduleStatus.schedule) {
@@ -231,14 +581,7 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     }
     
     const { open_time, close_time } = scheduleStatus.schedule;
-    const allTimeSlots = [...availableTimes];
-    const openHour = parseInt(open_time.split(':')[0]);
-    const closeHour = parseInt(close_time.split(':')[0]);
-    
-    return allTimeSlots.filter(time => {
-      const hour = parseInt(time.split(':')[0]);
-      return hour >= openHour && hour < closeHour;
-    });
+    return generateTimeSlots(open_time, close_time);
   };
 
   const handleStaffSelect = (staffId: number) => {
@@ -258,10 +601,9 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
       return;
     }
     
-    // Check if the new service is multitaskable with existing selections
-    const services = getServicesForStaff();
-    const newService = services.find(s => s.id === serviceId);
-    const existingServices = services.filter(s => selectedServiceIds.includes(s.id));
+    const servicesForStaff = getServicesForStaff();
+    const newService = servicesForStaff.find(s => s.id === serviceId);
+    const existingServices = servicesForStaff.filter(s => selectedServiceIds.includes(s.id));
     
     if (selectedServiceIds.length === 1) {
       const existingService = existingServices[0];
@@ -306,7 +648,6 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
       return;
     }
     
-    // Check if selected staff is available on this date
     if (!isStaffAvailableOnDate(selectedStaffId!, date)) {
       Alert.alert("Staff Not Available", "The selected stylist is not available on this date. Please select another date.");
       return;
@@ -317,6 +658,16 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
   };
 
   const handleTimeSelect = (time: string) => {
+    // Check if the time slot is available based on duration
+    if (!isTimeSlotAvailable(selectedDateForModal!, time)) {
+      const totalDuration = getTotalDuration();
+      Alert.alert(
+        "Time Slot Full", 
+        `This time slot already has ${MAX_APPOINTMENTS_PER_TIME} appointment(s) within the ${totalDuration}-minute service duration. Please choose another time.`
+      );
+      return;
+    }
+    
     const [hours, minutes] = time.split(':');
     const newDateTime = new Date(selectedDateForModal!);
     newDateTime.setHours(parseInt(hours), parseInt(minutes), 0);
@@ -366,10 +717,11 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
         appointment_time: formattedTime,
         status: 'pending',
         service_id: selectedServiceIds[0] || 0,
-        service_ids: selectedServiceIds, // Send all selected services
+        service_ids: selectedServiceIds,
         assigned_employee_id: selectedStaffId,
         service_status: 'pending',
         total_amount: getServicePrice(),
+        total_duration: getTotalDuration(),
         payment_type: selectedPaymentType || '',
         payment_method: selectedPaymentMethod || '',
         customer_id: user?.id || 0
@@ -476,8 +828,8 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
   };
 
   const getServiceNames = () => {
-    const services = getServicesForStaff();
-    const selectedServices = services.filter(s => selectedServiceIds.includes(s.id));
+    const servicesForStaff = getServicesForStaff();
+    const selectedServices = servicesForStaff.filter(s => selectedServiceIds.includes(s.id));
     return selectedServices.map(s => s.service_name).join(' + ');
   };
 
@@ -493,13 +845,18 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
   // Get staff rating with error handling
   const getStaffRating = (staffId: number) => {
     try {
-      const average = getAverageStaffRating(staffId);
-      const feedbacks = getStaffFeedbacks(staffId);
-      // Ensure average is a valid number
-      const validAverage = typeof average === 'number' && !isNaN(average) ? average : 0;
+      const staffReviews = staffFeedbacks.filter(f => f.staff_id === staffId);
+      if (staffReviews.length === 0) return { average: 0, count: 0 };
+      
+      const total = staffReviews.reduce((sum, feedback) => {
+        const rating = typeof feedback.rating === 'number' ? feedback.rating : parseFloat(feedback.rating as any) || 0;
+        return sum + rating;
+      }, 0);
+      
+      const average = parseFloat((total / staffReviews.length).toFixed(1));
       return { 
-        average: validAverage, 
-        count: Array.isArray(feedbacks) ? feedbacks.length : 0 
+        average: average, 
+        count: staffReviews.length 
       };
     } catch (error) {
       console.error(`Error getting rating for staff ${staffId}:`, error);
@@ -509,7 +866,6 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
 
   // Generate star rating display with error handling
   const renderStars = (rating: number) => {
-    // Ensure rating is a valid number
     const validRating = typeof rating === 'number' && !isNaN(rating) ? rating : 0;
     const fullStars = Math.floor(validRating);
     const hasHalfStar = validRating % 1 >= 0.5;
@@ -528,9 +884,10 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     return stars;
   };
 
-  // Time Picker Modal
+  // Time Picker Modal - Enhanced with duration awareness
   const TimePickerModal = () => {
     const availableTimeSlots = selectedDateForModal ? getTimeSlotsForDate(selectedDateForModal) : [];
+    const totalDuration = getTotalDuration();
     
     return (
       <Modal
@@ -545,15 +902,35 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
         <View className="flex-1 justify-end bg-black/50">
           <View className="bg-white rounded-t-3xl p-6" style={{ maxHeight: '80%' }}>
             <View className="flex-row justify-between items-center mb-4">
-              <Text className="text-lg font-semibold text-gray-800">
-                Select Time for {selectedDateForModal?.toLocaleDateString()}
-              </Text>
+              <View>
+                <Text className="text-lg font-semibold text-gray-800">
+                  Select Time for {selectedDateForModal?.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                </Text>
+                <Text className="text-xs text-gray-400">
+                  Duration: {totalDuration} minutes • Max {MAX_APPOINTMENTS_PER_TIME} appointment(s) per slot
+                </Text>
+              </View>
               <TouchableOpacity onPress={() => {
                 setShowTimePickerModal(false);
                 setSelectedDateForModal(null);
               }}>
                 <Ionicons name="close" size={24} color="#9ca3af" />
               </TouchableOpacity>
+            </View>
+            
+            <View className="flex-row items-center justify-between mb-3 px-2">
+              <View className="flex-row items-center gap-2">
+                <View className="w-3 h-3 rounded-full bg-green-500" />
+                <Text className="text-xs text-gray-600">Available</Text>
+              </View>
+              <View className="flex-row items-center gap-2">
+                <View className="w-3 h-3 rounded-full bg-yellow-500" />
+                <Text className="text-xs text-gray-600">Partial ({MAX_APPOINTMENTS_PER_TIME - 1} left)</Text>
+              </View>
+              <View className="flex-row items-center gap-2">
+                <View className="w-3 h-3 rounded-full bg-red-500" />
+                <Text className="text-xs text-gray-600">Full</Text>
+              </View>
             </View>
             
             {availableTimeSlots.length === 0 ? (
@@ -566,20 +943,79 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
             ) : (
               <ScrollView showsVerticalScrollIndicator={false} className="max-h-96">
                 <View className="flex-row flex-wrap justify-between">
-                  {availableTimeSlots.map((time) => (
-                    <TouchableOpacity
-                      key={time}
-                      className="w-[30%] py-3 mb-3 rounded-xl border border-gray-200 items-center"
-                      style={{
-                        backgroundColor: selectedTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }) === time ? '#ec4899' : 'white'
-                      }}
-                      onPress={() => handleTimeSelect(time)}
-                    >
-                      <Text className={selectedTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }) === time ? 'text-white font-semibold' : 'text-gray-700'}>
-                        {time}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
+                  {availableTimeSlots.map((time) => {
+                    const status = getTimeSlotStatus(selectedDateForModal!, time);
+                    const appointmentCount = getAppointmentCountForTimeRange(selectedDateForModal!, time, totalDuration);
+                    const isAvailable = status !== 'full';
+                    const isSelected = selectedTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }) === time;
+                    
+                    let statusColor = 'bg-gray-100';
+                    let statusTextColor = 'text-gray-700';
+                    let borderColor = 'border-gray-200';
+                    
+                    if (isSelected) {
+                      statusColor = 'bg-pink-500';
+                      statusTextColor = 'text-white';
+                      borderColor = 'border-pink-500';
+                    } else if (status === 'available') {
+                      statusColor = 'bg-green-50';
+                      statusTextColor = 'text-green-700';
+                      borderColor = 'border-green-200';
+                    } else if (status === 'partial') {
+                      statusColor = 'bg-yellow-50';
+                      statusTextColor = 'text-yellow-700';
+                      borderColor = 'border-yellow-200';
+                    } else {
+                      statusColor = 'bg-red-50';
+                      statusTextColor = 'text-red-500';
+                      borderColor = 'border-red-200';
+                    }
+                    
+                    return (
+                      <TouchableOpacity
+                        key={time}
+                        className={`w-[30%] py-3 mb-3 rounded-xl border-2 ${borderColor} items-center ${isSelected ? 'shadow-lg' : ''}`}
+                        style={{
+                          backgroundColor: isSelected ? '#ec4899' : (statusColor === 'bg-pink-500' ? '#ec4899' : undefined),
+                          opacity: isAvailable ? 1 : 0.6
+                        }}
+                        onPress={() => isAvailable && handleTimeSelect(time)}
+                        disabled={!isAvailable}
+                      >
+                        <Text className={isSelected ? 'text-white font-bold' : statusTextColor}>
+                          {time}
+                        </Text>
+                        {!isSelected && (
+                          <View className="flex-row items-center mt-1">
+                            {status === 'available' ? (
+                              <Ionicons name="checkmark-circle" size={12} color="#22c55e" />
+                            ) : status === 'partial' ? (
+                              <View className="flex-row items-center">
+                                <Ionicons name="time-outline" size={10} color="#eab308" />
+                                <Text className="text-[8px] text-yellow-600 ml-0.5">
+                                  {MAX_APPOINTMENTS_PER_TIME - appointmentCount} left
+                                </Text>
+                              </View>
+                            ) : (
+                              <Ionicons name="close-circle" size={12} color="#ef4444" />
+                            )}
+                            {appointmentCount > 0 && (
+                              <Text className="text-[8px] ml-1 text-gray-400">
+                                ({appointmentCount}/{MAX_APPOINTMENTS_PER_TIME})
+                              </Text>
+                            )}
+                          </View>
+                        )}
+                        {isSelected && (
+                          <View className="mt-1">
+                            <Text className="text-[8px] text-white/80">
+                              {appointmentCount}/{MAX_APPOINTMENTS_PER_TIME} booked • {totalDuration}min
+                            </Text>
+                          </View>
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
                 </View>
               </ScrollView>
             )}
@@ -705,6 +1141,7 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
 
   const renderContent = () => {
     const totalPrice = getServicePrice();
+    const totalDuration = getTotalDuration();
     const downpaymentAmount = totalPrice / 2;
     const fullPaymentAmount = totalPrice;
     const servicesForStaff = getServicesForStaff();
@@ -940,6 +1377,11 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                                   <Text className="text-green-600 text-xs">Multitaskable</Text>
                                 </View>
                               )}
+                              {!isMultitaskable && (
+                                <View className="ml-3 bg-red-100 px-2 py-0.5 rounded-full">
+                                  <Text className="text-red-600 text-xs">Single Only</Text>
+                                </View>
+                              )}
                             </View>
                           </View>
                           <Text className="text-pink-500 font-bold text-lg">₱{service.price.toLocaleString()}</Text>
@@ -952,10 +1394,18 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                 {selectedServiceIds.length > 0 && (
                   <View className="mt-4 p-3 bg-gray-50 rounded-xl">
                     <Text className="text-gray-600 text-sm">Selected: {getServiceNames()}</Text>
-                    <Text className="text-pink-500 font-bold text-lg">Total: ₱{totalPrice.toLocaleString()}</Text>
+                    <View className="flex-row justify-between mt-1">
+                      <Text className="text-gray-600 text-sm">Total Duration: {totalDuration} mins</Text>
+                      <Text className="text-pink-500 font-bold text-lg">₱{totalPrice.toLocaleString()}</Text>
+                    </View>
                     {selectedServiceIds.length === 2 && !areServicesMultitaskable() && (
                       <Text className="text-red-500 text-xs mt-1">
-                        Warning: Selected services may not be multitaskable
+                        ⚠️ Warning: Selected services may not be multitaskable
+                      </Text>
+                    )}
+                    {selectedServiceIds.length === 2 && areServicesMultitaskable() && (
+                      <Text className="text-green-500 text-xs mt-1">
+                        ✅ Both services are multitaskable
                       </Text>
                     )}
                   </View>
@@ -981,7 +1431,7 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                   <Text className="text-lg font-bold text-gray-800">{getServiceNames()}</Text>
                   <Text className="text-gray-500 text-sm mt-1">Stylist: {getStaffName(selectedStaffId)}</Text>
                   <View className="flex-row justify-between mt-2">
-                    <Text className="text-gray-500 text-sm">{selectedServiceIds.length} service(s)</Text>
+                    <Text className="text-gray-500 text-sm">{selectedServiceIds.length} service(s) • {totalDuration} mins</Text>
                     <Text className="text-pink-500 font-bold">₱{totalPrice.toLocaleString()}</Text>
                   </View>
                 </View>
@@ -1104,6 +1554,9 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                         <Text className="text-pink-600 font-semibold ml-1">
                           {selectedTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
                         </Text>
+                        <Text className="text-gray-400 text-xs ml-2">
+                          ({totalDuration} min duration)
+                        </Text>
                       </View>
                     )}
                   </View>
@@ -1146,6 +1599,9 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                   </View>
                   <View className="flex-row justify-between mt-1">
                     <Text className="text-gray-500 text-sm">Time: {selectedTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</Text>
+                  </View>
+                  <View className="flex-row justify-between mt-1">
+                    <Text className="text-gray-500 text-sm">Duration: {totalDuration} mins</Text>
                   </View>
                   <View className="flex-row justify-between mt-1">
                     <Text className="text-gray-500 text-sm">Stylist: {getStaffName(selectedStaffId)}</Text>
@@ -1235,6 +1691,9 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                   </View>
                   <View className="flex-row justify-between mt-1">
                     <Text className="text-gray-500 text-sm">Time: {selectedTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</Text>
+                  </View>
+                  <View className="flex-row justify-between mt-1">
+                    <Text className="text-gray-500 text-sm">Duration: {totalDuration} mins</Text>
                   </View>
                   <View className="flex-row justify-between mt-1">
                     <Text className="text-gray-500 text-sm">Stylist: {getStaffName(selectedStaffId)}</Text>

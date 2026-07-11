@@ -193,17 +193,17 @@ export default function StaffSchedule({ refreshing, onRefresh }: StaffSchedulePr
         <View className="px-4 py-3 border-b border-gray-100 flex items-center justify-between flex-row">
           <View className="flex-row items-center gap-3">
             <TouchableOpacity onPress={() => changeMonth(-1)} className="p-1.5">
-              <Ionicons name="chevron-back" size={20} color="#9333ea" />
+              <Ionicons name="chevron-back" size={20} color="#ec4899" />
             </TouchableOpacity>
             <Text className="text-base font-semibold text-gray-800">
               {monthNames[currentMonth.getMonth()]} {currentMonth.getFullYear()}
             </Text>
             <TouchableOpacity onPress={() => changeMonth(1)} className="p-1.5">
-              <Ionicons name="chevron-forward" size={20} color="#9333ea" />
+              <Ionicons name="chevron-forward" size={20} color="#ec4899" />
             </TouchableOpacity>
           </View>
-          <TouchableOpacity onPress={() => setCurrentMonth(new Date())} className="px-2 py-1 bg-purple-50 rounded-lg">
-            <Text className="text-xs text-purple-600">Today</Text>
+          <TouchableOpacity onPress={() => setCurrentMonth(new Date())} className="px-2 py-1 bg-pink-50 rounded-lg">
+            <Text className="text-xs text-pink-600">Today</Text>
           </TouchableOpacity>
         </View>
 
@@ -262,7 +262,7 @@ export default function StaffSchedule({ refreshing, onRefresh }: StaffSchedulePr
                 >
                   <View className={`flex-1 items-center justify-center rounded-full ${cellBgColor}`}>
                     <Text className={`text-sm ${
-                      isTodayDate ? 'text-purple-600 font-bold' : 
+                      isTodayDate ? 'text-pink-600 font-bold' : 
                       isPast ? 'text-gray-400' : 
                       scheduleStatus.status === 'open' ? 'text-green-700' :
                       scheduleStatus.status === 'closed' ? 'text-red-700' :
@@ -305,7 +305,7 @@ export default function StaffSchedule({ refreshing, onRefresh }: StaffSchedulePr
       >
         <View className="flex-1 justify-center items-center bg-black/50">
           <View className="bg-white rounded-2xl w-full max-w-md mx-4 overflow-hidden">
-            <View className="bg-purple-600 px-6 py-4 flex-row justify-between items-center">
+            <View className="bg-pink-600 px-6 py-4 flex-row justify-between items-center">
               <Text className="text-xl font-bold text-white">Schedule Details</Text>
               <TouchableOpacity onPress={() => {
                 setShowScheduleOptionsModal(false);
@@ -353,7 +353,7 @@ export default function StaffSchedule({ refreshing, onRefresh }: StaffSchedulePr
                   setShowScheduleOptionsModal(false);
                   setSelectedSchedule(null);
                 }}
-                className="bg-purple-600 py-3 rounded-xl mt-2"
+                className="bg-pink-600 py-3 rounded-xl mt-2"
               >
                 <Text className="text-white text-center font-semibold">Close</Text>
               </TouchableOpacity>
@@ -369,7 +369,7 @@ export default function StaffSchedule({ refreshing, onRefresh }: StaffSchedulePr
       showsVerticalScrollIndicator={false} 
       className="flex-1"
       refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#9333ea']} />
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#ec4899']} />
       }
     >
       <View className="px-5 pt-6">
@@ -380,7 +380,7 @@ export default function StaffSchedule({ refreshing, onRefresh }: StaffSchedulePr
         <CalendarView />
         
         {/* Legend */}
-        <View className="flex-row justify-around mt-4 mb-6 pb-3 border-b border-gray-100">
+        <View className="flex-row justify-around mt-4 mb-6 pb-3 border-b border-gray-100 flex-wrap gap-2">
           <View className="flex-row items-center gap-1">
             <View className="w-3 h-3 rounded-full bg-green-500" />
             <Text className="text-xs text-gray-600">Open</Text>
@@ -416,8 +416,8 @@ export default function StaffSchedule({ refreshing, onRefresh }: StaffSchedulePr
             .map((assignment) => (
               <View key={assignment.id} className="bg-white rounded-2xl p-4 mb-3 shadow-sm border border-gray-100">
                 <View className="flex-row items-center gap-3">
-                  <View className="bg-green-100 p-2 rounded-full">
-                    <Ionicons name="checkmark-circle" size={20} color="#10b981" />
+                  <View className="bg-pink-100 p-2 rounded-full">
+                    <Ionicons name="checkmark-circle" size={20} color="#ec4899" />
                   </View>
                   <View>
                     <Text className="text-gray-800 font-semibold">

@@ -2,6 +2,99 @@ import React, { useState, useEffect, useCallback } from "react";
 import { View, Text, TouchableOpacity, ScrollView, Alert, RefreshControl, TextInput } from "react-native";
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from "@/contexts/auth-context";
+import api from '@/api/axios';
+
+// Define types locally
+interface Appointment {
+  id: number;
+  customer_id: number;
+  appointment_date: string;
+  appointment_time: string;
+  status: string;
+  service_status: string;
+  service_name: string;
+  duration_minutes: number;
+  price: string;
+  assigned_employee_id?: number;
+  stylist_name?: string;
+}
+
+interface Transaction {
+  id: number;
+  appointment_id: number;
+  customer_id: number;
+  service_id: number;
+  assigned_employee_id?: number;
+  total_amount: number;
+  payment_type: string;
+  payment_method: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+  appointment?: {
+    id: number;
+    appointment_date: string;
+    appointment_time: string;
+    status: string;
+    service_status: string;
+    service_name: string;
+    duration_minutes: number;
+    price: string;
+    assigned_employee_id?: number;
+  };
+  service?: {
+    id: number;
+    service_name: string;
+    description: string;
+    price: number;
+    duration_minutes: number;
+  };
+  assigned_employee?: {
+    id: number;
+    first_name: string;
+    last_name: string;
+    email: string;
+    phone_number: string;
+  };
+}
+
+interface Feedback {
+  id: number;
+  customer_id: number;
+  appointment_id: number;
+  rating: number;
+  comments: string;
+  created_at?: string;
+  updated_at?: string;
+  customer_name?: string;
+  service_name?: string;
+}
+
+interface StaffFeedback {
+  id: number;
+  staff_id: number;
+  rating: number;
+}
+
+interface StaffMember {
+  id: number;
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone_number: string;
+  role: string;
+  profile_image?: string;
+  staff_specialties: Array<{
+    id: number;
+    staff_id: number;
+    specialty_id: number;
+    is_active: number;
+    specialties?: {
+      id: number;
+      specialty_name: string;
+    };
+  }>;
+}
 
 interface CustomerHistoryProps {
   onOpenFeedbackPage?: (appointment: any) => void;
@@ -179,22 +272,180 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
   const [selectedAppointmentForFeedback, setSelectedAppointmentForFeedback] = useState<any>(null);
   const [refreshing, setRefreshing] = useState(false);
   
+  // Local state for data
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
+  const [staffFeedbacks, setStaffFeedbacks] = useState<StaffFeedback[]>([]);
+  const [staff, setStaff] = useState<StaffMember[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  
   const { 
-    user,
-    appointments,
-    transactions,
-    isLoading,
-    fetchUserAppointments,
-    fetchUserTransactions,
-    fetchFeedbacks,
-    fetchStaffFeedbacks,
-    submitFeedback,
-    submitStaffFeedback,
-    getFeedbacksForAppointment,
-    getStaffFeedbacks,
-    getAverageStaffRating,
-    staff
+    user
   } = useAuth();
+
+  // Fetch user appointments
+  const fetchUserAppointments = async () => {
+    try {
+      const response = await api.get("/appointments");
+      console.log("Raw appointments response:", response.data);
+      
+      let appointmentsData: Appointment[] = [];
+      if (Array.isArray(response.data)) {
+        appointmentsData = response.data.map((item: any) => ({
+          id: item.id,
+          customer_id: item.customer_id,
+          appointment_date: item.appointment_date,
+          appointment_time: item.appointment_time,
+          status: item.status,
+          service_status: item.service_status,
+          service_name: item.service_name,
+          duration_minutes: item.duration_minutes,
+          price: item.price,
+          assigned_employee_id: item.assigned_employee_id,
+          stylist_name: item.stylist_name
+        }));
+      }
+      
+      console.log("Processed appointments data:", appointmentsData);
+      setAppointments(appointmentsData);
+      return appointmentsData;
+    } catch (error) {
+      console.log("Error fetching appointments:", error);
+      return [];
+    }
+  };
+
+  // Fetch user transactions
+  const fetchUserTransactions = async () => {
+    try {
+      const response = await api.get("/transactions");
+      console.log("Raw transactions response:", response.data);
+      
+      let transactionsData: Transaction[] = [];
+      if (Array.isArray(response.data)) {
+        transactionsData = response.data.map((item: any) => ({
+          id: item.id,
+          appointment_id: item.appointment_id,
+          customer_id: item.customer_id,
+          service_id: item.service_id,
+          assigned_employee_id: item.assigned_employee_id,
+          total_amount: parseFloat(item.total_amount) || 0,
+          payment_type: item.payment_type,
+          payment_method: item.payment_method,
+          status: item.status,
+          created_at: item.created_at,
+          updated_at: item.updated_at,
+          appointment: item.appointment,
+          service: item.service,
+          assigned_employee: item.assigned_employee
+        }));
+      }
+      
+      console.log("Processed transactions data:", transactionsData);
+      setTransactions(transactionsData);
+      return transactionsData;
+    } catch (error) {
+      console.log("Error fetching transactions:", error);
+      return [];
+    }
+  };
+
+  // Fetch feedbacks
+  const fetchFeedbacks = async () => {
+    try {
+      const response = await api.get("/feedbacks");
+      console.log("Fetched feedbacks:", response.data);
+      
+      let feedbacksData: Feedback[] = [];
+      if (Array.isArray(response.data)) {
+        feedbacksData = response.data;
+      }
+      
+      setFeedbacks(feedbacksData);
+      return feedbacksData;
+    } catch (error) {
+      console.log("Error fetching feedbacks:", error);
+      return [];
+    }
+  };
+
+  // Fetch staff feedbacks
+  const fetchStaffFeedbacks = async () => {
+    try {
+      const response = await api.get("/feedbacks/staff");
+      console.log("Raw staff feedbacks response:", response.data);
+      
+      let staffFeedbacksData: StaffFeedback[] = [];
+      if (Array.isArray(response.data)) {
+        staffFeedbacksData = response.data.map((item: any) => ({
+          id: item.id || 0,
+          staff_id: item.staff_id || 0,
+          rating: parseFloat(item.rating) || 0
+        }));
+      }
+      
+      console.log("Processed staff feedbacks:", staffFeedbacksData);
+      setStaffFeedbacks(staffFeedbacksData);
+      return staffFeedbacksData;
+    } catch (error) {
+      console.log("Error fetching staff feedbacks:", error);
+      return [];
+    }
+  };
+
+  // Fetch staff
+  const fetchStaff = async () => {
+    try {
+      const response = await api.get("/employee/specialties");
+      console.log("Fetched staff with specialties:", response.data);
+      
+      let staffData: StaffMember[] = [];
+      if (Array.isArray(response.data)) {
+        staffData = response.data;
+      }
+      
+      setStaff(staffData);
+      return staffData;
+    } catch (error) {
+      console.log("Error fetching staff:", error);
+      return [];
+    }
+  };
+
+  // Submit feedback
+  const submitFeedback = async (data: { appointment_id: number; customer_id: number; rating: number; comments: string }) => {
+    try {
+      const response = await api.post("/feedbacks/submit", {
+        appointment_id: data.appointment_id,
+        customer_id: data.customer_id,
+        rating: data.rating,
+        comments: data.comments
+      });
+      console.log("Feedback submitted:", response.data);
+      return response.data;
+    } catch (error) {
+      console.log("Error submitting feedback:", error);
+      throw error;
+    }
+  };
+
+  // Submit staff feedback
+  const submitStaffFeedback = async (data: { staff_id: number; customer_id: number; rating: number; comments: string }) => {
+    try {
+      const response = await api.post("/feedbacks/staff/submit", {
+        staff_id: data.staff_id,
+        customer_id: data.customer_id,
+        rating: data.rating,
+        comments: data.comments
+      });
+      console.log("Staff feedback submitted:", response.data);
+      return response.data;
+    } catch (error) {
+      console.log("Error submitting staff feedback:", error);
+      throw error;
+    }
+  };
 
   // Format date helper
   const formatDate = (date: string) => {
@@ -216,15 +467,15 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
 
   // Check if an appointment has feedback
   const hasFeedback = (appointmentId: number) => {
-    const feedbacks = getFeedbacksForAppointment(appointmentId);
-    return feedbacks.length > 0;
+    const feedbacksForAppointment = feedbacks.filter(f => f.appointment_id === appointmentId);
+    return feedbacksForAppointment.length > 0;
   };
 
   // Get feedback rating for an appointment
   const getFeedbackRating = (appointmentId: number) => {
-    const feedbacks = getFeedbacksForAppointment(appointmentId);
-    if (feedbacks.length > 0) {
-      return feedbacks[0].rating;
+    const feedbacksForAppointment = feedbacks.filter(f => f.appointment_id === appointmentId);
+    if (feedbacksForAppointment.length > 0) {
+      return feedbacksForAppointment[0].rating;
     }
     return null;
   };
@@ -240,8 +491,8 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
   const getStylistNameForAppointment = (appointmentId: number) => {
     // First check if the appointment already has stylist_name
     const appointment = appointments.find(a => a.id === appointmentId);
-    if (appointment && (appointment as any).stylist_name) {
-      return (appointment as any).stylist_name;
+    if (appointment && appointment.stylist_name) {
+      return appointment.stylist_name;
     }
     
     // If not, try to get from transactions
@@ -259,8 +510,8 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
   const getStylistIdForAppointment = (appointmentId: number) => {
     // First check if the appointment already has assigned_employee_id
     const appointment = appointments.find(a => a.id === appointmentId);
-    if (appointment && (appointment as any).assigned_employee_id) {
-      return (appointment as any).assigned_employee_id;
+    if (appointment && appointment.assigned_employee_id) {
+      return appointment.assigned_employee_id;
     }
     
     // If not, try to get from transactions
@@ -343,26 +594,34 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
       fetchUserAppointments(),
       fetchUserTransactions(),
       fetchFeedbacks(),
-      fetchStaffFeedbacks()
+      fetchStaffFeedbacks(),
+      fetchStaff()
     ]);
     setRefreshing(false);
-  }, [fetchUserAppointments, fetchUserTransactions, fetchFeedbacks, fetchStaffFeedbacks]);
+  }, []);
 
   // Fetch data on mount
   useEffect(() => {
-    fetchUserAppointments();
-    fetchUserTransactions();
-    fetchFeedbacks();
-    fetchStaffFeedbacks();
+    setIsLoading(true);
+    Promise.all([
+      fetchUserAppointments(),
+      fetchUserTransactions(),
+      fetchFeedbacks(),
+      fetchStaffFeedbacks(),
+      fetchStaff()
+    ]).finally(() => setIsLoading(false));
   }, []);
 
   // Refresh when trigger changes
   useEffect(() => {
     if (refreshTrigger) {
-      fetchUserAppointments();
-      fetchUserTransactions();
-      fetchFeedbacks();
-      fetchStaffFeedbacks();
+      Promise.all([
+        fetchUserAppointments(),
+        fetchUserTransactions(),
+        fetchFeedbacks(),
+        fetchStaffFeedbacks(),
+        fetchStaff()
+      ]);
     }
   }, [refreshTrigger]);
 
