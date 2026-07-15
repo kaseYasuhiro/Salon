@@ -641,6 +641,11 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
     return stars;
   };
 
+  // Filter appointments to show only completed and cancelled
+  const filteredAppointments = appointments.filter(
+    (item) => item.status === 'completed' || item.status === 'cancelled'
+  );
+
   // Main History Tab Content
   if (showFeedbackPage && selectedAppointmentForFeedback) {
     return (
@@ -662,19 +667,19 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
     >
       <View className="px-5 pt-6">
         <Text className="text-3xl font-bold text-gray-800 mb-2">History</Text>
-        <Text className="text-gray-500 mb-6">Your appointment records</Text>
+        <Text className="text-gray-500 mb-6">Your completed and cancelled appointments</Text>
         
         {isLoading ? (
           <View className="py-10">
             <Text className="text-center text-gray-500">Loading history...</Text>
           </View>
-        ) : appointments.length === 0 ? (
+        ) : filteredAppointments.length === 0 ? (
           <View className="bg-white rounded-2xl p-8 items-center" style={{ elevation: 2 }}>
             <Ionicons name="document-text-outline" size={50} color="#d1d5db" />
-            <Text className="text-gray-500 text-center mt-3">No appointment history</Text>
+            <Text className="text-gray-500 text-center mt-3">No completed or cancelled appointments</Text>
           </View>
         ) : (
-          appointments.map((item) => {
+          filteredAppointments.map((item) => {
             const hasGivenFeedback = hasFeedback(item.id);
             const existingRating = getFeedbackRating(item.id);
             const isCompleted = item.status === 'completed';

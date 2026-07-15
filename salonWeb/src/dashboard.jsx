@@ -10,7 +10,8 @@ import {
   ChevronRight, Activity, PieChart,
   AlertCircle, Bell, Search, Crown,
   FileText, // Added for Reports icon
-  Box // Added for Products icon
+  Box, // Added for Products icon
+  BarChart3 // Added for Sales icon
 } from 'lucide-react';
 import { useAuth } from "../contexts/auth-context";
 import api from '../api/axios';
@@ -33,6 +34,14 @@ function Dashboard() {
   const [showModal, setShowModal] = useState(false);
   const [feedbacks, setFeedbacks] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  
+  // Appointment status counts - using real data
+  const [appointmentStatusCounts, setAppointmentStatusCounts] = useState({
+    confirmed: 0,
+    pending: 0,
+    completed: 0,
+    cancelled: 0
+  });
   
   // Remittance states
   const [remittances, setRemittances] = useState([]);
@@ -66,6 +75,24 @@ function Dashboard() {
       console.log('All appointments:', response.data);
       
       if (Array.isArray(response.data)) {
+        // Count appointments by status
+        const counts = {
+          confirmed: 0,
+          pending: 0,
+          completed: 0,
+          cancelled: 0
+        };
+        
+        response.data.forEach(app => {
+          if (app.status === 'confirmed') counts.confirmed++;
+          else if (app.status === 'pending') counts.pending++;
+          else if (app.status === 'completed') counts.completed++;
+          else if (app.status === 'cancelled') counts.cancelled++;
+        });
+        
+        setAppointmentStatusCounts(counts);
+        console.log('Appointment status counts:', counts);
+        
         // Filter completed appointments
         const completed = response.data.filter(app => app.status === 'completed');
         
@@ -230,8 +257,9 @@ function Dashboard() {
   const isInventoryRoute = location.pathname === '/dashboard/inventory';
   const isReportsRoute = location.pathname === '/dashboard/reports';
   const isProductsRoute = location.pathname === '/dashboard/products';
+  const isSalesRoute = location.pathname === '/dashboard/sales';
 
-  const isNestedRoute = isAppointmentsRoute || isServicesRoute || isEmployeesRoute || isInventoryRoute || isReportsRoute || isProductsRoute;
+  const isNestedRoute = isAppointmentsRoute || isServicesRoute || isEmployeesRoute || isInventoryRoute || isReportsRoute || isProductsRoute || isSalesRoute;
 
   const stats = [
     { label: 'Total Appointments', value: dashboardStats.totalAppointments.toString(), icon: Calendar, color: 'from-blue-500 to-blue-600', bgColor: 'bg-blue-50', textColor: 'text-blue-600', trend: '+12%' },
@@ -240,13 +268,47 @@ function Dashboard() {
     { label: 'Staff Members', value: dashboardStats.staffMembers.toString(), icon: Users, color: 'from-orange-500 to-orange-600', bgColor: 'bg-orange-50', textColor: 'text-orange-600', trend: '+0%' },
   ];
 
-  // Calculate appointment status counts from real data
+  // Get appointment status counts from real data
   const getAppointmentStatusCounts = () => {
+    const total = dashboardStats.totalAppointments || 1; // Prevent division by zero
+    
     return [
-      { label: 'Confirmed', count: 25, color: 'bg-green-500', icon: CheckCircle, bgColor: 'bg-green-50', textColor: 'text-green-700' },
-      { label: 'Pending', count: 9, color: 'bg-yellow-500', icon: Clock, bgColor: 'bg-yellow-50', textColor: 'text-yellow-700' },
-      { label: 'Completed', count: dashboardStats.totalAppointments, color: 'bg-blue-500', icon: CheckCircle, bgColor: 'bg-blue-50', textColor: 'text-blue-700' },
-      { label: 'Cancelled', count: 3, color: 'bg-red-500', icon: XCircle, bgColor: 'bg-red-50', textColor: 'text-red-700' },
+      { 
+        label: 'Confirmed', 
+        count: appointmentStatusCounts.confirmed, 
+        color: 'bg-green-500', 
+        icon: CheckCircle, 
+        bgColor: 'bg-green-50', 
+        textColor: 'text-green-700',
+        percentage: total > 0 ? Math.round((appointmentStatusCounts.confirmed / total) * 100) : 0
+      },
+      { 
+        label: 'Pending', 
+        count: appointmentStatusCounts.pending, 
+        color: 'bg-yellow-500', 
+        icon: Clock, 
+        bgColor: 'bg-yellow-50', 
+        textColor: 'text-yellow-700',
+        percentage: total > 0 ? Math.round((appointmentStatusCounts.pending / total) * 100) : 0
+      },
+      { 
+        label: 'Completed', 
+        count: appointmentStatusCounts.completed, 
+        color: 'bg-blue-500', 
+        icon: CheckCircle, 
+        bgColor: 'bg-blue-50', 
+        textColor: 'text-blue-700',
+        percentage: total > 0 ? Math.round((appointmentStatusCounts.completed / total) * 100) : 0
+      },
+      { 
+        label: 'Cancelled', 
+        count: appointmentStatusCounts.cancelled, 
+        color: 'bg-red-500', 
+        icon: XCircle, 
+        bgColor: 'bg-red-50', 
+        textColor: 'text-red-700',
+        percentage: total > 0 ? Math.round((appointmentStatusCounts.cancelled / total) * 100) : 0
+      },
     ];
   };
 
@@ -521,7 +583,7 @@ function Dashboard() {
                 <p className={`${status.textColor} font-semibold text-xs`}>{status.label}</p>
                 <p className="text-[10px] text-gray-500 mt-0.5">
                   {dashboardStats.totalAppointments > 0 
-                    ? `${Math.round((status.count / dashboardStats.totalAppointments) * 100)}% of total` 
+                    ? `${status.percentage}% of total` 
                     : '0% of total'}
                 </p>
               </div>
@@ -778,6 +840,19 @@ function Dashboard() {
               <FileText size={18} />
               <span>Reports</span>
             </Link>
+            {/* Sales Link */}
+            <Link 
+              to="/dashboard/sales"
+              onClick={() => setSidebarOpen(false)}
+              className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg transition-all text-sm ${
+                isSalesRoute
+                  ? 'bg-gradient-to-r from-pink-50 to-pink-100 text-pink-600 font-semibold' 
+                  : 'text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              <BarChart3 size={18} />
+              <span>Sales</span>
+            </Link>
           </nav>
 
           <div className="p-3 border-t border-gray-100">
@@ -807,6 +882,7 @@ function Dashboard() {
                     {isInventoryRoute && 'Inventory'}
                     {isProductsRoute && 'Products'}
                     {isReportsRoute && 'Reports'}
+                    {isSalesRoute && 'Sales'}
                     {isDashboardRoute && 'Dashboard'}
                   </h1>
                   <p className="text-xs text-gray-500 hidden sm:block">
@@ -815,7 +891,8 @@ function Dashboard() {
                     {isEmployeesRoute && 'Manage your team members'}
                     {isInventoryRoute && 'Track and manage salon inventory'}
                     {isProductsRoute && 'Manage salon products'}
-                    {isReportsRoute && 'View and manage reports'}
+                    {isReportsRoute && 'View and manage incident reports'}
+                    {isSalesRoute && 'View sales performance and revenue statistics'}
                     {isDashboardRoute && 'Welcome back! Here\'s your overview'}
                   </p>
                 </div>

@@ -2,18 +2,19 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\LossDamage;
+use App\Models\IncidentReports;
 use Illuminate\Http\Request;
 
-class LossDamageController extends Controller
+class IncidentReportsController extends Controller
 {
+
     public function submitIncidentReport(Request $request)
     {
         $request->validate([
             'date' => ['required', 'date', 'date_format:Y-m-d'],
-            'incident_type' => ['required', 'string', 'in:damage,inventory_loss,theft'],
+            'incident_type' => ['required', 'string', 'in:damage,theft,others'],
             'category' => ['required', 'string', 'in:product,service,other'],
-            'amount' => ['required', 'numeric', 'min:0'],
+            'amount' => ['nullable', 'numeric', 'min:0'],
             'description' => ['required', 'string'],
             'staff_id' => ['required', 'numeric', 'exists:users,id'],
             'inventory_id' => ['nullable', 'numeric', 'exists:inventories,id'],
@@ -22,7 +23,7 @@ class LossDamageController extends Controller
             'status' => ['sometimes', 'string', 'in:reported,written-off,resolved']
         ]);
 
-        LossDamage::create([
+        IncidentReports::create([
             'date' => $request->date,
             'incident_type' => $request->incident_type,
             'category' => $request->category,
@@ -41,7 +42,7 @@ class LossDamageController extends Controller
 
     public function updateIncidentReport(Request $request, $id)
     {
-        $report = LossDamage::where('id', $id)->first();
+        $report = IncidentReports::where('id', $id)->first();
 
         $request->validate([
             'date' => ['required', 'date', 'date_format:Y-m-d'],
@@ -76,5 +77,4 @@ class LossDamageController extends Controller
             'message' => 'Report Updated Successfully'
         ], 200);
     }
-
 }

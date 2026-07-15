@@ -11,10 +11,10 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('loss_damages', function (Blueprint $table) {
+        Schema::create('incident_reports', function (Blueprint $table) {
             $table->id();
             $table->date('date');
-            $table->enum('incident_type', ['damage', 'inventory_loss', 'theft']);
+            $table->enum('incident_type', ['damage', 'theft', 'others']);
             $table->enum('category', ['product', 'service', 'other']);
             $table->decimal('amount', 10,2);
             $table->text('description');
@@ -34,6 +34,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::dropIfExists('loss_damages');
+        Schema::dropIfExists('incident_reports');
     }
 };

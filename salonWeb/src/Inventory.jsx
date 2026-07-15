@@ -69,6 +69,21 @@ function Inventory() {
     return expDate <= today;
   };
 
+  // Sort inventory by created_at (most recent first) or by id
+  const sortInventoryByRecent = (inventoryArray) => {
+    return [...inventoryArray].sort((a, b) => {
+      // If created_at exists, sort by it
+      if (a.created_at && b.created_at) {
+        return new Date(b.created_at) - new Date(a.created_at);
+      }
+      // If created_at doesn't exist, fallback to id (assuming higher id = more recent)
+      if (a.id && b.id) {
+        return b.id - a.id;
+      }
+      return 0;
+    });
+  };
+
   // Fetch products for dropdown
   const fetchProducts = async () => {
     try {
@@ -100,16 +115,18 @@ function Inventory() {
           estimated_usages_per_unit: item.products?.estimated_usages_per_unit || 0
         }));
         
-        setInventory(transformedData);
+        // Sort inventory by most recent first
+        const sortedData = sortInventoryByRecent(transformedData);
+        setInventory(sortedData);
         
-        const lowStockItems = transformedData.filter(item => {
+        const lowStockItems = sortedData.filter(item => {
           const remainingUsages = (item.product_quantity * item.estimated_usages_per_unit) - item.current_usages;
           return remainingUsages <= item.reorder_level && remainingUsages > item.reorder_level * 0.5;
         }).length;
         
-        const totalValue = transformedData.reduce((sum, item) => sum + ((item.product_quantity || 0) * (item.unit_price || 0)), 0);
+        const totalValue = sortedData.reduce((sum, item) => sum + ((item.product_quantity || 0) * (item.unit_price || 0)), 0);
         
-        stats[0].value = transformedData.length.toString();
+        stats[0].value = sortedData.length.toString();
         stats[1].value = lowStockItems.toString();
         stats[2].value = `$${totalValue.toLocaleString()}`;
       }
@@ -382,6 +399,7 @@ function Inventory() {
     }
   };
 
+  // Filter inventory (maintains sort order)
   const filteredInventory = inventory.filter(item => {
     if (searchTerm && !(item.product_name || '').toLowerCase().includes(searchTerm.toLowerCase())) return false;
     return true;

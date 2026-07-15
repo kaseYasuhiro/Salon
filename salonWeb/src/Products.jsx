@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { 
   Package, Search, Plus, Edit, Trash2, 
   X, AlertCircle, CheckCircle, Filter,
-  Box, Ruler, PackageOpen, Layers
+  Box, Ruler, PackageOpen, Layers, Image as ImageIcon,
+  Eye, EyeOff
 } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../contexts/auth-context';
@@ -17,18 +18,24 @@ function Products() {
   const [editingProduct, setEditingProduct] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
+  const [productImage, setProductImage] = useState(null);
+  const [imagePreview, setImagePreview] = useState(null);
+  const [isImageRemoved, setIsImageRemoved] = useState(false);
+  const [activeTab, setActiveTab] = useState('active'); // 'active' | 'inactive' | 'all'
   
   const [formData, setFormData] = useState({
     product_name: '',
     description: '',
     unit: '',
     unit_size: '',
-    estimated_usages_per_unit: ''
+    estimated_usages_per_unit: '',
+    is_active: true
   });
 
   const [stats, setStats] = useState([
     { label: 'Total Products', value: '0', icon: Package, bgColor: 'bg-blue-50', textColor: 'text-blue-600' },
     { label: 'Total Units', value: '0', icon: Box, bgColor: 'bg-green-50', textColor: 'text-green-600' },
+    { label: 'Inactive Products', value: '0', icon: EyeOff, bgColor: 'bg-red-50', textColor: 'text-red-600' },
   ]);
 
   // Toast notification
@@ -39,6 +46,26 @@ function Products() {
     }, 3000);
   };
 
+  // Sort products by created_at (most recent first) or by id
+  const sortProductsByRecent = (productsArray) => {
+    return [...productsArray].sort((a, b) => {
+      if (a.created_at && b.created_at) {
+        return new Date(b.created_at) - new Date(a.created_at);
+      }
+      if (a.id && b.id) {
+        return b.id - a.id;
+      }
+      return 0;
+    });
+  };
+
+  // Get full image URL
+  const getImageUrl = (imagePath) => {
+    if (!imagePath) return null;
+    if (imagePath.startsWith('http')) return imagePath;
+    return `http://192.168.100.73:8000${imagePath}`;
+  };
+
   // Fetch products
   const fetchProducts = async () => {
     setIsLoading(true);
@@ -46,16 +73,18 @@ function Products() {
       const response = await api.get('/products');
       console.log('Fetched products:', response.data);
       if (Array.isArray(response.data)) {
-        setProducts(response.data);
-        setFilteredProducts(response.data);
+        const sortedProducts = sortProductsByRecent(response.data);
+        setProducts(sortedProducts);
+        setFilteredProducts(sortedProducts);
         
-        // Calculate stats
-        const totalProducts = response.data.length;
-        const totalUnits = response.data.reduce((sum, p) => sum + (parseFloat(p.unit_size) || 0), 0);
+        const totalProducts = sortedProducts.length;
+        const totalUnits = sortedProducts.reduce((sum, p) => sum + (parseFloat(p.unit_size) || 0), 0);
+        const inactiveProducts = sortedProducts.filter(p => p.is_active === 0 || p.is_active === false).length;
         
         setStats([
           { ...stats[0], value: totalProducts.toString() },
           { ...stats[1], value: totalUnits.toString() },
+          { ...stats[2], value: inactiveProducts.toString() },
         ]);
       }
     } catch (error) {
@@ -66,11 +95,35 @@ function Products() {
     }
   };
 
+  // Handle image selection
+  const handleImageChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setProductImage(file);
+      setIsImageRemoved(false);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImagePreview(reader.result);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  // Remove image
+  const handleRemoveImage = () => {
+    setImagePreview(null);
+    setProductImage(null);
+    setIsImageRemoved(true);
+    const fileInput = document.getElementById('product_image');
+    if (fileInput) {
+      fileInput.value = '';
+    }
+  };
+
   // Add product
   const handleAddProduct = async (e) => {
     e.preventDefault();
     
-    // Validate form
     if (!formData.product_name || !formData.unit || !formData.unit_size || !formData.estimated_usages_per_unit) {
       showToast('Please fill in all required fields', 'error');
       return;
@@ -78,12 +131,22 @@ function Products() {
 
     setIsSubmitting(true);
     try {
-      const response = await api.post('/products/add', {
-        product_name: formData.product_name,
-        description: formData.description || '',
-        unit: formData.unit,
-        unit_size: parseFloat(formData.unit_size),
-        estimated_usages_per_unit: parseFloat(formData.estimated_usages_per_unit)
+      const formDataToSend = new FormData();
+      formDataToSend.append('product_name', formData.product_name);
+      formDataToSend.append('description', formData.description || '');
+      formDataToSend.append('unit', formData.unit);
+      formDataToSend.append('unit_size', parseFloat(formData.unit_size));
+      formDataToSend.append('estimated_usages_per_unit', parseFloat(formData.estimated_usages_per_unit));
+      formDataToSend.append('is_active', formData.is_active ? 1 : 0);
+      
+      if (productImage) {
+        formDataToSend.append('product_image', productImage);
+      }
+      
+      const response = await api.post('/products/add', formDataToSend, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
       });
       
       console.log('Product added:', response.data);
@@ -118,12 +181,24 @@ function Products() {
 
     setIsSubmitting(true);
     try {
-      const response = await api.post(`/products/update/${editingProduct.id}`, {
-        product_name: formData.product_name,
-        description: formData.description || '',
-        unit: formData.unit,
-        unit_size: parseFloat(formData.unit_size),
-        estimated_usages_per_unit: parseFloat(formData.estimated_usages_per_unit)
+      const formDataToSend = new FormData();
+      formDataToSend.append('product_name', formData.product_name);
+      formDataToSend.append('description', formData.description || '');
+      formDataToSend.append('unit', formData.unit);
+      formDataToSend.append('unit_size', parseFloat(formData.unit_size));
+      formDataToSend.append('estimated_usages_per_unit', parseFloat(formData.estimated_usages_per_unit));
+      formDataToSend.append('is_active', formData.is_active ? 1 : 0);
+      
+      if (productImage) {
+        formDataToSend.append('product_image', productImage);
+      } else if (isImageRemoved && editingProduct?.product_image) {
+        formDataToSend.append('remove_image', 'true');
+      }
+      
+      const response = await api.post(`/products/update/${editingProduct.id}`, formDataToSend, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
       });
       
       console.log('Product updated:', response.data);
@@ -149,16 +224,18 @@ function Products() {
 
   // Delete product
   const handleDeleteProduct = async (id) => {
-    if (window.confirm('Are you sure you want to delete this product?')) {
-      try {
-        const response = await api.post(`/products/delete/${id}`);
-        console.log('Product deleted:', response.data);
-        showToast(response.data.message || 'Product deleted successfully!', 'success');
-        fetchProducts();
-      } catch (error) {
-        console.error('Error deleting product:', error);
-        showToast(error.response?.data?.message || 'Failed to delete product', 'error');
-      }
+    if (!window.confirm('Are you sure you want to delete this product?')) {
+      return;
+    }
+    
+    try {
+      const response = await api.post(`/products/delete/${id}`);
+      console.log('Product deleted:', response.data);
+      showToast(response.data.message || 'Product deleted successfully!', 'success');
+      fetchProducts();
+    } catch (error) {
+      console.error('Error deleting product:', error);
+      showToast(error.response?.data?.message || 'Failed to delete product', 'error');
     }
   };
 
@@ -169,9 +246,17 @@ function Products() {
       description: '',
       unit: '',
       unit_size: '',
-      estimated_usages_per_unit: ''
+      estimated_usages_per_unit: '',
+      is_active: true
     });
+    setProductImage(null);
+    setImagePreview(null);
+    setIsImageRemoved(false);
     setEditingProduct(null);
+    const fileInput = document.getElementById('product_image');
+    if (fileInput) {
+      fileInput.value = '';
+    }
   };
 
   // Handle edit click
@@ -182,20 +267,41 @@ function Products() {
       description: product.description || '',
       unit: product.unit || '',
       unit_size: product.unit_size?.toString() || '',
-      estimated_usages_per_unit: product.estimated_usages_per_unit?.toString() || ''
+      estimated_usages_per_unit: product.estimated_usages_per_unit?.toString() || '',
+      is_active: product.is_active === 1 || product.is_active === true
     });
+    if (product.product_image) {
+      setImagePreview(getImageUrl(product.product_image));
+    } else {
+      setImagePreview(null);
+    }
+    setProductImage(null);
+    setIsImageRemoved(false);
     setShowModal(true);
   };
 
   // Handle form input change
   const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+    const { name, value, type, checked } = e.target;
+    setFormData(prev => ({ 
+      ...prev, 
+      [name]: type === 'checkbox' ? checked : value 
+    }));
   };
 
-  // Filter products
+  // Filter products based on tab and search
   useEffect(() => {
     let filtered = products;
+    
+    // Filter by tab
+    if (activeTab === 'active') {
+      filtered = filtered.filter(p => p.is_active === 1 || p.is_active === true);
+    } else if (activeTab === 'inactive') {
+      filtered = filtered.filter(p => p.is_active === 0 || p.is_active === false);
+    }
+    // 'all' shows everything
+    
+    // Filter by search
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
       filtered = filtered.filter(p => 
@@ -204,13 +310,23 @@ function Products() {
         p.unit?.toLowerCase().includes(term)
       );
     }
+    
     setFilteredProducts(filtered);
-  }, [searchTerm, products]);
+  }, [searchTerm, products, activeTab]);
 
   // Fetch products on mount
   useEffect(() => {
     fetchProducts();
   }, []);
+
+  // Get counts for tabs
+  const getActiveCount = () => {
+    return products.filter(p => p.is_active === 1 || p.is_active === true).length;
+  };
+
+  const getInactiveCount = () => {
+    return products.filter(p => p.is_active === 0 || p.is_active === false).length;
+  };
 
   // Loading skeleton
   if (isLoading && products.length === 0) {
@@ -243,7 +359,7 @@ function Products() {
       )}
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         {stats.map((stat, index) => (
           <div key={index} className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 p-4 border border-gray-100">
             <div className={`${stat.bgColor} w-10 h-10 rounded-xl flex items-center justify-center mb-2`}>
@@ -282,85 +398,168 @@ function Products() {
         </button>
       </div>
 
+      {/* Tabs */}
+      <div className="flex gap-2 border-b border-gray-200">
+        <button
+          onClick={() => setActiveTab('all')}
+          className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
+            activeTab === 'all'
+              ? 'border-pink-500 text-pink-600'
+              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+          }`}
+        >
+          All Products ({products.length})
+        </button>
+        <button
+          onClick={() => setActiveTab('active')}
+          className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
+            activeTab === 'active'
+              ? 'border-pink-500 text-pink-600'
+              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+          }`}
+        >
+          <span className="flex items-center gap-1">
+            <CheckCircle size={14} />
+            Active ({getActiveCount()})
+          </span>
+        </button>
+        <button
+          onClick={() => setActiveTab('inactive')}
+          className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
+            activeTab === 'inactive'
+              ? 'border-pink-500 text-pink-600'
+              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+          }`}
+        >
+          <span className="flex items-center gap-1">
+            <EyeOff size={14} />
+            Inactive ({getInactiveCount()})
+          </span>
+        </button>
+      </div>
+
       {/* Products Grid - Card View */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-        {filteredProducts.map((product) => (
-          <div 
-            key={product.id} 
-            className="bg-white rounded-xl shadow-sm hover:shadow-lg transition-all duration-300 border border-gray-100 overflow-hidden group"
-          >
-            <div className="relative h-20 bg-gradient-to-r from-pink-50 to-purple-50 flex items-center justify-center">
-              <div className="w-12 h-12 bg-gradient-to-r from-pink-500 to-pink-600 rounded-xl flex items-center justify-center shadow-lg">
-                <Package size={24} className="text-white" />
-              </div>
-            </div>
-            
-            <div className="p-4">
-              <div className="text-center mb-3">
-                <h3 className="text-base font-semibold text-gray-800">
-                  {product.product_name}
-                </h3>
-                {product.description && (
-                  <p className="text-xs text-gray-500 mt-1 line-clamp-2">{product.description}</p>
+        {filteredProducts.map((product) => {
+          const imageUrl = getImageUrl(product.product_image);
+          const isInactive = product.is_active === 0 || product.is_active === false;
+          
+          return (
+            <div 
+              key={product.id} 
+              className={`bg-white rounded-xl shadow-sm hover:shadow-lg transition-all duration-300 border overflow-hidden group ${
+                isInactive ? 'border-red-200 opacity-75' : 'border-gray-100'
+              }`}
+            >
+              <div className="relative h-20 bg-gradient-to-r from-pink-50 to-purple-50 flex items-center justify-center">
+                {imageUrl ? (
+                  <img 
+                    src={imageUrl} 
+                    alt={product.product_name}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center shadow-lg ${
+                    isInactive ? 'bg-gray-400' : 'bg-gradient-to-r from-pink-500 to-pink-600'
+                  }`}>
+                    <Package size={24} className="text-white" />
+                  </div>
+                )}
+                {product.created_at && (
+                  <div className="absolute top-2 right-2 bg-green-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
+                    New
+                  </div>
+                )}
+                {isInactive && (
+                  <div className="absolute bottom-2 left-2 bg-red-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
+                    Inactive
+                  </div>
                 )}
               </div>
               
-              <div className="grid grid-cols-2 gap-2 mb-4">
-                <div className="bg-gray-50 rounded-lg p-2 text-center">
-                  <div className="flex items-center justify-center gap-1">
-                    <Box size={12} className="text-gray-400" />
-                    <span className="text-xs text-gray-500">Unit</span>
-                  </div>
-                  <p className="text-sm font-semibold text-gray-800">{product.unit || 'N/A'}</p>
+              <div className="p-4">
+                <div className="text-center mb-3">
+                  <h3 className={`text-base font-semibold ${isInactive ? 'text-gray-500' : 'text-gray-800'}`}>
+                    {product.product_name}
+                  </h3>
+                  {product.description && (
+                    <p className={`text-xs mt-1 line-clamp-2 ${isInactive ? 'text-gray-400' : 'text-gray-500'}`}>
+                      {product.description}
+                    </p>
+                  )}
                 </div>
-                <div className="bg-gray-50 rounded-lg p-2 text-center">
-                  <div className="flex items-center justify-center gap-1">
-                    <Ruler size={12} className="text-gray-400" />
-                    <span className="text-xs text-gray-500">Size</span>
+                
+                <div className="grid grid-cols-2 gap-2 mb-4">
+                  <div className="bg-gray-50 rounded-lg p-2 text-center">
+                    <div className="flex items-center justify-center gap-1">
+                      <Box size={12} className="text-gray-400" />
+                      <span className="text-xs text-gray-500">Unit</span>
+                    </div>
+                    <p className="text-sm font-semibold text-gray-800">{product.unit || 'N/A'}</p>
                   </div>
-                  <p className="text-sm font-semibold text-gray-800">{product.unit_size || 'N/A'}</p>
-                </div>
-                <div className="bg-gray-50 rounded-lg p-2 text-center col-span-2">
-                  <div className="flex items-center justify-center gap-1">
-                    <Layers size={12} className="text-gray-400" />
-                    <span className="text-xs text-gray-500">Estimated Usages</span>
+                  <div className="bg-gray-50 rounded-lg p-2 text-center">
+                    <div className="flex items-center justify-center gap-1">
+                      <Ruler size={12} className="text-gray-400" />
+                      <span className="text-xs text-gray-500">Size</span>
+                    </div>
+                    <p className="text-sm font-semibold text-gray-800">{product.unit_size || 'N/A'}</p>
                   </div>
-                  <p className="text-sm font-semibold text-gray-800">{product.estimated_usages_per_unit || 'N/A'}</p>
+                  <div className="bg-gray-50 rounded-lg p-2 text-center col-span-2">
+                    <div className="flex items-center justify-center gap-1">
+                      <Layers size={12} className="text-gray-400" />
+                      <span className="text-xs text-gray-500">Estimated Usages</span>
+                    </div>
+                    <p className="text-sm font-semibold text-gray-800">{product.estimated_usages_per_unit || 'N/A'}</p>
+                  </div>
                 </div>
-              </div>
-              
-              <div className="flex gap-2">
-                <button 
-                  onClick={() => handleEdit(product)}
-                  className="flex-1 flex items-center justify-center gap-1 px-3 py-1.5 bg-pink-50 text-pink-600 rounded-lg hover:bg-pink-100 transition-colors text-xs font-medium"
-                >
-                  <Edit size={12} />
-                  Edit
-                </button>
-                <button 
-                  onClick={() => handleDeleteProduct(product.id)}
-                  className="flex-1 flex items-center justify-center gap-1 px-3 py-1.5 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors text-xs font-medium"
-                >
-                  <Trash2 size={12} />
-                  Delete
-                </button>
+                
+                <div className="flex gap-2">
+                  <button 
+                    onClick={() => handleEdit(product)}
+                    className="flex-1 flex items-center justify-center gap-1 px-3 py-1.5 bg-pink-50 text-pink-600 rounded-lg hover:bg-pink-100 transition-colors text-xs font-medium"
+                  >
+                    <Edit size={12} />
+                    Edit
+                  </button>
+                  <button 
+                    onClick={() => handleDeleteProduct(product.id)}
+                    className="flex-1 flex items-center justify-center gap-1 px-3 py-1.5 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors text-xs font-medium"
+                  >
+                    <Trash2 size={12} />
+                    Delete
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* Empty State */}
       {filteredProducts.length === 0 && !isLoading && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 text-center">
           <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
-            <Package size={28} className="text-gray-400" />
+            {activeTab === 'inactive' ? (
+              <EyeOff size={28} className="text-gray-400" />
+            ) : (
+              <Package size={28} className="text-gray-400" />
+            )}
           </div>
-          <h3 className="text-base font-semibold text-gray-800 mb-1">No products found</h3>
+          <h3 className="text-base font-semibold text-gray-800 mb-1">
+            {activeTab === 'inactive' 
+              ? 'No inactive products found' 
+              : activeTab === 'active'
+                ? 'No active products found'
+                : 'No products found'}
+          </h3>
           <p className="text-sm text-gray-500 mb-3">
-            {searchTerm ? 'Try adjusting your search terms' : 'Click "Add Product" to create your first product'}
+            {searchTerm 
+              ? 'Try adjusting your search terms' 
+              : activeTab === 'inactive'
+                ? 'All products are currently active'
+                : 'Click "Add Product" to create your first product'}
           </p>
-          {!searchTerm && (
+          {!searchTerm && activeTab !== 'inactive' && (
             <button 
               onClick={() => {
                 resetForm();
@@ -468,6 +667,70 @@ function Products() {
                   step="1"
                   required
                 />
+              </div>
+
+              {/* Product Image Upload */}
+              <div>
+                <label className="block text-gray-700 text-xs font-semibold mb-1">
+                  Product Image
+                </label>
+                <div className="flex items-center gap-3">
+                  <input
+                    id="product_image"
+                    type="file"
+                    name="product_image"
+                    onChange={handleImageChange}
+                    accept="image/jpeg,image/png,image/jpg,image/gif"
+                    className="flex-1 px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 file:mr-2 file:py-1 file:px-3 file:border-0 file:bg-pink-50 file:text-pink-600 file:text-xs file:font-medium hover:file:bg-pink-100"
+                  />
+                  {imagePreview && (
+                    <button
+                      type="button"
+                      onClick={handleRemoveImage}
+                      className="p-1.5 text-red-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                      title="Remove image"
+                    >
+                      <X size={16} />
+                    </button>
+                  )}
+                </div>
+                {imagePreview && (
+                  <div className="mt-2">
+                    <div className="relative inline-block">
+                      <img 
+                        src={imagePreview} 
+                        alt="Product preview" 
+                        className="w-24 h-24 object-cover rounded-lg border border-gray-200"
+                      />
+                      <span className="absolute -top-1 -right-1 bg-green-500 text-white text-[8px] font-bold px-1.5 py-0.5 rounded-full">
+                        New
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-gray-400 mt-1">Image preview</p>
+                  </div>
+                )}
+                <p className="text-[10px] text-gray-500 mt-1">
+                  Supported formats: JPEG, PNG, JPG, GIF (Max 2MB)
+                </p>
+              </div>
+
+              {/* Active Status */}
+              <div>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    name="is_active"
+                    checked={formData.is_active}
+                    onChange={handleInputChange}
+                    className="w-3.5 h-3.5 text-pink-500 border-gray-300 rounded focus:ring-pink-500"
+                  />
+                  <span className="text-gray-700 text-sm font-semibold">
+                    Active Product
+                  </span>
+                </label>
+                <p className="text-[10px] text-gray-500 mt-1 ml-5">
+                  Inactive products will not appear in the inventory
+                </p>
               </div>
 
               <div className="flex gap-2 pt-3">

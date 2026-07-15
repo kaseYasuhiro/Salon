@@ -17,11 +17,12 @@ use App\Http\Controllers\FeedbackController;
 use App\Http\Controllers\StaffFeedbackController;
 use App\Http\Controllers\RemittanceController;
 use App\Http\Controllers\EmployeeCommissionController;
-use App\Http\Controllers\LossDamageController;
+use App\Http\Controllers\IncidentReportsController;
 use App\Http\Controllers\InventoryController;
 use App\Http\Controllers\WalkInController;
 use App\Http\Controllers\WalkInTransactionController;
 use App\Http\Controllers\WalkinAuthorizationController;
+use App\Http\Controllers\PaymentsController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -72,6 +73,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/services/specialties', [JoinedController::class, 'serviceWithSpecialties']);
     Route::get('/products', [ProductsController::class, 'displayProducts']);
     Route::post('/products/add', [ProductsController::class, 'addProduct']);
+    Route::post('/products/update/{id}', [ProductsController::class, 'updateProduct']);
     Route::get('/all-appointments', [JoinedController::class, 'allAppointments']);
     Route::put('/appointments/update/{id}', [JoinedController::class, 'updateAppointment']);
     Route::get('/staff', [JoinedController::class, 'getStaff']);
@@ -82,9 +84,15 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/assign', [JoinedController::class, 'assignedStaffSchedules']);
     Route::get('/remittance', [JoinedController::class, 'remittanceReport']);
     Route::post('/employee/commission/add', [EmployeeCommissionController::class, 'addCommission']);
-    Route::post('/report/update/{id}', [LossDamageController::class, 'updateIncidentReport']);
-    Route::get('/report', [JoinedController::class, 'lossAndDamageReports']);
+    Route::post('/report/update/{id}', [IncidentReportsController::class, 'updateIncidentReport']);
+    Route::get('/report', [JoinedController::class, 'displayIncidentReports']);
+    Route::post('/walk-in/staff/auth', [WalkinAuthorizationController::class, 'authorizeStaff']);
+    Route::get('/walk-in/staff', [JoinedController::class, 'authorizedStaff']);
+    Route::post('/walk-in/staff/auth/update/{id}', [WalkinAuthorizationController::class, 'updateAuthorization']);
+    Route::get('/appointment/payment', [JoinedController::class, 'billWithPayment']);
 
+    Route::post('/services/update-all', [JoinedController::class, 'updateServiceDetails']);
+    Route::post('/employees/update-all', [JoinedController::class, 'updateEmployeeDetails']);
 
 
     //customer side
@@ -96,6 +104,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/feedbacks/submit', [FeedbackController::class, 'submitFeedback']);
     Route::post('/user/{id}/password', [UserController::class, 'updatePassword']);
     Route::post('/feedbacks/staff/submit', [StaffFeedbackController::class, 'submitStaffFeedback']);
+    Route::post('/payment/remaining', [JoinedController::class, 'remainingBalancePayment']);
     
 
 
@@ -111,19 +120,18 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/remittance/submit', [RemittanceController::class, 'submitRemittance']);
     Route::get('/employee/commission', [JoinedController::class, 'employeeCommissions']);
     Route::get('/transactions', [JoinedController::class, 'transactionWithAssigned']);
-    Route::post('/report/submit', [LossDamageController::class, 'submitIncidentReport']);
+    Route::post('/report/submit', [IncidentReportsController::class, 'submitIncidentReport']);
     Route::post('/walk-in/add', [WalkInController::class, 'submitWalkIn']);
     Route::get('/walk-in', [JoinedController::class, 'displayWalkIns']);
     Route::post('/walk-in/update/{id}', [WalkInController::class, 'updateWalkIn']);
     Route::post('/walk-in/transaction/add' , [WalkInTransactionController::class, 'addWalkInTransaction']);
+    Route::put('/staff/appointment/{appointmentId}/update', [JoinedController::class, 'updateAppointmentServices']);
+    Route::post('/report/add', [IncidentReportsController::class, 'submitIncidentReport']);
 
 });
 
-Route::post('/walk-in/staff/auth', [WalkinAuthorizationController::class, 'authorizeStaff']);
-Route::get('/walk-in/staff', [JoinedController::class, 'authorizedStaff']);
-Route::post('/walk-in/staff/auth/update/{id}', [WalkinAuthorizationController::class, 'updateAuthorization']);
 
-
+Route::post('/profile/add', [UserController::class, 'addProfileImage']);
 
 
 

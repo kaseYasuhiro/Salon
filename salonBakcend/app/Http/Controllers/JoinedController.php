@@ -20,7 +20,7 @@ use App\Models\Feedback;
 use App\Models\StaffFeedback;
 use App\Models\Remittance;
 use App\Models\EmployeeCommission;
-use App\Models\LossDamage;
+use App\Models\IncidentReports;
 use App\Models\WalkIn;
 use App\Models\WalkInTransaction;
 use App\Models\WalkinAuthorization;
@@ -96,9 +96,9 @@ class JoinedController extends Controller
         return EmployeeCommission::with('user')->get();
     }
 
-    public function lossAndDamageReports()
+    public function displayIncidentReports()
     {
-        return LossDamage::with(['user', 'inventory', 'transaction'])->get();
+        return IncidentReports::with(['user', 'inventory', 'transaction'])->get();
     }
 
     public function inventoryTransactions()
@@ -244,26 +244,72 @@ class JoinedController extends Controller
 
     public function billWithPayment()
     {
-        return Billing::with('payments')->get();
+        return Payments::with('billing')->get();
     }
 
     public function completeBooking(Request $request)
     {
         $user = $request->user();
 
+        // Log the incoming request data for debugging
+        \Log::info('Complete Booking Request Data:', $request->all());
+        
+        // Get service IDs from the request
+        $serviceIds = [];
+        
+        // Check if service_ids is sent as an array (from FormData with service_ids[])
+        if ($request->has('service_ids') && is_array($request->input('service_ids'))) {
+            $serviceIds = $request->input('service_ids');
+        } 
+        // Check if service_ids is sent as a JSON string
+        else if ($request->has('service_ids') && is_string($request->input('service_ids'))) {
+            $decoded = json_decode($request->input('service_ids'), true);
+            if (is_array($decoded)) {
+                $serviceIds = $decoded;
+            } else {
+                $serviceIds = [$request->input('service_ids')];
+            }
+        }
+        // Fallback to single service_id
+        else if ($request->has('service_id')) {
+            $serviceIds = [$request->service_id];
+        }
+
+        // Log the parsed service IDs
+        \Log::info('Parsed Service IDs:', $serviceIds);
+        \Log::info('Number of services:', ['count' => count($serviceIds)]);
+
+        if (empty($serviceIds)) {
+            return response()->json([
+                'message' => 'Validation Error',
+                'errors' => ['service_ids' => ['The service ids field is required.']]
+            ], 422);
+        }
+
+        // Validate the request
         $request->validate([
             'appointment_date' => ['required', 'date', 'date_format:Y-m-d'],
             'appointment_time' => ['required', 'date_format:H:i'],
             'status' => ['required', 'string'],
-            'service_id' => ['required', 'numeric'],
             'assigned_employee_id' => ['required', 'numeric'],
             'service_status' => ['required', 'string'],
             'total_amount' => ['required', 'numeric'],
-            'payment_type' => ['required', 'string', 'in:downpayment,full payment'],
-            'payment_method' => ['required', 'string', 'in:gcash,cash']
+            'payment_type' => ['required', 'string', 'in:downpayment,remaining'],
+            'payment_method' => ['required', 'string', 'in:gcash,cash'],
+            'payment_proof' => ['required', 'image', 'mimes:jpeg,png,jpg,gif', 'max:2048']
         ]);
 
-        // Create appointment with customer name and phone from user data
+        // Validate each service ID exists
+        foreach ($serviceIds as $serviceId) {
+            if (!\DB::table('services')->where('id', $serviceId)->exists()) {
+                return response()->json([
+                    'message' => 'Validation Error',
+                    'errors' => ['service_ids' => ['One or more service IDs are invalid.']]
+                ], 422);
+            }
+        }
+
+        // Create appointment
         $appointment = Appointments::create([
             'customer_id' => $user->id,
             'customer_name' => $user->first_name . ' ' . $user->last_name,
@@ -274,13 +320,18 @@ class JoinedController extends Controller
             'status' => $request->status,
         ]);
 
-        // Create transaction
-        $transaction = Transaction::create([
-            'appointment_id' => $appointment->id,
-            'service_id' => $request->service_id,
-            'assigned_employee_id' => $request->assigned_employee_id,
-            'service_status' => $request->service_status,
-        ]);
+        // Create multiple transactions - one for each service
+        $transactions = [];
+        foreach ($serviceIds as $serviceId) {
+            \Log::info('Creating transaction for service ID:', ['service_id' => $serviceId]);
+            $transaction = Transaction::create([
+                'appointment_id' => $appointment->id,
+                'service_id' => $serviceId,
+                'assigned_employee_id' => $request->assigned_employee_id,
+                'service_status' => $request->service_status,
+            ]);
+            $transactions[] = $transaction;
+        }
 
         // Create billing
         $billing = Billing::create([
@@ -289,16 +340,78 @@ class JoinedController extends Controller
             'payment_type' => $request->payment_type
         ]);
 
+        // Handle payment proof upload
+        $paymentProofPath = null;
+        if ($request->hasFile('payment_proof')) {
+            $file = $request->file('payment_proof');
+            $filename = time() . '_' . $user->id . '.' . $file->getClientOriginalExtension();
+            $path = $file->storeAs('payment_proofs', $filename, 'public');
+            $paymentProofPath = '/storage/' . $path;
+        }
+
         // Create payment
         $payment = Payments::create([
             'billing_id' => $billing->id,
-            'payment_method' => $request->payment_method
+            'payment_method' => $request->payment_method,
+            'payment_proof' => $paymentProofPath,
         ]);
 
         return response()->json([
             'message' => 'Booking Completed Successfully',
             'appointment_id' => $appointment->id,
-            'transaction_id' => $transaction->id,
+            'transaction_ids' => array_column($transactions, 'id'),
+            'billing_id' => $billing->id,
+            'payment_id' => $payment->id,
+            'payment_proof' => $paymentProofPath,
+            'services_count' => count($transactions),
+            'service_ids' => $serviceIds // Include this for debugging
+        ], 200);
+    }
+
+    public function remainingBalancePayment(Request $request)
+    {
+        $request->validate([
+            'appointment_id' => ['required', 'numeric'],
+            'total_amount' => ['required', 'numeric'],
+            'payment_type' => ['required', 'string', 'in:remaining'],
+            'payment_method' => ['required', 'string', 'in:gcash,cash'],
+            'payment_proof' => ['required', 'image', 'mimes:jpeg,png,jpg,gif', 'max:2048']
+        ]);
+
+        // Get the authenticated user
+        $user = $request->user('sanctum');
+        
+        // If user is not authenticated, return error
+        if (!$user) {
+            return response()->json([
+                'message' => 'Unauthenticated. Please log in again.'
+            ], 401);
+        }
+
+        $billing = Billing::create([
+            'appointment_id' => $request->appointment_id,
+            'total_amount' => $request->total_amount,
+            'payment_type' => $request->payment_type
+        ]);
+
+        // Handle payment proof upload
+        $paymentProofPath = null;
+        if ($request->hasFile('payment_proof')) {
+            $file = $request->file('payment_proof');
+            $filename = time() . '_' . $user->id . '.' . $file->getClientOriginalExtension();
+            $path = $file->storeAs('payment_proofs', $filename, 'public');
+            $paymentProofPath = '/storage/' . $path;
+        }
+
+        // Create payment
+        $payment = Payments::create([
+            'billing_id' => $billing->id,
+            'payment_method' => $request->payment_method,
+            'payment_proof' => $paymentProofPath,
+        ]);
+
+        return response()->json([
+            'message' => 'Remaining Balance Paid Successfully',
             'billing_id' => $billing->id,
             'payment_id' => $payment->id
         ], 200);
@@ -365,7 +478,7 @@ class JoinedController extends Controller
     {
         $request->validate([
             'appointment_time' => ['nullable', 'date_format:H:i:s'],
-            'assigned_employee_id' => ['nullable', 'numeric', 'exists:users,id'], // Changed from staff_id
+            'assigned_employee_id' => ['nullable', 'numeric', 'exists:users,id'], 
             'status' => ['nullable', 'string', 'in:pending,confirmed,completed,cancelled'],
             'service_status' => ['nullable', 'string', 'in:pending,in_progress,completed,cancelled'],
             'notes' => ['nullable', 'string']
@@ -690,7 +803,7 @@ class JoinedController extends Controller
         }
     }
 
-    public function updateServiceWithInventory(Request $request, $transactionId)
+    public function updateServiceWithInventory(Request $request, $transactionId = null)
     {
         $request->validate([
             'status' => ['nullable', 'string', 'in:pending,confirmed,completed,cancelled'],
@@ -704,141 +817,176 @@ class JoinedController extends Controller
         try {
             DB::beginTransaction();
 
-            // Find the transaction
-            $transaction = Transaction::findOrFail($transactionId);
-            
-
-            if ($request->has('notes')) {
-                $transaction->notes = $request->notes;
+            // If transactionId is provided, update a single transaction
+            // If not, update all transactions for the appointment
+            if ($transactionId) {
+                $transactions = Transaction::where('id', $transactionId)->get();
+            } else {
+                // Get appointment_id from request
+                $request->validate([
+                    'appointment_id' => ['required', 'numeric', 'exists:appointments,id']
+                ]);
+                
+                // Get all transactions for this appointment
+                $transactions = Transaction::where('appointment_id', $request->appointment_id)->get();
             }
-            
-            // Update transaction service status
-            if ($request->has('service_status')) {
-                $transaction->service_status = $request->service_status;
-                if ($request->service_status === 'completed') {
-                    $transaction->completed_at = now();
+
+            if ($transactions->isEmpty()) {
+                return response()->json([
+                    'message' => 'No transactions found to update'
+                ], 404);
+            }
+
+            $updatedTransactions = [];
+            $appointment = null;
+
+            // Update each transaction
+            foreach ($transactions as $transaction) {
+                // Store reference to appointment (same for all transactions)
+                if (!$appointment) {
+                    $appointment = $transaction->appointments;
                 }
-                $transaction->save();
+
+                // Update notes
+                if ($request->has('notes')) {
+                    $transaction->notes = $request->notes;
+                }
+                
+                // Update transaction service status
+                if ($request->has('service_status')) {
+                    $transaction->service_status = $request->service_status;
+                    if ($request->service_status === 'completed') {
+                        $transaction->completed_at = now();
+                    }
+                    $transaction->save();
+                }
+
+                // Update inventory based on quantity changes
+                if ($request->has('product_usages')) {
+                    foreach ($request->product_usages as $productUsage) {
+                        $inventory = Inventory::find($productUsage['inventory_id']);
+                        if ($inventory && $productUsage['quantity_change'] > 0) {
+                            $quantityUsed = $productUsage['quantity_change'];
+                            
+                            // Get product details
+                            $product = DB::table('products')->where('id', $inventory->product_id)->first();
+                            
+                            if (!$product) {
+                                continue;
+                            }
+                            
+                            $estimatedUsagesPerUnit = $product->estimated_usages_per_unit;
+                            $remainingUsage = $quantityUsed;
+                            
+                            while ($remainingUsage > 0) {
+                                // Check how many usages left in current bottle
+                                $usagesLeft = $inventory->current_usages;
+                                
+                                if ($usagesLeft <= 0) {
+                                    // Current bottle is empty, need to open a new one
+                                    if ($inventory->product_quantity > 0) {
+                                        // Decrement product quantity by 1
+                                        $inventory->product_quantity -= 1;
+                                        // Reset current_usages to full amount
+                                        $inventory->current_usages = $estimatedUsagesPerUnit;
+                                        
+                                        // Record unit consumption
+                                        DB::table('inventory_transactions')->insert([
+                                            'inventory_id' => $inventory->id,
+                                            'transaction_id' => $transaction->id,
+                                            'quantity_change' => -1,
+                                            'transaction_type' => 'usage',
+                                            'created_at' => now(),
+                                            'updated_at' => now()
+                                        ]);
+                                        
+                                        continue; // Re-evaluate with the new bottle
+                                    } else {
+                                        // No more bottles available
+                                        break;
+                                    }
+                                }
+                                
+                                // Calculate how much we can use from current bottle
+                                $canUse = min($remainingUsage, $usagesLeft);
+                                
+                                // DECREASE current_usages (using up the product)
+                                $inventory->current_usages -= $canUse;
+                                $remainingUsage -= $canUse;
+                            }
+                            
+                            // Create inventory transaction record for the usage
+                            DB::table('inventory_transactions')->insert([
+                                'inventory_id' => $inventory->id,
+                                'transaction_id' => $transaction->id,
+                                'quantity_change' => -$quantityUsed,
+                                'transaction_type' => 'usage',
+                                'created_at' => now(),
+                                'updated_at' => now()
+                            ]);
+                            
+                            $inventory->save();
+                            
+                            // Log for debugging
+                            \Log::info("Inventory updated", [
+                                'product' => $product->product_name,
+                                'quantity_used' => $quantityUsed,
+                                'new_current_usages' => $inventory->current_usages,
+                                'new_product_quantity' => $inventory->product_quantity
+                            ]);
+                        }
+                    }
+                }
+
+                $updatedTransactions[] = $transaction->id;
             }
 
-            // Update appointment status
-            $appointment = $transaction->appointments;
+            // Update appointment status (once for all transactions)
             if ($appointment && $request->has('status')) {
                 $appointment->status = $request->status;
                 $appointment->save();
             }
 
-            // Update inventory based on quantity changes
-            if ($request->has('product_usages')) {
-                foreach ($request->product_usages as $productUsage) {
-                    $inventory = Inventory::find($productUsage['inventory_id']);
-                    if ($inventory && $productUsage['quantity_change'] > 0) {
-                        $quantityUsed = $productUsage['quantity_change'];
-                        
-                        // Get product details
-                        $product = DB::table('products')->where('id', $inventory->product_id)->first();
-                        
-                        if (!$product) {
-                            continue;
-                        }
-                        
-                        $estimatedUsagesPerUnit = $product->estimated_usages_per_unit;
-                        $remainingUsage = $quantityUsed;
-                        
-                        while ($remainingUsage > 0) {
-                            // Check how many usages left in current bottle
-                            $usagesLeft = $inventory->current_usages;
-                            
-                            if ($usagesLeft <= 0) {
-                                // Current bottle is empty, need to open a new one
-                                if ($inventory->product_quantity > 0) {
-                                    // Decrement product quantity by 1
-                                    $inventory->product_quantity -= 1;
-                                    // Reset current_usages to full amount
-                                    $inventory->current_usages = $estimatedUsagesPerUnit;
-                                    
-                                    // Record unit consumption
-                                    DB::table('inventory_transactions')->insert([
-                                        'inventory_id' => $inventory->id,
-                                        'transaction_id' => $transaction->id,
-                                        'quantity_change' => -1,
-                                        'transaction_type' => 'usage',
-                                        'created_at' => now(),
-                                        'updated_at' => now()
-                                    ]);
-                                    
-                                    continue; // Re-evaluate with the new bottle
-                                } else {
-                                    // No more bottles available
-                                    break;
-                                }
-                            }
-                            
-                            // Calculate how much we can use from current bottle
-                            $canUse = min($remainingUsage, $usagesLeft);
-                            
-                            // DECREASE current_usages (using up the product)
-                            $inventory->current_usages -= $canUse;
-                            $remainingUsage -= $canUse;
-                        }
-                        
-                        // Create inventory transaction record for the usage
-                        DB::table('inventory_transactions')->insert([
-                            'inventory_id' => $inventory->id,
-                            'transaction_id' => $transaction->id,
-                            'quantity_change' => -$quantityUsed,
-                            'transaction_type' => 'usage',
-                            'created_at' => now(),
-                            'updated_at' => now()
-                        ]);
-                        
-                        $inventory->save();
-                        
-                        // Log for debugging
-                        \Log::info("Inventory updated", [
-                            'product' => $product->product_name,
-                            'quantity_used' => $quantityUsed,
-                            'new_current_usages' => $inventory->current_usages,
-                            'new_product_quantity' => $inventory->product_quantity
-                        ]);
-                    }
-                }
-            }
-
             DB::commit();
 
-            // Get updated product usages
-            $productUsages = DB::table('service_product_usages as spu')
-                ->leftJoin('products as p', 'spu.product_id', '=', 'p.id')
-                ->leftJoin('inventories as i', 'spu.product_id', '=', 'i.product_id')
-                ->where('spu.service_id', $transaction->service_id)
-                ->select(
-                    'spu.id',
-                    'spu.product_id',
-                    'spu.estimated_usage',
-                    'p.product_name',
-                    'p.estimated_usages_per_unit',
-                    'i.id as inventory_id',
-                    'i.product_quantity as current_quantity',
-                    'i.current_usages'
-                )
-                ->get()
-                ->map(function($item) {
-                    return [
-                        'id' => $item->id,
-                        'product_id' => $item->product_id,
-                        'product_name' => $item->product_name ?? 'Unknown Product',
-                        'estimated_usage' => $item->estimated_usage,
-                        'estimated_usages_per_unit' => $item->estimated_usages_per_unit ?? 0,
-                        'inventory_id' => $item->inventory_id,
-                        'current_quantity' => $item->current_quantity ?? 0,
-                        'current_usages' => $item->current_usages ?? 0
-                    ];
-                });
+            // Get updated product usages for the first transaction's service (or all services)
+            $productUsages = [];
+            foreach ($transactions as $transaction) {
+                $usages = DB::table('service_product_usages as spu')
+                    ->leftJoin('products as p', 'spu.product_id', '=', 'p.id')
+                    ->leftJoin('inventories as i', 'spu.product_id', '=', 'i.product_id')
+                    ->where('spu.service_id', $transaction->service_id)
+                    ->select(
+                        'spu.id',
+                        'spu.product_id',
+                        'spu.estimated_usage',
+                        'p.product_name',
+                        'p.estimated_usages_per_unit',
+                        'i.id as inventory_id',
+                        'i.product_quantity as current_quantity',
+                        'i.current_usages'
+                    )
+                    ->get()
+                    ->map(function($item) {
+                        return [
+                            'id' => $item->id,
+                            'product_id' => $item->product_id,
+                            'product_name' => $item->product_name ?? 'Unknown Product',
+                            'estimated_usage' => $item->estimated_usage,
+                            'estimated_usages_per_unit' => $item->estimated_usages_per_unit ?? 0,
+                            'inventory_id' => $item->inventory_id,
+                            'current_quantity' => $item->current_quantity ?? 0,
+                            'current_usages' => $item->current_usages ?? 0
+                        ];
+                    });
+                
+                $productUsages = array_merge($productUsages, $usages->toArray());
+            }
 
             return response()->json([
-                'message' => 'Service updated successfully',
-                'transaction' => $transaction,
+                'message' => 'Service(s) updated successfully',
+                'updated_transactions' => $updatedTransactions,
+                'transactions_count' => count($updatedTransactions),
                 'product_usages' => $productUsages
             ], 200);
 
@@ -846,12 +994,23 @@ class JoinedController extends Controller
             DB::rollBack();
             \Log::error('Service update error: ' . $e->getMessage());
             return response()->json([
-                'message' => 'Failed to update service',
+                'message' => 'Failed to update service(s)',
                 'error' => $e->getMessage()
             ], 500);
         }
     }
 
+
+    public function updateAppointmentServices(Request $request, $appointmentId)
+    {
+        // Add appointment_id to the request so the main function can use it
+        $request->merge(['appointment_id' => $appointmentId]);
+        
+        // Call the existing function without transactionId
+        return $this->updateServiceWithInventory($request, null);
+    }
+
+    
     public function getServiceProductUsages($serviceId)
     {
         try {
@@ -908,7 +1067,198 @@ class JoinedController extends Controller
             'count' => $usages->count()
         ]);
     }
+
+    public function updateServiceDetails(Request $request)
+    {
+        $request->validate([
+            'service_id' => ['required', 'numeric'],
+            'specialty_id' => ['nullable', 'numeric'],
+            'product_id' => ['nullable', 'numeric'],
+            'estimated_usage' => ['nullable', 'numeric']
+        ]);
+
+        $serviceId = $request->service_id;
+        $specialtyId = $request->specialty_id;
+        $productId = $request->product_id;
+        $estimatedUsage = $request->estimated_usage;
+
+        $results = [
+            'specialty_added' => false,
+            'product_usage_added' => false,
+            'messages' => []
+        ];
+
+        // 1. Add Service Specialty if provided
+        if ($specialtyId) {
+            try {
+                // Check if specialty already exists for this service
+                $existing = ServiceSpecialties::where('service_id', $serviceId)
+                    ->where('specialty_id', $specialtyId)
+                    ->first();
+
+                if (!$existing) {
+                    ServiceSpecialties::create([
+                        'service_id' => $serviceId,
+                        'specialty_id' => $specialtyId
+                    ]);
+                    $results['specialty_added'] = true;
+                    $results['messages'][] = 'Specialty added successfully.';
+                } else {
+                    $results['messages'][] = 'Specialty already exists for this service.';
+                }
+            } catch (\Exception $e) {
+                $results['messages'][] = 'Error adding specialty: ' . $e->getMessage();
+            }
+        }
+
+        // 2. Add Product Usage if provided
+        if ($productId && $estimatedUsage) {
+            try {
+                // Check if product usage already exists for this service
+                $existing = ServiceProductUsage::where('service_id', $serviceId)
+                    ->where('product_id', $productId)
+                    ->first();
+
+                if (!$existing) {
+                    ServiceProductUsage::create([
+                        'service_id' => $serviceId,
+                        'product_id' => $productId,
+                        'estimated_usage' => $estimatedUsage
+                    ]);
+                    $results['product_usage_added'] = true;
+                    $results['messages'][] = 'Product usage added successfully.';
+                } else {
+                    $results['messages'][] = 'Product usage already exists for this service.';
+                }
+            } catch (\Exception $e) {
+                $results['messages'][] = 'Error adding product usage: ' . $e->getMessage();
+            }
+        }
+
+        // Return response
+        $success = $results['specialty_added'] || $results['product_usage_added'];
+        $statusCode = $success ? 200 : 400;
+        $statusMessage = $success ? 'Changes saved successfully' : 'No changes were saved';
+
+        return response()->json([
+            'message' => $statusMessage,
+            'success' => $success,
+            'results' => $results
+        ], $statusCode);
+    }
     
 
-    
+    public function updateEmployeeDetails(Request $request)
+    {
+        $request->validate([
+            'employee_id' => ['required', 'numeric'],
+            'specialty_id' => ['nullable', 'numeric'],
+            'specialty_active' => ['nullable', 'boolean'],
+            'commission_amount' => ['nullable', 'numeric'],
+            'walk_in_authorized' => ['nullable', 'boolean']
+        ]);
+
+        $employeeId = $request->employee_id;
+        $specialtyId = $request->specialty_id;
+        $specialtyActive = $request->specialty_active ?? true;
+        $commissionAmount = $request->commission_amount;
+        $walkInAuthorized = $request->walk_in_authorized;
+
+        $results = [
+            'specialty_added' => false,
+            'commission_added' => false,
+            'walk_in_updated' => false,
+            'messages' => []
+        ];
+
+        // 1. Add Staff Specialty if provided
+        if ($specialtyId) {
+            try {
+                // Check if specialty already exists for this staff
+                $existing = StaffSpecialties::where('staff_id', $employeeId)
+                    ->where('specialty_id', $specialtyId)
+                    ->first();
+
+                if (!$existing) {
+                    StaffSpecialties::create([
+                        'staff_id' => $employeeId,
+                        'specialty_id' => $specialtyId,
+                        'is_active' => $specialtyActive ? 1 : 0
+                    ]);
+                    $results['specialty_added'] = true;
+                    $results['messages'][] = 'Specialty added successfully.';
+                } else {
+                    // Update existing specialty
+                    $existing->update([
+                        'is_active' => $specialtyActive ? 1 : 0
+                    ]);
+                    $results['specialty_added'] = true;
+                    $results['messages'][] = 'Specialty updated successfully.';
+                }
+            } catch (\Exception $e) {
+                $results['messages'][] = 'Error adding specialty: ' . $e->getMessage();
+            }
+        }
+
+        // 2. Add/Update Commission if provided
+        if ($commissionAmount !== null && $commissionAmount > 0) {
+            try {
+                // Check if commission already exists for this employee
+                $existing = EmployeeCommission::where('employee_id', $employeeId)->first();
+
+                if (!$existing) {
+                    EmployeeCommission::create([
+                        'employee_id' => $employeeId,
+                        'commission_amount' => $commissionAmount
+                    ]);
+                    $results['commission_added'] = true;
+                    $results['messages'][] = 'Commission added successfully.';
+                } else {
+                    $existing->update([
+                        'commission_amount' => $commissionAmount
+                    ]);
+                    $results['commission_added'] = true;
+                    $results['messages'][] = 'Commission updated successfully.';
+                }
+            } catch (\Exception $e) {
+                $results['messages'][] = 'Error adding commission: ' . $e->getMessage();
+            }
+        }
+
+        // 3. Update Walk-in Authorization if provided
+        if ($walkInAuthorized !== null) {
+            try {
+                // Check if walk-in authorization exists for this staff
+                $existing = WalkinAuthorization::where('staff_id', $employeeId)->first();
+
+                if (!$existing) {
+                    WalkinAuthorization::create([
+                        'staff_id' => $employeeId,
+                        'isAuthorizedForWalkin' => $walkInAuthorized ? 1 : 0
+                    ]);
+                    $results['walk_in_updated'] = true;
+                    $results['messages'][] = 'Walk-in authorization created successfully.';
+                } else {
+                    $existing->update([
+                        'isAuthorizedForWalkin' => $walkInAuthorized ? 1 : 0
+                    ]);
+                    $results['walk_in_updated'] = true;
+                    $results['messages'][] = 'Walk-in authorization updated successfully.';
+                }
+            } catch (\Exception $e) {
+                $results['messages'][] = 'Error updating walk-in authorization: ' . $e->getMessage();
+            }
+        }
+
+        // Return response
+        $success = $results['specialty_added'] || $results['commission_added'] || $results['walk_in_updated'];
+        $statusCode = $success ? 200 : 400;
+        $statusMessage = $success ? 'Changes saved successfully' : 'No changes were saved';
+
+        return response()->json([
+            'message' => $statusMessage,
+            'success' => $success,
+            'results' => $results
+        ], $statusCode);
+    }
 }

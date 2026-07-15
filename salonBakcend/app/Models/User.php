@@ -10,7 +10,7 @@ use App\Models\StaffSpecialties;
 use App\Models\StaffSchedules;
 use App\Models\AssignStaff;
 use App\Models\StaffFeedback;
-use App\Models\LossDamage;
+use App\Models\IncidentReports;
 use App\Models\WalkIn;
 use App\Models\WalkinAuthorization;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -98,9 +98,9 @@ class User extends Authenticatable
         return $this->hasMany(staffFeedback::class, 'staff_id', 'id');
     }
 
-    public function lossDamage()
+    public function incidentReport()
     {
-        return $this->hasMany(LossDamage::class, 'staff_id', 'id');
+        return $this->hasMany(IncidentReports::class, 'staff_id', 'id');
     }
 
     public function walkIn()

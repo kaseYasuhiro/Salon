@@ -15,7 +15,7 @@ return new class extends Migration
             $table->id();
             $table->unsignedBigInteger('appointment_id');
             $table->decimal('total_amount', 10,2);
-            $table->enum('payment_type', ['downpayment', 'full payment']);
+            $table->enum('payment_type', ['downpayment', 'remaining']);
             $table->foreign('appointment_id')->references('id')->on('appointments')->cascadeOnDelete()->cascadeOnUpdate();
             $table->timestamps();
         });

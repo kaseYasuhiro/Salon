@@ -12,7 +12,8 @@ class Payments extends Model
     protected $fillable = [
         'payment_id',
         'billing_id',
-        'payment_method'
+        'payment_method',
+        'payment_proof'
     ];
 
     public function billing()

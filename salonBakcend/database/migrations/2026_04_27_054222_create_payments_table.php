@@ -15,6 +15,7 @@ return new class extends Migration
             $table->id();
             $table->unsignedBigInteger('billing_id');
             $table->enum('payment_method', ['cash', 'GCash']);
+            $table->string('payment_proof', 255)->nullable();
             $table->foreign('billing_id')->references('id')->on('billings')->cascadeOnDelete()->cascadeOnUpdate();
             $table->timestamps();
         });

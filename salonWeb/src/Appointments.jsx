@@ -4,9 +4,38 @@ import {
   ChevronLeft, ChevronRight, Search,
   User, Clock, Phone, Edit, Trash2, MoreVertical,
   CheckCircle, XCircle, AlertCircle, Eye, X, Save,
-  Settings, Clock as ClockIcon, Sun, Moon, Users as UsersIcon
+  Settings, Clock as ClockIcon, Sun, Moon, Users as UsersIcon,
+  Image as ImageIcon, FileText
 } from 'lucide-react';
 import api from '../api/axios';
+
+// Toast notification component
+const Toast = ({ message, type, onClose }) => {
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      onClose();
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, [onClose]);
+
+  const bgColor = type === 'success' ? 'bg-green-500' : 
+                  type === 'error' ? 'bg-red-500' : 
+                  type === 'warning' ? 'bg-yellow-500' : 'bg-blue-500';
+  
+  const icon = type === 'success' ? <CheckCircle size={18} /> :
+               type === 'error' ? <XCircle size={18} /> :
+               type === 'warning' ? <AlertCircle size={18} /> : <AlertCircle size={18} />;
+
+  return (
+    <div className={`fixed top-4 right-4 z-50 animate-slide-in ${bgColor} text-white rounded-lg shadow-lg p-4 flex items-center gap-3 min-w-[300px] max-w-md`}>
+      {icon}
+      <span className="text-sm font-medium">{message}</span>
+      <button onClick={onClose} className="ml-auto hover:bg-white/20 rounded-lg p-1">
+        <X size={16} />
+      </button>
+    </div>
+  );
+};
 
 function Appointments() {
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -20,6 +49,8 @@ function Appointments() {
   const [showModal, setShowModal] = useState(false);
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [showAssignStaffModal, setShowAssignStaffModal] = useState(false);
+  const [showPaymentProofModal, setShowPaymentProofModal] = useState(false);
+  const [selectedPaymentData, setSelectedPaymentData] = useState(null);
   const [selectedDay, setSelectedDay] = useState(null);
   const [editingAppointment, setEditingAppointment] = useState(null);
   const [selectedDateSchedule, setSelectedDateSchedule] = useState(null);
@@ -44,6 +75,9 @@ function Appointments() {
   const [isAssigningStaff, setIsAssigningStaff] = useState(false);
   const [businessSchedules, setBusinessSchedules] = useState([]);
   const [assignedStaff, setAssignedStaff] = useState([]);
+  
+  // Toast state
+  const [toast, setToast] = useState(null);
 
   const [stats, setStats] = useState([
     { label: 'Total Appointments', value: '0', change: '+0%', changeType: 'up', color: 'from-blue-500 to-blue-600', bgColor: 'bg-blue-50', icon: Calendar },
@@ -53,6 +87,15 @@ function Appointments() {
   ]);
 
   const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  // Toast helper functions
+  const showToast = (message, type = 'success') => {
+    setToast({ message, type });
+  };
+
+  const hideToast = () => {
+    setToast(null);
+  };
 
   // Get current month and year
   const getCurrentMonthYear = () => {
@@ -96,6 +139,7 @@ function Appointments() {
       }
     } catch (error) {
       console.error('Error fetching business schedules:', error);
+      showToast('Failed to fetch business schedules', 'error');
     }
   };
 
@@ -109,6 +153,7 @@ function Appointments() {
       }
     } catch (error) {
       console.error('Error fetching assigned staff:', error);
+      showToast('Failed to fetch assigned staff', 'error');
     }
   };
 
@@ -136,14 +181,14 @@ function Appointments() {
       });
       
       console.log('Schedule saved:', response.data);
-      alert('Schedule saved successfully!');
+      showToast('Schedule saved successfully!', 'success');
       setShowScheduleModal(false);
       setSelectedDateSchedule(null);
       resetScheduleForm();
       fetchBusinessSchedules();
     } catch (error) {
       console.error('Error saving schedule:', error);
-      alert(error.response?.data?.message || 'Error saving schedule');
+      showToast(error.response?.data?.message || 'Error saving schedule', 'error');
     } finally {
       setIsSavingSchedule(false);
     }
@@ -153,7 +198,7 @@ function Appointments() {
   const handleAssignStaff = async (e) => {
     e.preventDefault();
     if (!assignStaffFormData.staff_id) {
-      alert('Please select a staff member');
+      showToast('Please select a staff member', 'warning');
       return;
     }
     
@@ -165,13 +210,13 @@ function Appointments() {
       });
       
       console.log('Staff assigned:', response.data);
-      alert('Staff assigned successfully!');
+      showToast('Staff assigned successfully!', 'success');
       setShowAssignStaffModal(false);
       resetAssignStaffForm();
       fetchAssignedStaff();
     } catch (error) {
       console.error('Error assigning staff:', error);
-      alert(error.response?.data?.message || 'Error assigning staff');
+      showToast(error.response?.data?.message || 'Error assigning staff', 'error');
     } finally {
       setIsAssigningStaff(false);
     }
@@ -216,15 +261,16 @@ function Appointments() {
     } catch (error) {
       console.error('Error fetching staff list:', error);
       setStaffList([]);
+      showToast('Failed to fetch staff list', 'error');
     }
   };
 
-  // Fetch all appointments
+  // Fetch all appointments - GROUPED BY APPOINTMENT ID
   const fetchAppointments = async () => {
     setIsLoading(true);
     try {
       const response = await api.get('/all-appointments');
-      console.log('Fetched appointments:', response.data);
+      console.log('Fetched appointments (raw):', response.data);
       
       if (Array.isArray(response.data)) {
         const staffNameMap = new Map();
@@ -232,39 +278,102 @@ function Appointments() {
           staffNameMap.set(staff.id, staff.name);
         });
         
-        const appointmentsWithStaff = response.data.map(app => {
+        // Group transactions by appointment_id
+        const appointmentMap = new Map();
+        
+        response.data.forEach((transaction) => {
+          const appointmentId = transaction.appointment_id;
+          
+          if (!appointmentMap.has(appointmentId)) {
+            // Create a new appointment entry
+            appointmentMap.set(appointmentId, {
+              id: appointmentId,
+              appointment_id: appointmentId,
+              customer_name: transaction.customer_name || 'Walk-in Customer',
+              customer_phone: transaction.customer_phone || 'N/A',
+              customer_email: transaction.customer_email || 'N/A',
+              appointment_date: transaction.appointment_date,
+              appointment_time: transaction.appointment_time,
+              status: transaction.status || 'pending',
+              assigned_employee_id: transaction.assigned_employee_id,
+              services: [],
+              total_price: 0,
+              total_duration: 0,
+              service_names: [],
+              created_at: transaction.created_at,
+              updated_at: transaction.updated_at
+            });
+          }
+          
+          // Add the service to the appointment
+          const appointment = appointmentMap.get(appointmentId);
+          appointment.services.push({
+            id: transaction.id,
+            service_id: transaction.service_id,
+            service_name: transaction.service_name || 'Unknown Service',
+            duration_minutes: transaction.duration_minutes || 0,
+            price: transaction.price || '0',
+            service_status: transaction.service_status || 'pending'
+          });
+          
+          // Accumulate totals
+          appointment.total_price += parseFloat(transaction.price || '0');
+          appointment.total_duration += parseInt(transaction.duration_minutes || 0);
+          appointment.service_names.push(transaction.service_name || 'Unknown Service');
+        });
+        
+        // Convert the map to an array and format the data
+        const groupedAppointments = Array.from(appointmentMap.values()).map((appointment) => {
+          // Get staff name
           let staffName = 'Unassigned';
-          if (app.assigned_employee_id) {
-            staffName = staffNameMap.get(app.assigned_employee_id) || `Staff ID: ${app.assigned_employee_id}`;
+          if (appointment.assigned_employee_id) {
+            staffName = staffNameMap.get(appointment.assigned_employee_id) || `Staff ID: ${appointment.assigned_employee_id}`;
+          }
+          
+          // Determine overall status
+          const hasPending = appointment.services.some(s => s.service_status === 'pending');
+          const allCompleted = appointment.services.every(s => s.service_status === 'completed');
+          let overallStatus = appointment.status;
+          
+          // If all services are completed, mark appointment as completed
+          if (allCompleted && appointment.services.length > 0) {
+            overallStatus = 'completed';
+          } else if (hasPending && overallStatus !== 'cancelled') {
+            overallStatus = 'pending';
           }
           
           return {
-            id: app.id,
-            appointment_id: app.appointment_id,
-            service_id: app.service_id,
-            customer_name: app.customer_name,
-            customer_phone: app.customer_phone,
-            customer_email: app.customer_email,
-            appointment_date: app.appointment_date,
-            appointment_time: app.appointment_time,
-            status: app.status,
-            assigned_employee_id: app.assigned_employee_id,
+            id: appointment.id,
+            appointment_id: appointment.appointment_id,
+            customer_name: appointment.customer_name,
+            customer_phone: appointment.customer_phone,
+            customer_email: appointment.customer_email,
+            appointment_date: appointment.appointment_date,
+            appointment_time: appointment.appointment_time,
+            status: overallStatus,
+            assigned_employee_id: appointment.assigned_employee_id,
             staff_name: staffName,
-            service_name: app.service_name,
-            duration_minutes: app.duration_minutes,
-            price: app.price,
-            created_at: app.created_at,
-            updated_at: app.updated_at
+            services: appointment.services,
+            service_names: appointment.service_names,
+            total_price: appointment.total_price,
+            total_duration: appointment.total_duration,
+            service_name: appointment.service_names.join(' + ') || 'No Service',
+            duration_minutes: appointment.total_duration,
+            price: appointment.total_price.toString(),
+            created_at: appointment.created_at,
+            updated_at: appointment.updated_at
           };
         });
         
-        setAppointments(appointmentsWithStaff);
+        console.log('Grouped appointments:', groupedAppointments);
+        setAppointments(groupedAppointments);
         
-        const total = appointmentsWithStaff.length;
-        const pending = appointmentsWithStaff.filter(a => a.status === 'pending').length;
-        const completed = appointmentsWithStaff.filter(a => a.status === 'completed').length;
+        // Calculate stats
+        const total = groupedAppointments.length;
+        const pending = groupedAppointments.filter(a => a.status === 'pending').length;
+        const completed = groupedAppointments.filter(a => a.status === 'completed').length;
         const today = new Date().toISOString().split('T')[0];
-        const todayAppointments = appointmentsWithStaff.filter(a => a.appointment_date === today).length;
+        const todayAppointments = groupedAppointments.filter(a => a.appointment_date === today).length;
         
         setStats([
           { ...stats[0], value: total.toString(), change: `+${total}`, changeType: 'up' },
@@ -275,8 +384,34 @@ function Appointments() {
       }
     } catch (error) {
       console.error('Error fetching appointments:', error);
+      showToast('Failed to fetch appointments', 'error');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // Fetch payment proof by appointment ID
+  const fetchPaymentProof = async (appointmentId) => {
+    try {
+      const response = await api.get(`/appointment/payment?appointment_id=${appointmentId}`);
+      console.log('Full payment response:', response);
+      console.log('Payment data:', response.data);
+      
+      if (response.data && response.data.length > 0) {
+        const payment = response.data.find(p => p.billing?.appointment_id === appointmentId);
+        
+        if (payment) {
+          setSelectedPaymentData(payment);
+          setShowPaymentProofModal(true);
+        } else {
+          showToast('No payment record found for this appointment.', 'warning');
+        }
+      } else {
+        showToast('No payment record found for this appointment.', 'warning');
+      }
+    } catch (error) {
+      console.error('Error fetching payment proof:', error);
+      showToast(error.response?.data?.message || 'Failed to fetch payment data', 'error');
     }
   };
 
@@ -376,7 +511,7 @@ function Appointments() {
 
   const handleAssignStaffToSchedule = () => {
     if (!selectedDateSchedule.businessScheduleId) {
-      alert('Please save the business schedule first before assigning staff.');
+      showToast('Please save the business schedule first before assigning staff.', 'warning');
       return;
     }
     setAssignStaffFormData({
@@ -403,7 +538,7 @@ function Appointments() {
     });
   };
 
-  // Update appointment status
+  // Update appointment status - Updates all services in the appointment
   const handleUpdateAppointmentStatus = async (appointmentId, newStatus) => {
     setIsUpdating(true);
     try {
@@ -433,7 +568,7 @@ function Appointments() {
         );
       }
       
-      alert(`Appointment ${newStatus === 'confirmed' ? 'confirmed' : 'cancelled'} successfully!`);
+      showToast(`Appointment ${newStatus === 'confirmed' ? 'confirmed' : 'cancelled'} successfully!`, 'success');
       
       // Refresh stats
       const total = appointments.length;
@@ -451,7 +586,7 @@ function Appointments() {
       
     } catch (error) {
       console.error('Error updating appointment status:', error);
-      alert(error.response?.data?.message || 'Failed to update appointment status');
+      showToast(error.response?.data?.message || 'Failed to update appointment status', 'error');
     } finally {
       setIsUpdating(false);
     }
@@ -523,6 +658,108 @@ function Appointments() {
     return true;
   });
 
+  // Payment Proof Modal
+  const PaymentProofModal = () => {
+    if (!selectedPaymentData) return null;
+    
+    console.log('Selected Payment Data:', selectedPaymentData);
+    
+    const { id, payment_method, payment_proof, billing } = selectedPaymentData;
+    const appointment_id = billing?.appointment_id || 'N/A';
+    const total_amount = billing?.total_amount || '0.00';
+    const payment_type = billing?.payment_type || 'N/A';
+    
+    const proofUrl = payment_proof ? `http://192.168.100.73:8000${payment_proof}` : null;
+    
+    console.log('Extracted values:', { id, appointment_id, total_amount, payment_type, payment_method, proofUrl });
+    
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+        <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl mx-4 overflow-hidden">
+          <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-6 py-3 flex items-center justify-between">
+            <h2 className="text-lg font-bold text-white">Payment Proof</h2>
+            <button 
+              onClick={() => { 
+                setShowPaymentProofModal(false); 
+                setSelectedPaymentData(null); 
+              }} 
+              className="text-white hover:bg-white/20 rounded-lg p-1"
+            >
+              <X size={20} />
+            </button>
+          </div>
+
+          <div className="p-6">
+            <div className="bg-gray-50 rounded-lg p-4 mb-4">
+              <div className="grid grid-cols-4 gap-4">
+                <div>
+                  <p className="text-xs text-gray-500">Appointment ID</p>
+                  <p className="text-sm font-semibold text-gray-800">#{appointment_id}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500">Payment Type</p>
+                  <p className="text-sm font-semibold text-gray-800 capitalize">{payment_type}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500">Total Amount</p>
+                  <p className="text-sm font-bold text-pink-600">
+                    ₱{parseFloat(total_amount).toLocaleString()}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500">Payment Method</p>
+                  <p className="text-sm font-semibold text-gray-800">{payment_method || 'N/A'}</p>
+                </div>
+              </div>
+            </div>
+
+            {proofUrl ? (
+              <div className="mb-4">
+                <p className="text-xs text-gray-500 mb-2">Payment Proof Screenshot</p>
+                <div className="bg-gray-100 rounded-lg overflow-hidden border border-gray-200 h-80 flex items-center justify-center">
+                  <img 
+                    src={proofUrl} 
+                    alt="Payment Proof" 
+                    className="w-full h-full object-contain"
+                    onError={(e) => {
+                      console.error('Image failed to load:', proofUrl);
+                      e.target.style.display = 'none';
+                      const parent = e.target.parentElement;
+                      if (parent) {
+                        parent.innerHTML = `
+                          <div class="flex flex-col items-center justify-center p-8">
+                            <FileText size={48} class="text-gray-400 mb-2" />
+                            <p class="text-gray-500 text-sm">Failed to load image</p>
+                            <p class="text-gray-400 text-xs mt-1 break-all">${proofUrl}</p>
+                          </div>
+                        `;
+                      }
+                    }}
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="bg-gray-100 rounded-lg p-8 text-center mb-4 h-64 flex flex-col items-center justify-center">
+                <FileText size={48} className="text-gray-400 mx-auto mb-2" />
+                <p className="text-gray-500 text-sm">No payment proof uploaded</p>
+              </div>
+            )}
+
+            <button
+              onClick={() => { 
+                setShowPaymentProofModal(false); 
+                setSelectedPaymentData(null); 
+              }}
+              className="w-full py-2.5 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 text-sm font-medium"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   if (isLoading && appointments.length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -536,6 +773,15 @@ function Appointments() {
 
   return (
     <div className="space-y-6">
+      {/* Toast Notification */}
+      {toast && (
+        <Toast 
+          message={toast.message} 
+          type={toast.type} 
+          onClose={hideToast} 
+        />
+      )}
+
       {/* Stats Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {stats.map((stat, index) => (
@@ -607,7 +853,7 @@ function Appointments() {
         </div>
       </div>
 
-      {/* Calendar View - Schedule Based Highlight Only */}
+      {/* Calendar View */}
       {viewMode === 'calendar' && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
           <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between flex-wrap gap-3">
@@ -674,7 +920,6 @@ function Appointments() {
                       )}
                     </div>
                     
-                    {/* Status Indicators */}
                     <div className="flex flex-wrap gap-0.5 mt-1">
                       {statusCounts.pending > 0 && (
                         <div className="flex items-center gap-0.5 bg-yellow-100 rounded-full px-1.5 py-0.5">
@@ -720,7 +965,7 @@ function Appointments() {
         </div>
       )}
 
-      {/* Day Options Modal (Appointments, Edit Schedule, or Assign Staff) */}
+      {/* Day Options Modal */}
       {showModal && selectedDay && !selectedDayAppointments.length && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
@@ -768,7 +1013,6 @@ function Appointments() {
               </button>
             </div>
 
-            {/* Display assigned staff for this day */}
             {selectedDateSchedule?.assignedStaff && selectedDateSchedule.assignedStaff.length > 0 && (
               <div className="border-t border-gray-100 px-5 py-3">
                 <p className="text-xs font-semibold text-gray-600 mb-2">Assigned Staff:</p>
@@ -789,29 +1033,42 @@ function Appointments() {
         </div>
       )}
 
-      {/* Appointment Details Modal with Confirm and Cancel Buttons */}
+      {/* Appointment Details Modal - WITH HIDDEN SCROLLBAR using Tailwind v4 arbitrary values */}
       {showModal && selectedDayAppointments.length > 0 && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden max-h-[80vh] overflow-y-auto">
-            <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-5 py-3 flex items-center justify-between sticky top-0">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden max-h-[80vh]">
+            <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-5 py-3 flex items-center justify-between sticky top-0 z-10">
               <div>
                 <h2 className="text-lg font-bold text-white">
                   Appointments for {formatFullDate(selectedDayAppointments[0]?.appointment_date)}
                 </h2>
                 <p className="text-pink-100 text-xs mt-0.5">{selectedDayAppointments.length} appointment(s)</p>
               </div>
-              <button onClick={() => { setShowModal(false); setSelectedDayAppointments([]); setSelectedDay(null); }} className="text-white hover:bg-white/20 rounded-lg p-1">
+              <button 
+                onClick={() => { 
+                  setShowModal(false); 
+                  setSelectedDayAppointments([]); 
+                  setSelectedDay(null); 
+                }} 
+                className="text-white hover:bg-white/20 rounded-lg p-1"
+              >
                 <X size={20} />
               </button>
             </div>
 
-            <div className="p-4">
+            {/* Scrollable content with hidden scrollbar */}
+            <div 
+              className="p-4 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+              style={{ maxHeight: 'calc(80vh - 60px)' }}
+            >
               <div className="space-y-3">
                 {selectedDayAppointments.map((appointment) => {
                   const isPending = appointment.status === 'pending';
+                  const isMultipleServices = appointment.services && appointment.services.length > 1;
+                  const services = appointment.services || [];
                   
                   return (
-                    <div key={appointment.id} className="bg-gray-50 rounded-lg p-3 hover:shadow-md transition-shadow">
+                    <div key={appointment.appointment_id} className="bg-gray-50 rounded-lg p-3 hover:shadow-md transition-shadow">
                       <div className="flex justify-between items-start mb-2">
                         <div className="flex items-center gap-2">
                           <div className="w-8 h-8 bg-gradient-to-br from-pink-100 to-pink-200 rounded-full flex items-center justify-center">
@@ -833,64 +1090,80 @@ function Appointments() {
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-2 ml-10">
-                        <div className="flex items-center gap-1.5">
-                          <Scissors size={12} className="text-gray-400" />
-                          <span className="text-xs text-gray-600">{appointment.service_name || 'Service'}</span>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <Clock size={12} className="text-gray-400" />
-                          <span className="text-xs text-gray-600">{formatTime(appointment.appointment_time)}</span>
-                        </div>
-                        <div className="flex items-center gap-1.5">
+                      {/* Service Details */}
+                      <div className="ml-10">
+                        {isMultipleServices ? (
+                          <div className="space-y-1">
+                            {services.map((service, index) => (
+                              <div key={index} className="flex items-center gap-1.5">
+                                <Scissors size={12} className="text-gray-400" />
+                                <span className="text-xs text-gray-600">
+                                  {service.service_name} ({service.duration_minutes} mins) - ₱{parseFloat(service.price).toLocaleString()}
+                                </span>
+                              </div>
+                            ))}
+                            <div className="flex items-center gap-1.5 mt-1 pt-1 border-t border-gray-200">
+                              <Clock size={12} className="text-gray-400" />
+                              <span className="text-xs font-semibold text-gray-700">
+                                Total: {appointment.total_duration} mins | ₱{appointment.total_price.toLocaleString()}
+                              </span>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1.5">
+                            <Scissors size={12} className="text-gray-400" />
+                            <span className="text-xs text-gray-600">{appointment.service_name || 'Service'}</span>
+                            <span className="text-xs text-gray-400">|</span>
+                            <Clock size={12} className="text-gray-400" />
+                            <span className="text-xs text-gray-600">{formatTime(appointment.appointment_time)}</span>
+                          </div>
+                        )}
+                        
+                        <div className="flex items-center gap-1.5 mt-1">
                           <User size={12} className="text-gray-400" />
                           <span className="text-xs text-gray-600">Staff: {appointment.staff_name || 'Unassigned'}</span>
                         </div>
-                        <div className="flex items-center gap-1.5">
-                          <Calendar size={12} className="text-gray-400" />
-                          <span className="text-xs text-gray-600">{appointment.duration_minutes} min</span>
-                        </div>
                       </div>
 
-                      <div className="mt-2 pt-2 border-t border-gray-200 ml-10">
-                        <div className="flex justify-between items-center">
-                          <span className="text-xs font-semibold text-gray-700">Total</span>
-                          <span className="text-pink-600 font-bold text-sm">₱{parseFloat(appointment.price).toLocaleString()}</span>
-                        </div>
-                      </div>
-
-                      {/* Confirm and Cancel Buttons - Only show for pending appointments */}
-                      {isPending && (
-                        <div className="mt-3 ml-10 flex gap-2">
-                          <button 
-                            onClick={() => handleUpdateAppointmentStatus(appointment.appointment_id, 'confirmed')}
-                            disabled={isUpdating}
-                            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-green-500 hover:bg-green-600 text-white rounded-md transition-colors text-xs font-medium disabled:opacity-50"
-                          >
-                            <CheckCircle size={14} />
-                            Confirm
-                          </button>
-                          <button 
-                            onClick={() => handleUpdateAppointmentStatus(appointment.appointment_id, 'cancelled')}
-                            disabled={isUpdating}
-                            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white rounded-md transition-colors text-xs font-medium disabled:opacity-50"
-                          >
-                            <XCircle size={14} />
-                            Cancel
-                          </button>
-                        </div>
-                      )}
-                      
-                      {/* Show status message for non-pending appointments */}
-                      {!isPending && (
-                        <div className="mt-3 ml-10">
-                          <div className="text-center text-xs text-gray-500 bg-gray-100 rounded-md py-1.5">
+                      {/* Action Buttons */}
+                      <div className="mt-3 ml-10 flex gap-2 flex-wrap">
+                        {isPending && (
+                          <>
+                            <button 
+                              onClick={() => handleUpdateAppointmentStatus(appointment.appointment_id, 'confirmed')}
+                              disabled={isUpdating}
+                              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-green-500 hover:bg-green-600 text-white rounded-md transition-colors text-xs font-medium disabled:opacity-50"
+                            >
+                              <CheckCircle size={14} />
+                              Confirm
+                            </button>
+                            <button 
+                              onClick={() => handleUpdateAppointmentStatus(appointment.appointment_id, 'cancelled')}
+                              disabled={isUpdating}
+                              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white rounded-md transition-colors text-xs font-medium disabled:opacity-50"
+                            >
+                              <XCircle size={14} />
+                              Cancel
+                            </button>
+                          </>
+                        )}
+                        
+                        <button 
+                          onClick={() => fetchPaymentProof(appointment.appointment_id)}
+                          className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-purple-500 hover:bg-purple-600 text-white rounded-md transition-colors text-xs font-medium ${!isPending ? 'w-full' : ''}`}
+                        >
+                          <ImageIcon size={14} />
+                          View Payment Proof
+                        </button>
+                        
+                        {!isPending && (
+                          <div className="w-full text-center text-xs text-gray-500 bg-gray-100 rounded-md py-1.5 mt-1">
                             {appointment.status === 'confirmed' ? '✅ Appointment confirmed' : 
                              appointment.status === 'completed' ? '✅ Appointment completed' : 
                              appointment.status === 'cancelled' ? '❌ Appointment cancelled' : ''}
                           </div>
-                        </div>
-                      )}
+                        )}
+                      </div>
                     </div>
                   );
                 })}
@@ -1098,6 +1371,9 @@ function Appointments() {
         </div>
       )}
 
+      {/* Payment Proof Modal */}
+      <PaymentProofModal />
+
       {/* List View */}
       {viewMode === 'list' && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
@@ -1106,7 +1382,7 @@ function Appointments() {
               <thead className="bg-gray-50 border-b border-gray-100">
                 <tr>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Customer</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Service</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Services</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Date</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Time</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Staff</th>
@@ -1118,9 +1394,10 @@ function Appointments() {
               <tbody className="divide-y divide-gray-100">
                 {filteredAppointments.map((appointment) => {
                   const isPending = appointment.status === 'pending';
+                  const isMultipleServices = appointment.services && appointment.services.length > 1;
                   
                   return (
-                    <tr key={appointment.id} className="hover:bg-pink-50/30 transition-colors duration-200">
+                    <tr key={appointment.appointment_id} className="hover:bg-pink-50/30 transition-colors duration-200">
                       <td className="px-4 py-3 whitespace-nowrap">
                         <div className="flex items-center gap-2">
                           <div className="w-7 h-7 bg-gradient-to-br from-pink-100 to-pink-200 rounded-full flex items-center justify-center">
@@ -1129,10 +1406,25 @@ function Appointments() {
                           <span className="text-sm font-medium text-gray-900">{appointment.customer_name}</span>
                         </div>
                       </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <div className="flex items-center gap-1.5">
-                          <Scissors size={12} className="text-gray-400" />
-                          <span className="text-sm text-gray-600">{appointment.service_name}</span>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-col gap-0.5">
+                          <span className="text-sm font-medium text-gray-800">
+                            {appointment.service_name}
+                          </span>
+                          {isMultipleServices && (
+                            <span className="text-[10px] text-pink-600 font-semibold bg-pink-50 px-2 py-0.5 rounded-full inline-block w-fit">
+                              {appointment.services.length} services • ₱{appointment.total_price.toLocaleString()}
+                            </span>
+                          )}
+                          {isMultipleServices && appointment.services && (
+                            <div className="text-[10px] text-gray-400 space-y-0.5 mt-0.5">
+                              {appointment.services.map((service, idx) => (
+                                <div key={idx} className="truncate">
+                                  • {service.service_name} ({service.duration_minutes} min)
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">{formatDate(appointment.appointment_date)}</td>
@@ -1188,6 +1480,13 @@ function Appointments() {
                                appointment.status === 'cancelled' ? 'Cancelled' : ''}
                             </span>
                           )}
+                          <button 
+                            onClick={() => fetchPaymentProof(appointment.appointment_id)}
+                            className="p-1 hover:bg-purple-100 rounded-lg transition-colors text-purple-600"
+                            title="View Payment Proof"
+                          >
+                            <ImageIcon size={16} />
+                          </button>
                         </div>
                       </td>
                     </tr>

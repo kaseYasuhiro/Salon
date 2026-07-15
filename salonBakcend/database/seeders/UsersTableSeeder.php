@@ -22,5 +22,32 @@ class UsersTableSeeder extends Seeder
             'phone_number' => '09123456789',
             'role' => 'owner'
         ]);
+
+        User::create([
+            'first_name' => 'Jerwin',
+            'last_name' => 'Buray',
+            'email' => 'jerwin@gmail.com',
+            'password' => Hash::make('jerwin123'),
+            'phone_number' => '09123456789',
+            'role' => 'staff'
+        ]);
+
+        User::create([
+            'first_name' => 'Lorievel Anne',
+            'last_name' => 'Anadon',
+            'email' => 'lorievel@gmail.com',
+            'password' => Hash::make('lorievel'),
+            'phone_number' => '09123456789',
+            'role' => 'staff'
+        ]);
+
+        User::create([
+            'first_name' => 'Nestor',
+            'last_name' => 'Cagas',
+            'email' => 'nestor@gmail.com',
+            'password' => Hash::make('nestor123'),
+            'phone_number' => '09123456789',
+            'role' => 'customer'
+        ]);
     }
 }

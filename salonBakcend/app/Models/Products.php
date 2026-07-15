@@ -16,6 +16,7 @@ class Products extends Model
         'unit',
         'unit_size',
         'estimated_usages_per_unit',
+        'product_image',
         'is_active'
     ];
 

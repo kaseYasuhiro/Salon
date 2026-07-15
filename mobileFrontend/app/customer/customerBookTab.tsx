@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
-import { View, Text, TouchableOpacity, ScrollView, Alert, Modal, ActivityIndicator, Image } from "react-native";
+import { View, Text, TouchableOpacity, ScrollView, Alert, Modal, ActivityIndicator, Image, TextInput } from "react-native";
 import { Ionicons } from '@expo/vector-icons';
+import * as DocumentPicker from 'expo-document-picker';
 import { useAuth } from "@/contexts/auth-context";
 import api from '@/api/axios';
 
@@ -17,6 +18,7 @@ interface ReceiptData {
   remainingBalance: number;
   status: string;
   bookingDate: string;
+  paymentProof?: string;
 }
 
 interface BusinessSchedule {
@@ -119,13 +121,14 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
   const [selectedTime, setSelectedTime] = useState(new Date());
   const [showTimePickerModal, setShowTimePickerModal] = useState(false);
   const [selectedDateForModal, setSelectedDateForModal] = useState<Date | null>(null);
-  const [bookingStep, setBookingStep] = useState<'stylist' | 'services' | 'datetime' | 'paymentType' | 'paymentMethod'>('stylist');
-  const [selectedPaymentType, setSelectedPaymentType] = useState<string | null>(null);
+  const [bookingStep, setBookingStep] = useState<'stylist' | 'services' | 'datetime' | 'payment'>('stylist');
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string | null>(null);
+  const [paymentProof, setPaymentProof] = useState<any>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [showReceipt, setShowReceipt] = useState(false);
   const [receiptData, setReceiptData] = useState<ReceiptData | null>(null);
+  const [bookingResponse, setBookingResponse] = useState<any>(null);
   
   // Local state for data from API
   const [staff, setStaff] = useState<StaffMember[]>([]);
@@ -143,6 +146,9 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
   const { 
     user,
   } = useAuth();
+
+  // Import QR code image
+  const qrCodeImage = require('@/assets/images/qr_code.png');
 
   // Fetch staff
   const fetchStaff = async () => {
@@ -304,10 +310,14 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     }
   };
 
-  // Complete booking
-  const completeBooking = async (data: any) => {
+  // Complete booking with GCash payment
+  const completeBooking = async (formData: FormData) => {
     try {
-      const response = await api.post("/booking/complete", data);
+      const response = await api.post("/booking/complete", formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
       console.log("Booking completed:", response.data);
       return response.data;
     } catch (error) {
@@ -431,19 +441,12 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
 
   const getAmount = () => {
     const totalPrice = getServicePrice();
-    if (selectedPaymentType === 'downpayment') {
-      return totalPrice / 2;
-    }
-    return totalPrice;
+    // Always return 50% (downpayment)
+    return totalPrice / 2;
   };
 
   const getPaymentTypeLabel = () => {
-    if (selectedPaymentType === 'downpayment') {
-      return 'Downpayment (50%)';
-    } else if (selectedPaymentType === 'full payment') {
-      return 'Full Payment (100%)';
-    }
-    return '';
+    return 'Downpayment (50%)';
   };
 
   const getDaysInMonth = (date: Date) => {
@@ -584,6 +587,28 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     return generateTimeSlots(open_time, close_time);
   };
 
+  // ── Image Picker ── Using DocumentPicker (Works with Expo Go)
+  const pickImageFromGallery = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: 'image/*',
+        copyToCacheDirectory: true,
+      });
+      
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const asset = result.assets[0];
+        setPaymentProof({
+          uri: asset.uri,
+          name: asset.name || `payment_${Date.now()}.jpg`,
+          type: asset.mimeType || 'image/jpeg',
+        });
+      }
+    } catch (error) {
+      console.error('Error picking image:', error);
+      Alert.alert('Error', 'Failed to pick image. Please try again.');
+    }
+  };
+
   const handleStaffSelect = (staffId: number) => {
     setSelectedStaffId(staffId);
     setSelectedServiceIds([]);
@@ -676,26 +701,11 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     setShowTimePickerModal(false);
     setSelectedDateForModal(null);
     
-    setBookingStep('paymentType');
+    // Move to payment step
+    setBookingStep('payment');
   };
 
-  const handleContinueToPaymentType = () => {
-    if (!selectedDate) {
-      Alert.alert("Selection Required", "Please select a date and time first.");
-      return;
-    }
-    setBookingStep('paymentType');
-  };
-
-  const handleContinueToPaymentMethod = () => {
-    if (!selectedPaymentType) {
-      Alert.alert("Selection Required", "Please select a payment type.");
-      return;
-    }
-    setBookingStep('paymentMethod');
-  };
-
-  const handleConfirmBooking = async () => {
+    const handleConfirmBooking = async () => {
     if (!selectedPaymentMethod) {
       Alert.alert("Selection Required", "Please select a payment method.");
       return;
@@ -706,38 +716,60 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
       return;
     }
 
+    if (!paymentProof) {
+      Alert.alert("Upload Required", "Please upload your GCash payment receipt as proof of payment.");
+      return;
+    }
+
     setIsProcessing(true);
 
     try {
       const formattedTime = selectedTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
       const appointmentDate = `${selectedDate.getUTCFullYear()}-${String(selectedDate.getUTCMonth() + 1).padStart(2, '0')}-${String(selectedDate.getUTCDate()).padStart(2, '0')}`;
       
-      const bookingData = {
-        appointment_date: appointmentDate,
-        appointment_time: formattedTime,
-        status: 'pending',
-        service_id: selectedServiceIds[0] || 0,
-        service_ids: selectedServiceIds,
-        assigned_employee_id: selectedStaffId,
-        service_status: 'pending',
-        total_amount: getServicePrice(),
-        total_duration: getTotalDuration(),
-        payment_type: selectedPaymentType || '',
-        payment_method: selectedPaymentMethod || '',
-        customer_id: user?.id || 0
-      };
+      // Create FormData for multipart upload
+      const formData = new FormData();
+      formData.append('appointment_date', appointmentDate);
+      formData.append('appointment_time', formattedTime);
+      formData.append('status', 'pending');
       
-      console.log("Submitting booking with data:", bookingData);
+      // IMPORTANT: Send each service ID as a separate field with the same name
+      // This is how FormData handles arrays
+      selectedServiceIds.forEach((id) => {
+        formData.append('service_ids[]', id.toString());
+      });
       
-      const result = await completeBooking(bookingData);
+      formData.append('assigned_employee_id', selectedStaffId.toString());
+      formData.append('service_status', 'pending');
+      formData.append('total_amount', getServicePrice().toString());
+      formData.append('payment_type', 'downpayment');
+      formData.append('payment_method', selectedPaymentMethod || 'gcash');
+      formData.append('customer_id', user?.id?.toString() || '0');
+      
+      // Append the image file
+      if (paymentProof) {
+        formData.append('payment_proof', {
+          uri: paymentProof.uri,
+          name: paymentProof.name,
+          type: paymentProof.type,
+        } as any);
+      }
+      
+      // Log what we're sending
+      console.log("Selected Service IDs:", selectedServiceIds);
+      console.log("Number of services:", selectedServiceIds.length);
+      
+      const result = await completeBooking(formData);
+      console.log("Booking response:", result);
 
+      // Create receipt
       const amount = getAmount();
       const paymentTypeLabel = getPaymentTypeLabel();
       const totalPrice = getServicePrice();
-      const paymentMethodLabel = selectedPaymentMethod === 'gcash' ? 'GCash' : 'Cash';
+      const paymentMethodLabel = selectedPaymentMethod === 'gcash' ? 'GCash' : 'GCash';
       const staffName = getStaffName(selectedStaffId);
       const receiptNumber = generateReceiptNumber();
-      const remainingBalance = selectedPaymentType === 'downpayment' ? totalPrice - amount : 0;
+      const remainingBalance = totalPrice - amount;
       const serviceNames = getServiceNames();
 
       const receipt: ReceiptData = {
@@ -764,7 +796,8 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
           day: 'numeric',
           hour: '2-digit',
           minute: '2-digit'
-        })
+        }),
+        paymentProof: paymentProof?.uri
       };
 
       setReceiptData(receipt);
@@ -772,8 +805,14 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
 
     } catch (error: any) {
       console.error("Booking error:", error);
-      const errorMessage = error.response?.data?.message || error.message || "Failed to complete booking. Please try again.";
-      Alert.alert("Error", errorMessage);
+      if (error.response?.data?.errors) {
+        console.error("Validation errors:", error.response.data.errors);
+        const errorMessages = Object.values(error.response.data.errors).flat().join('\n');
+        Alert.alert("Validation Error", errorMessages);
+      } else {
+        const errorMessage = error.response?.data?.message || error.message || "Failed to complete booking. Please try again.";
+        Alert.alert("Error", errorMessage);
+      }
     } finally {
       setIsProcessing(false);
     }
@@ -784,8 +823,8 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     setBookingStep('stylist');
     setSelectedStaffId(null);
     setSelectedServiceIds([]);
-    setSelectedPaymentType(null);
     setSelectedPaymentMethod(null);
+    setPaymentProof(null);
     if (onBookingSuccess) {
       onBookingSuccess();
     }
@@ -802,10 +841,6 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
 
   const handleBackToDateTime = () => {
     setBookingStep('datetime');
-  };
-
-  const handleBackToPaymentType = () => {
-    setBookingStep('paymentType');
   };
 
   // Helper functions
@@ -1091,13 +1126,19 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                       <Text className="text-gray-800 text-sm">{receiptData.paymentMethod}</Text>
                     </View>
                     <View className="flex-row justify-between pt-2 border-t border-dashed border-gray-200">
-                      <Text className="text-gray-600 text-sm font-semibold">Amount Paid</Text>
+                      <Text className="text-gray-600 text-sm font-semibold">Amount Paid (Downpayment)</Text>
                       <Text className="text-green-600 font-bold text-base">₱{receiptData.amountPaid.toLocaleString()}</Text>
                     </View>
                     {receiptData.remainingBalance > 0 && (
                       <View className="flex-row justify-between">
                         <Text className="text-gray-600 text-sm">Remaining Balance</Text>
                         <Text className="text-orange-600 font-semibold text-sm">₱{receiptData.remainingBalance.toLocaleString()}</Text>
+                      </View>
+                    )}
+                    {receiptData.paymentProof && (
+                      <View className="flex-row justify-between pt-1">
+                        <Text className="text-gray-600 text-sm">Payment Proof</Text>
+                        <Text className="text-green-600 text-xs font-semibold">Uploaded ✓</Text>
                       </View>
                     )}
                   </View>
@@ -1143,7 +1184,6 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     const totalPrice = getServicePrice();
     const totalDuration = getTotalDuration();
     const downpaymentAmount = totalPrice / 2;
-    const fullPaymentAmount = totalPrice;
     const servicesForStaff = getServicesForStaff();
     const selectedStaff = selectedStaffId ? staff.find(s => s.id === selectedStaffId) : null;
     
@@ -1155,12 +1195,11 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
         >
           <View className="px-5 pt-6">
             {/* Back Button */}
-            {(bookingStep === 'services' || bookingStep === 'datetime' || bookingStep === 'paymentType' || bookingStep === 'paymentMethod') && (
+            {(bookingStep === 'services' || bookingStep === 'datetime' || bookingStep === 'payment') && (
               <TouchableOpacity 
                 className="flex-row items-center mb-4"
                 onPress={
-                  bookingStep === 'paymentMethod' ? handleBackToPaymentType :
-                  bookingStep === 'paymentType' ? handleBackToDateTime :
+                  bookingStep === 'payment' ? handleBackToDateTime :
                   bookingStep === 'datetime' ? handleBackToServices :
                   handleBackToStylist
                 }
@@ -1168,8 +1207,7 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
               >
                 <Ionicons name="arrow-back" size={24} color="#ec4899" />
                 <Text className="text-pink-500 font-semibold ml-2">
-                  {bookingStep === 'paymentMethod' ? 'Back to Payment Type' : 
-                   bookingStep === 'paymentType' ? 'Back to Date & Time' :
+                  {bookingStep === 'payment' ? 'Back to Date & Time' :
                    bookingStep === 'datetime' ? 'Back to Services' :
                    'Back to Stylists'}
                 </Text>
@@ -1180,14 +1218,13 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
               {bookingStep === 'stylist' ? 'Select Stylist' : 
                bookingStep === 'services' ? 'Select Services' :
                bookingStep === 'datetime' ? 'Select Date & Time' :
-               bookingStep === 'paymentType' ? 'Select Payment Type' : 'Select Payment Method'}
+               'Payment & Confirmation'}
             </Text>
             <Text className="text-gray-500 mb-6">
               {bookingStep === 'stylist' ? 'Choose your preferred stylist' : 
                bookingStep === 'services' ? `Selected: ${selectedStaff?.first_name} ${selectedStaff?.last_name}` :
                bookingStep === 'datetime' ? `Selected: ${selectedStaff?.first_name} ${selectedStaff?.last_name} - ${getServiceNames()}` :
-               bookingStep === 'paymentType' ? `Selected Date: ${selectedDate.toLocaleDateString()} at ${selectedTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}` :
-               `Complete your booking`}
+               'Complete your booking with GCash downpayment'}
             </Text>
             
             {/* Step 1: Stylist Selection - Card Style */}
@@ -1398,6 +1435,10 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                       <Text className="text-gray-600 text-sm">Total Duration: {totalDuration} mins</Text>
                       <Text className="text-pink-500 font-bold text-lg">₱{totalPrice.toLocaleString()}</Text>
                     </View>
+                    <View className="flex-row justify-between mt-1">
+                      <Text className="text-gray-600 text-sm">Downpayment (50%):</Text>
+                      <Text className="text-blue-500 font-bold text-lg">₱{downpaymentAmount.toLocaleString()}</Text>
+                    </View>
                     {selectedServiceIds.length === 2 && !areServicesMultitaskable() && (
                       <Text className="text-red-500 text-xs mt-1">
                         ⚠️ Warning: Selected services may not be multitaskable
@@ -1578,20 +1619,22 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                 
                 <TouchableOpacity 
                   className="bg-pink-500 py-4 rounded-xl mt-4"
-                  onPress={handleContinueToPaymentType}
+                  onPress={() => {
+                    setBookingStep('payment');
+                  }}
                   disabled={!selectedDate || isProcessing}
                 >
                   <Text className="text-white text-center font-semibold text-lg">
-                    Continue to Payment Type
+                    Continue to Payment
                   </Text>
                 </TouchableOpacity>
               </View>
             )}
             
-            {/* Step 4: Payment Type Selection */}
-            {bookingStep === 'paymentType' && (
+            {/* Step 4: Payment - QR Code + Payment Method + Upload Proof */}
+            {bookingStep === 'payment' && (
               <View className="bg-white rounded-2xl p-5 shadow-sm" style={{ elevation: 2 }}>
-                <View className="bg-pink-50 rounded-xl p-4 mb-6">
+                <View className="bg-pink-50 rounded-xl p-4 mb-4">
                   <Text className="text-gray-500 text-sm">Booking Summary</Text>
                   <Text className="text-lg font-bold text-gray-800">{getServiceNames()}</Text>
                   <View className="flex-row justify-between mt-1">
@@ -1601,179 +1644,138 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                     <Text className="text-gray-500 text-sm">Time: {selectedTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</Text>
                   </View>
                   <View className="flex-row justify-between mt-1">
-                    <Text className="text-gray-500 text-sm">Duration: {totalDuration} mins</Text>
+                    <Text className="text-gray-500 text-sm">Stylist: {getStaffName(selectedStaffId)}</Text>
+                  </View>
+                  <View className="flex-row justify-between mt-1 pt-1 border-t border-pink-200">
+                    <Text className="text-gray-600 font-semibold">Total Amount:</Text>
+                    <Text className="text-pink-500 font-bold">₱{getServicePrice().toLocaleString()}</Text>
                   </View>
                   <View className="flex-row justify-between mt-1">
-                    <Text className="text-gray-500 text-sm">Stylist: {getStaffName(selectedStaffId)}</Text>
-                    <Text className="text-pink-500 font-bold">₱{totalPrice.toLocaleString()}</Text>
+                    <Text className="text-gray-600">Downpayment (50%):</Text>
+                    <Text className="text-blue-600 font-bold">₱{getAmount().toLocaleString()}</Text>
+                  </View>
+                  <View className="flex-row justify-between mt-1">
+                    <Text className="text-gray-600">Remaining Balance:</Text>
+                    <Text className="text-orange-500 font-semibold">₱{(getServicePrice() - getAmount()).toLocaleString()}</Text>
                   </View>
                 </View>
 
-                <Text className="text-lg font-semibold text-gray-800 mb-3">How would you like to pay?</Text>
-                <Text className="text-gray-500 text-sm mb-4">Choose your payment arrangement</Text>
-                
-                {/* Downpayment Option */}
-                <TouchableOpacity 
-                  className={`flex-row items-center justify-between p-4 rounded-xl mb-3 border-2 ${
-                    selectedPaymentType === 'downpayment' ? 'border-pink-500 bg-pink-50' : 'border-gray-200 bg-white'
-                  }`}
-                  onPress={() => setSelectedPaymentType('downpayment')}
-                  disabled={isProcessing}
-                >
-                  <View className="flex-row items-center">
-                    <View className="w-10 h-10 bg-blue-100 rounded-full items-center justify-center mr-3">
-                      <Ionicons name="card-outline" size={20} color="#3b82f6" />
-                    </View>
-                    <View>
-                      <Text className="text-gray-800 font-semibold">Downpayment (50%)</Text>
-                      <Text className="text-gray-500 text-xs">Pay ₱{downpaymentAmount.toLocaleString()} now</Text>
-                    </View>
+                {/* QR Code Display */}
+                <View className="items-center mb-4">
+                  <Text className="text-gray-700 font-semibold text-base mb-2">Scan to Pay with GCash</Text>
+                  <View className="bg-white rounded-xl p-3 border-2 border-pink-200 shadow-md">
+                    <Image 
+                      source={qrCodeImage}
+                      className="w-40 h-40"
+                      resizeMode="contain"
+                    />
                   </View>
-                  <View className={`w-6 h-6 rounded-full border-2 items-center justify-center ${
-                    selectedPaymentType === 'downpayment' ? 'bg-pink-500 border-pink-500' : 'border-gray-300'
-                  }`}>
-                    {selectedPaymentType === 'downpayment' && (
-                      <Ionicons name="checkmark" size={14} color="white" />
-                    )}
-                  </View>
-                </TouchableOpacity>
+                  <Text className="text-gray-500 text-sm mt-2 text-center">
+                    Amount to pay: <Text className="font-bold text-blue-600">₱{getAmount().toLocaleString()}</Text>
+                  </Text>
+                </View>
 
-                {/* Full Payment Option */}
-                <TouchableOpacity 
-                  className={`flex-row items-center justify-between p-4 rounded-xl border-2 ${
-                    selectedPaymentType === 'full payment' ? 'border-pink-500 bg-pink-50' : 'border-gray-200 bg-white'
-                  }`}
-                  onPress={() => setSelectedPaymentType('full payment')}
-                  disabled={isProcessing}
-                >
-                  <View className="flex-row items-center">
-                    <View className="w-10 h-10 bg-green-100 rounded-full items-center justify-center mr-3">
-                      <Ionicons name="cash-outline" size={20} color="#10b981" />
-                    </View>
-                    <View>
-                      <Text className="text-gray-800 font-semibold">Full Payment (100%)</Text>
-                      <Text className="text-gray-500 text-xs">Pay ₱{fullPaymentAmount.toLocaleString()} now</Text>
-                    </View>
-                  </View>
-                  <View className={`w-6 h-6 rounded-full border-2 items-center justify-center ${
-                    selectedPaymentType === 'full payment' ? 'bg-pink-500 border-pink-500' : 'border-gray-300'
-                  }`}>
-                    {selectedPaymentType === 'full payment' && (
-                      <Ionicons name="checkmark" size={14} color="white" />
-                    )}
-                  </View>
-                </TouchableOpacity>
-
-                {selectedPaymentType && (
-                  <View className="mt-4 p-3 bg-gray-50 rounded-xl">
-                    <Text className="text-gray-600 text-sm">Amount Due: ₱{getAmount().toLocaleString()}</Text>
-                  </View>
-                )}
-                
-                <TouchableOpacity 
-                  className="bg-pink-500 py-4 rounded-xl mt-6"
-                  onPress={handleContinueToPaymentMethod}
-                  disabled={isProcessing}
-                >
-                  <Text className="text-white text-center font-semibold text-lg">Continue to Payment Method</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-            
-            {/* Step 5: Payment Method Selection */}
-            {bookingStep === 'paymentMethod' && (
-              <View className="bg-white rounded-2xl p-5 shadow-sm" style={{ elevation: 2 }}>
-                <View className="bg-pink-50 rounded-xl p-4 mb-6">
-                  <Text className="text-gray-500 text-sm">Booking Summary</Text>
-                  <Text className="text-lg font-bold text-gray-800">{getServiceNames()}</Text>
-                  <View className="flex-row justify-between mt-1">
-                    <Text className="text-gray-500 text-sm">Date: {selectedDate.toLocaleDateString()}</Text>
-                  </View>
-                  <View className="flex-row justify-between mt-1">
-                    <Text className="text-gray-500 text-sm">Time: {selectedTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</Text>
-                  </View>
-                  <View className="flex-row justify-between mt-1">
-                    <Text className="text-gray-500 text-sm">Duration: {totalDuration} mins</Text>
-                  </View>
-                  <View className="flex-row justify-between mt-1">
-                    <Text className="text-gray-500 text-sm">Stylist: {getStaffName(selectedStaffId)}</Text>
-                  </View>
-                  <View className="flex-row justify-between mt-1">
-                    <Text className="text-gray-500 text-sm">Payment Type: {getPaymentTypeLabel()}</Text>
-                    <Text className="text-pink-500 font-bold">₱{getAmount().toLocaleString()}</Text>
+                {/* Instructions */}
+                <View className="bg-blue-50 rounded-xl p-3 mb-4">
+                  <Text className="text-blue-800 font-semibold text-sm mb-1">📋 How to Pay:</Text>
+                  <View className="space-y-1">
+                    <Text className="text-gray-600 text-xs">1. Open GCash app → Tap "Pay QR"</Text>
+                    <Text className="text-gray-600 text-xs">2. Scan the QR code above</Text>
+                    <Text className="text-gray-600 text-xs">3. Enter amount: <Text className="font-bold">₱{getAmount().toLocaleString()}</Text></Text>
+                    <Text className="text-gray-600 text-xs">4. Complete payment & take a screenshot</Text>
+                    <Text className="text-gray-600 text-xs">5. Upload the screenshot below</Text>
                   </View>
                 </View>
 
-                <Text className="text-lg font-semibold text-gray-800 mb-3">Select Payment Method</Text>
-                <Text className="text-gray-500 text-sm mb-4">Choose how you want to complete the payment</Text>
-                
-                {/* GCash Option */}
+                {/* Payment Method Selection */}
+                <Text className="text-gray-700 font-semibold text-sm mb-2">Payment Method</Text>
                 <TouchableOpacity 
-                  className={`flex-row items-center justify-between p-4 rounded-xl mb-3 border-2 ${
+                  className={`flex-row items-center justify-between p-3 rounded-xl mb-4 border-2 ${
                     selectedPaymentMethod === 'gcash' ? 'border-pink-500 bg-pink-50' : 'border-gray-200 bg-white'
                   }`}
                   onPress={() => setSelectedPaymentMethod('gcash')}
                   disabled={isProcessing}
                 >
                   <View className="flex-row items-center">
-                    <View className="w-10 h-10 bg-blue-100 rounded-full items-center justify-center mr-3">
-                      <Ionicons name="phone-portrait-outline" size={20} color="#3b82f6" />
+                    <View className="w-8 h-8 bg-blue-100 rounded-full items-center justify-center mr-3">
+                      <Ionicons name="phone-portrait-outline" size={16} color="#3b82f6" />
                     </View>
                     <View>
-                      <Text className="text-gray-800 font-semibold">GCash</Text>
-                      <Text className="text-gray-500 text-xs">Pay via GCash wallet</Text>
+                      <Text className="text-gray-800 font-semibold text-sm">GCash</Text>
+                      <Text className="text-gray-500 text-xs">Pay your downpayment via GCash</Text>
                     </View>
                   </View>
-                  <View className={`w-6 h-6 rounded-full border-2 items-center justify-center ${
+                  <View className={`w-5 h-5 rounded-full border-2 items-center justify-center ${
                     selectedPaymentMethod === 'gcash' ? 'bg-pink-500 border-pink-500' : 'border-gray-300'
                   }`}>
                     {selectedPaymentMethod === 'gcash' && (
-                      <Ionicons name="checkmark" size={14} color="white" />
+                      <Ionicons name="checkmark" size={12} color="white" />
                     )}
                   </View>
                 </TouchableOpacity>
 
-                {/* Cash Option */}
-                <TouchableOpacity 
-                  className={`flex-row items-center justify-between p-4 rounded-xl border-2 ${
-                    selectedPaymentMethod === 'cash' ? 'border-pink-500 bg-pink-50' : 'border-gray-200 bg-white'
-                  }`}
-                  onPress={() => setSelectedPaymentMethod('cash')}
-                  disabled={isProcessing}
-                >
-                  <View className="flex-row items-center">
-                    <View className="w-10 h-10 bg-green-100 rounded-full items-center justify-center mr-3">
-                      <Ionicons name="cash-outline" size={20} color="#10b981" />
+                {/* Upload Payment Proof - Gallery Only */}
+                <View className="mb-4">
+                  <Text className="text-gray-700 font-semibold text-sm mb-2">Upload Payment Proof</Text>
+                  <Text className="text-gray-500 text-xs mb-2">
+                    Take a screenshot of your GCash payment receipt and upload it here
+                  </Text>
+                  
+                  <TouchableOpacity 
+                    className="flex-row items-center justify-center p-4 border-2 border-dashed border-pink-300 rounded-xl bg-pink-50"
+                    onPress={pickImageFromGallery}
+                    disabled={isProcessing}
+                  >
+                    <Ionicons name={paymentProof ? "checkmark-circle" : "cloud-upload-outline"} size={24} color={paymentProof ? "#10b981" : "#ec4899"} />
+                    <Text className={`ml-2 font-semibold ${paymentProof ? 'text-green-600' : 'text-pink-500'}`}>
+                      {paymentProof ? 'Receipt Uploaded ✓' : 'Tap to Upload Receipt'}
+                    </Text>
+                  </TouchableOpacity>
+                  
+                  {paymentProof && (
+                    <View className="mt-2">
+                      <Image 
+                        source={{ uri: paymentProof.uri }} 
+                        className="w-full h-48 rounded-xl"
+                        resizeMode="cover"
+                      />
+                      <TouchableOpacity 
+                        className="mt-1 self-end"
+                        onPress={() => setPaymentProof(null)}
+                      >
+                        <Text className="text-red-500 text-xs font-semibold">Remove</Text>
+                      </TouchableOpacity>
                     </View>
-                    <View>
-                      <Text className="text-gray-800 font-semibold">Cash</Text>
-                      <Text className="text-gray-500 text-xs">Pay in cash at the salon</Text>
-                    </View>
-                  </View>
-                  <View className={`w-6 h-6 rounded-full border-2 items-center justify-center ${
-                    selectedPaymentMethod === 'cash' ? 'bg-pink-500 border-pink-500' : 'border-gray-300'
-                  }`}>
-                    {selectedPaymentMethod === 'cash' && (
-                      <Ionicons name="checkmark" size={14} color="white" />
-                    )}
-                  </View>
-                </TouchableOpacity>
+                  )}
+                </View>
 
-                {selectedPaymentMethod && (
-                  <View className="mt-4 p-3 bg-gray-50 rounded-xl">
-                    <Text className="text-gray-600 text-sm">Total Payment: ₱{getAmount().toLocaleString()}</Text>
+                {/* Info Box */}
+                <View className="bg-yellow-50 rounded-xl p-3 mb-4 border border-yellow-200">
+                  <View className="flex-row items-start gap-2">
+                    <Ionicons name="information-circle-outline" size={16} color="#eab308" />
+                    <Text className="text-yellow-700 text-xs flex-1">
+                      Please upload a clear screenshot of your GCash payment receipt.
+                      This will be reviewed by our staff to confirm your booking.
+                    </Text>
                   </View>
-                )}
-                
+                </View>
+
+                {/* Confirm Button */}
                 <TouchableOpacity 
-                  className="bg-pink-500 py-4 rounded-xl mt-6"
+                  className={`py-4 rounded-xl ${(!selectedPaymentMethod || !paymentProof) ? 'bg-gray-400' : 'bg-pink-500'}`}
                   onPress={handleConfirmBooking}
-                  disabled={isProcessing}
+                  disabled={!selectedPaymentMethod || !paymentProof || isProcessing}
                 >
                   <Text className="text-white text-center font-semibold text-lg">
                     {isProcessing ? 'Processing...' : 'Confirm Booking'}
                   </Text>
                 </TouchableOpacity>
+
+                {(!selectedPaymentMethod || !paymentProof) && (
+                  <Text className="text-gray-400 text-xs text-center mt-2">
+                    {!selectedPaymentMethod ? 'Please select a payment method' : 'Please upload your payment receipt'}
+                  </Text>
+                )}
               </View>
             )}
           </View>

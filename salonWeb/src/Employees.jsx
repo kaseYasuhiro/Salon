@@ -3,7 +3,7 @@ import {
   Users, UserPlus, Search, Edit, Trash2,
   Mail, Phone, Star, Clock, Award,
   Activity, Briefcase, CheckCircle, XCircle, Scissors, X, AlertCircle,
-  Plus, Tag, UserCheck, UserX
+  Plus, Tag, UserCheck, UserX, Save, DollarSign
 } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../contexts/auth-context';
@@ -16,19 +16,17 @@ function Employees() {
   const [specialtiesList, setSpecialtiesList] = useState([]);
   const [staffFeedbacks, setStaffFeedbacks] = useState([]);
   const [walkInAuthorizations, setWalkInAuthorizations] = useState({});
-  const [walkInAuthIds, setWalkInAuthIds] = useState({}); // Store the ID for updating
+  const [walkInAuthIds, setWalkInAuthIds] = useState({});
+  const [employeeCommissions, setEmployeeCommissions] = useState({});
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showModal, setShowModal] = useState(false);
-  const [showSpecialtyModal, setShowSpecialtyModal] = useState(false);
-  const [showWalkInModal, setShowWalkInModal] = useState(false);
+  const [showEmployeeModal, setShowEmployeeModal] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [editingEmployee, setEditingEmployee] = useState(null);
   const [formError, setFormError] = useState('');
-  const [specialtyError, setSpecialtyError] = useState('');
-  const [isAddingSpecialty, setIsAddingSpecialty] = useState(false);
-  const [isUpdatingWalkIn, setIsUpdatingWalkIn] = useState(false);
   const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
+  const [isSavingAll, setIsSavingAll] = useState(false);
 
   const [formData, setFormData] = useState({
     first_name: '',
@@ -40,16 +38,13 @@ function Employees() {
     role: 'staff',
   });
 
-  const [specialtyFormData, setSpecialtyFormData] = useState({
-    staff_id: '',
+  // Employee management form data (Specialty, Commission, Walk-in)
+  const [employeeFormData, setEmployeeFormData] = useState({
+    employee_id: '',
     specialty_id: '',
-    is_active: true,
-  });
-
-  const [walkInFormData, setWalkInFormData] = useState({
-    staff_id: '',
-    isAuthorizedForWalkin: false,
-    auth_id: null // Store the authorization record ID
+    specialty_active: true,
+    commission_amount: '',
+    walk_in_authorized: false
   });
 
   const [stats, setStats] = useState([
@@ -64,6 +59,21 @@ function Employees() {
     setTimeout(() => {
       setToast({ show: false, message: '', type: 'success' });
     }, 3000);
+  };
+
+  // Sort employees by created_at (most recent first) or by id
+  const sortEmployeesByRecent = (employeesArray) => {
+    return [...employeesArray].sort((a, b) => {
+      // If created_at exists, sort by it
+      if (a.created_at && b.created_at) {
+        return new Date(b.created_at) - new Date(a.created_at);
+      }
+      // If created_at doesn't exist, fallback to id (assuming higher id = more recent)
+      if (a.id && b.id) {
+        return b.id - a.id;
+      }
+      return 0;
+    });
   };
 
   // Fetch staff feedbacks
@@ -92,7 +102,25 @@ function Employees() {
     }
   };
 
-  // Fetch walk-in authorizations using GET /walk-in/staff
+  // Fetch employee commissions
+  const fetchEmployeeCommissions = async () => {
+    try {
+      const response = await api.get('/employee/commission');
+      console.log('Fetched employee commissions:', response.data);
+      
+      const commissionMap = {};
+      if (Array.isArray(response.data)) {
+        response.data.forEach(item => {
+          commissionMap[item.employee_id] = item.commission_amount;
+        });
+      }
+      setEmployeeCommissions(commissionMap);
+    } catch (error) {
+      console.error('Error fetching employee commissions:', error);
+    }
+  };
+
+  // Fetch walk-in authorizations
   const fetchWalkInAuthorizations = async () => {
     try {
       setIsRefreshing(true);
@@ -104,26 +132,23 @@ function Employees() {
         const authIdMap = {};
         let authorizedCount = 0;
         
-        // Group by staff_id and get the latest authorization
         const latestAuths = {};
         response.data.forEach(auth => {
           const staffId = auth.staff_id || auth.staffId;
           if (!staffId) return;
           
-          // Keep the latest record (highest ID) for each staff member
           if (!latestAuths[staffId] || auth.id > latestAuths[staffId].id) {
             latestAuths[staffId] = auth;
           }
         });
         
-        // Process the latest authorizations
         Object.values(latestAuths).forEach(auth => {
           const isAuthorized = auth.isAuthorizedForWalkIn === 1 || auth.isAuthorizedForWalkin === 1;
           const staffId = auth.staff_id || auth.staffId;
           
           if (staffId) {
             authMap[staffId] = isAuthorized;
-            authIdMap[staffId] = auth.id; // Store the record ID for updates
+            authIdMap[staffId] = auth.id;
             if (isAuthorized) authorizedCount++;
           }
         });
@@ -144,7 +169,7 @@ function Employees() {
     }
   };
 
-  // Fetch employees with their specialties using the /employee/specialties endpoint
+  // Fetch employees
   const fetchEmployees = async () => {
     setIsLoading(true);
     try {
@@ -152,13 +177,15 @@ function Employees() {
       console.log('Fetched employees with specialties:', response.data);
       
       if (Array.isArray(response.data)) {
-        setEmployees(response.data);
+        // Sort employees by most recent first
+        const sortedEmployees = sortEmployeesByRecent(response.data);
+        setEmployees(sortedEmployees);
         
-        const activeEmployees = response.data.filter(e => e.status === 'active' || e.status === null).length;
+        const activeEmployees = sortedEmployees.filter(e => e.status === 'active' || e.status === null).length;
         
         setStats(prev => {
           const newStats = [...prev];
-          newStats[0] = { ...newStats[0], value: response.data.length.toString() };
+          newStats[0] = { ...newStats[0], value: sortedEmployees.length.toString() };
           newStats[1] = { ...newStats[1], value: activeEmployees.toString() };
           return newStats;
         });
@@ -174,7 +201,8 @@ function Employees() {
   const refreshAllData = async () => {
     await Promise.all([
       fetchEmployees(),
-      fetchWalkInAuthorizations()
+      fetchWalkInAuthorizations(),
+      fetchEmployeeCommissions()
     ]);
   };
 
@@ -190,21 +218,75 @@ function Employees() {
     setFormError('');
   };
 
-  const handleSpecialtyInputChange = (e) => {
+  const handleEmployeeFormChange = (e) => {
     const { name, value, type, checked } = e.target;
-    setSpecialtyFormData(prev => ({ 
+    setEmployeeFormData(prev => ({ 
       ...prev, 
       [name]: type === 'checkbox' ? checked : value 
     }));
-    setSpecialtyError('');
   };
 
-  const handleWalkInInputChange = (e) => {
-    const { type, checked } = e.target;
-    setWalkInFormData(prev => ({ 
-      ...prev, 
-      isAuthorizedForWalkin: type === 'checkbox' ? checked : !prev.isAuthorizedForWalkin 
-    }));
+  // SAVE ALL CHANGES - Single API call
+  const handleSaveAllChanges = async () => {
+    if (!selectedEmployee) return;
+
+    // Validate that we have at least one change to save
+    const hasSpecialty = employeeFormData.specialty_id;
+    const hasCommission = employeeFormData.commission_amount && parseFloat(employeeFormData.commission_amount) > 0;
+    const hasWalkIn = employeeFormData.walk_in_authorized !== undefined;
+
+    if (!hasSpecialty && !hasCommission && !hasWalkIn) {
+      showToast('No changes to save. Please add a specialty, commission, or update walk-in authorization.', 'info');
+      return;
+    }
+
+    // Validate commission amount
+    if (hasCommission && parseFloat(employeeFormData.commission_amount) <= 0) {
+      showToast('Commission amount must be greater than 0.', 'error');
+      return;
+    }
+
+    setIsSavingAll(true);
+    try {
+      const updateData = {
+        employee_id: selectedEmployee.id,
+        specialty_id: hasSpecialty ? parseInt(employeeFormData.specialty_id) : null,
+        specialty_active: employeeFormData.specialty_active ? true : false,
+        commission_amount: hasCommission ? parseFloat(employeeFormData.commission_amount) : null,
+        walk_in_authorized: hasWalkIn ? employeeFormData.walk_in_authorized : null
+      };
+
+      console.log('Saving all changes with:', updateData);
+
+      const response = await api.post('/employees/update-all', updateData);
+      
+      console.log('Update response:', response.data);
+
+      if (response.data.success) {
+        showToast(response.data.message, 'success');
+        
+        // Reset form after successful save
+        setEmployeeFormData({
+          employee_id: selectedEmployee.id,
+          specialty_id: '',
+          specialty_active: true,
+          commission_amount: '',
+          walk_in_authorized: false
+        });
+        
+        // Refresh everything
+        await refreshAllData();
+      } else {
+        showToast(response.data.message || 'Some changes could not be saved.', 'warning');
+        await refreshAllData();
+      }
+
+    } catch (error) {
+      console.error('Error saving all changes:', error);
+      showToast(error.response?.data?.message || 'Error saving changes. Please try again.', 'error');
+    } finally {
+      setIsSavingAll(false);
+    }
   };
 
   // Get specialty name by ID
@@ -248,82 +330,6 @@ function Employees() {
       stars.push(<Star key={`empty-star-${i}`} size={12} className="text-gray-300" />);
     }
     return stars;
-  };
-
-  // Add specialty for employee
-  const handleAddSpecialty = async (e) => {
-    e.preventDefault();
-    
-    if (!specialtyFormData.specialty_id) {
-      setSpecialtyError('Please select a specialty');
-      return;
-    }
-
-    setIsAddingSpecialty(true);
-    try {
-      await api.post('/employees/specialty/add', {
-        staff_id: parseInt(specialtyFormData.staff_id),
-        specialty_id: parseInt(specialtyFormData.specialty_id),
-        is_active: specialtyFormData.is_active ? 1 : 0
-      });
-      
-      showToast('Specialty assigned successfully!', 'success');
-      setShowSpecialtyModal(false);
-      setSelectedEmployee(null);
-      resetSpecialtyForm();
-      refreshAllData();
-    } catch (error) {
-      console.error('Error adding specialty:', error);
-      setSpecialtyError(error.response?.data?.message || 'Error adding specialty');
-      showToast(error.response?.data?.message || 'Error adding specialty', 'error');
-    } finally {
-      setIsAddingSpecialty(false);
-    }
-  };
-
-  // Update walk-in authorization - CORRECTED ROUTE
-  const handleUpdateWalkIn = async (e) => {
-    e.preventDefault();
-    
-    setIsUpdatingWalkIn(true);
-    try {
-      const { staff_id, isAuthorizedForWalkin, auth_id } = walkInFormData;
-      
-      // If we have an auth_id, use the update endpoint with ID in URL
-      if (auth_id) {
-        // The route is: /walk-in/staff/auth/update/{id}
-        await api.post(`/walk-in/staff/auth/update/${auth_id}`, {
-          staff_id: staff_id,
-          isAuthorizedForWalkin: isAuthorizedForWalkin ? 1 : 0
-        });
-      } else {
-        // If no auth_id exists, create a new one using the auth endpoint
-        await api.post('/walk-in/staff/auth', {
-          staff_id: staff_id,
-          isAuthorizedForWalkin: isAuthorizedForWalkin ? 1 : 0
-        });
-      }
-      
-      showToast(
-        isAuthorizedForWalkin 
-          ? 'Staff authorized for walk-in successfully!' 
-          : 'Walk-in authorization revoked successfully!',
-        'success'
-      );
-      
-      setShowWalkInModal(false);
-      setSelectedEmployee(null);
-      resetWalkInForm();
-      
-      // Refresh all data to show updated authorization status
-      await refreshAllData();
-      
-    } catch (error) {
-      console.error('Error updating walk-in authorization:', error);
-      showToast(error.response?.data?.message || 'Error updating authorization', 'error');
-    } finally {
-      setIsUpdatingWalkIn(false);
-    }
   };
 
   // Add employee
@@ -436,20 +442,13 @@ function Employees() {
     setFormError('');
   };
 
-  const resetSpecialtyForm = () => {
-    setSpecialtyFormData({
-      staff_id: '',
+  const resetEmployeeForm = () => {
+    setEmployeeFormData({
+      employee_id: '',
       specialty_id: '',
-      is_active: true,
-    });
-    setSpecialtyError('');
-  };
-
-  const resetWalkInForm = () => {
-    setWalkInFormData({
-      staff_id: '',
-      isAuthorizedForWalkin: false,
-      auth_id: null
+      specialty_active: true,
+      commission_amount: '',
+      walk_in_authorized: false
     });
   };
 
@@ -469,27 +468,14 @@ function Employees() {
 
   const handleEmployeeClick = (employee) => {
     setSelectedEmployee(employee);
-    setSpecialtyFormData({
-      staff_id: employee.id,
+    setEmployeeFormData({
+      employee_id: employee.id,
       specialty_id: '',
-      is_active: true,
+      specialty_active: true,
+      commission_amount: employeeCommissions[employee.id] || '',
+      walk_in_authorized: walkInAuthorizations[employee.id] || false
     });
-    setWalkInFormData({
-      staff_id: employee.id,
-      isAuthorizedForWalkin: walkInAuthorizations[employee.id] || false,
-      auth_id: walkInAuthIds[employee.id] || null // Store the auth record ID
-    });
-    setShowSpecialtyModal(true);
-  };
-
-  const handleWalkInClick = (employee) => {
-    setSelectedEmployee(employee);
-    setWalkInFormData({
-      staff_id: employee.id,
-      isAuthorizedForWalkin: walkInAuthorizations[employee.id] || false,
-      auth_id: walkInAuthIds[employee.id] || null // Store the auth record ID
-    });
-    setShowWalkInModal(true);
+    setShowEmployeeModal(true);
   };
 
   const handleSubmit = (e) => {
@@ -504,6 +490,7 @@ function Employees() {
     return `${firstName?.charAt(0) || ''}${lastName?.charAt(0) || ''}`.toUpperCase();
   };
 
+  // Filter employees (maintains sort order)
   const filteredEmployees = employees.filter(emp => {
     if (searchTerm && !`${emp.first_name} ${emp.last_name}`.toLowerCase().includes(searchTerm.toLowerCase())) return false;
     return true;
@@ -544,7 +531,9 @@ function Employees() {
       {toast.show && (
         <div className="fixed top-4 right-4 z-50 animate-slide-in">
           <div className={`rounded-lg shadow-lg p-4 flex items-center gap-3 ${
-            toast.type === 'success' ? 'bg-green-500' : 'bg-red-500'
+            toast.type === 'success' ? 'bg-green-500' : 
+            toast.type === 'warning' ? 'bg-yellow-500' :
+            'bg-red-500'
           } text-white min-w-[300px]`}>
             {toast.type === 'success' ? (
               <CheckCircle size={20} />
@@ -626,16 +615,15 @@ function Employees() {
             const avgRating = getAverageStaffRating(employee.id);
             const reviewCount = getStaffReviewCount(employee.id);
             const isAuthorized = walkInAuthorizations[employee.id] || false;
+            const commission = employeeCommissions[employee.id] || 0;
             
             return (
               <div 
                 key={employee.id} 
+                onClick={() => handleEmployeeClick(employee)}
                 className="bg-white rounded-xl shadow-sm hover:shadow-lg transition-all duration-300 border border-gray-100 overflow-hidden cursor-pointer group"
               >
-                <div 
-                  onClick={() => handleEmployeeClick(employee)}
-                  className="relative h-24 bg-gradient-to-r from-pink-50 to-purple-50 flex items-center justify-center"
-                >
+                <div className="relative h-24 bg-gradient-to-r from-pink-50 to-purple-50 flex items-center justify-center">
                   <div className="w-14 h-14 bg-gradient-to-r from-pink-500 to-pink-600 rounded-xl flex items-center justify-center shadow-lg">
                     <span className="text-white text-xl font-bold">
                       {getInitials(employee.first_name, employee.last_name)}
@@ -651,7 +639,6 @@ function Employees() {
                       </div>
                     </div>
                   )}
-                  {/* Walk-in Authorization Badge */}
                   <div className="absolute top-1.5 right-1.5">
                     {isAuthorized ? (
                       <div className="bg-green-500 rounded-full px-1.5 py-0.5 shadow-md">
@@ -680,9 +667,14 @@ function Employees() {
                       <Users size={10} className="text-gray-400" />
                       <span className="text-xs text-gray-500">Staff</span>
                     </div>
+                    {commission > 0 && (
+                      <div className="flex items-center justify-center gap-1 mt-0.5 text-green-600">
+                        <DollarSign size={10} />
+                        <span className="text-[10px] font-medium">{commission * 100}% Commission</span>
+                      </div>
+                    )}
                   </div>
                   
-                  {/* Rating Section */}
                   <div className="flex items-center justify-center gap-1 mb-2">
                     <div className="flex items-center gap-0.5">
                       {renderStars(avgRating)}
@@ -745,20 +737,6 @@ function Employees() {
                     <button 
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleWalkInClick(employee);
-                      }}
-                      className={`flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg transition-colors text-xs font-medium ${
-                        isAuthorized 
-                          ? 'bg-green-50 text-green-600 hover:bg-green-100' 
-                          : 'bg-gray-50 text-gray-600 hover:bg-gray-100'
-                      }`}
-                    >
-                      {isAuthorized ? <UserCheck size={12} /> : <UserX size={12} />}
-                      {isAuthorized ? 'Authorized' : 'Authorize'}
-                    </button>
-                    <button 
-                      onClick={(e) => {
-                        e.stopPropagation();
                         handleDeleteEmployee(employee.id);
                       }}
                       className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors text-xs font-medium"
@@ -784,6 +762,7 @@ function Employees() {
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Staff Member</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Role</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Walk-in</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Commission</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Rating</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Specialties</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Email</th>
@@ -796,6 +775,7 @@ function Employees() {
                   const avgRating = getAverageStaffRating(employee.id);
                   const reviewCount = getStaffReviewCount(employee.id);
                   const isAuthorized = walkInAuthorizations[employee.id] || false;
+                  const commission = employeeCommissions[employee.id] || 0;
                   
                   return (
                     <tr 
@@ -827,7 +807,7 @@ function Employees() {
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
                         <button
-                          onClick={() => handleWalkInClick(employee)}
+                          onClick={() => handleEmployeeClick(employee)}
                           className={`px-2 py-1 rounded-lg text-xs font-medium transition-all duration-200 flex items-center gap-1 ${
                             isAuthorized 
                               ? 'bg-green-100 text-green-700 hover:bg-green-200' 
@@ -846,6 +826,13 @@ function Employees() {
                             </>
                           )}
                         </button>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <span className={`text-xs font-semibold ${
+                          commission > 0 ? 'text-green-600' : 'text-gray-400'
+                        }`}>
+                          {commission > 0 ? `${commission * 100}%` : 'None'}
+                        </span>
                       </td>
                       <td 
                         onClick={() => handleEmployeeClick(employee)}
@@ -904,16 +891,6 @@ function Employees() {
                             className="p-1 hover:bg-gray-100 rounded-lg transition-colors"
                           >
                             <Edit size={14} className="text-gray-500" />
-                          </button>
-                          <button 
-                            onClick={() => handleWalkInClick(employee)}
-                            className={`p-1 rounded-lg transition-colors ${
-                              isAuthorized 
-                                ? 'hover:bg-green-100 text-green-600' 
-                                : 'hover:bg-gray-100 text-gray-500'
-                            }`}
-                          >
-                            {isAuthorized ? <UserCheck size={14} /> : <UserX size={14} />}
                           </button>
                           <button 
                             onClick={() => handleDeleteEmployee(employee.id)}
@@ -1073,84 +1050,113 @@ function Employees() {
         </div>
       )}
 
-      {/* Assign Specialty Modal - Compact */}
-      {showSpecialtyModal && selectedEmployee && (
+      {/* Employee Management Modal - Combined */}
+      {showEmployeeModal && selectedEmployee && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
-            <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-5 py-3 flex items-center justify-between">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden max-h-[85vh] overflow-y-auto">
+            <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-5 py-3 flex items-center justify-between sticky top-0">
               <h2 className="text-lg font-bold text-white">
                 Manage {selectedEmployee.first_name}
               </h2>
-              <button 
-                onClick={() => {
-                  setShowSpecialtyModal(false);
-                  setSelectedEmployee(null);
-                  resetSpecialtyForm();
-                }}
-                className="text-white hover:bg-white/20 rounded-lg p-1 transition-colors"
-              >
-                <X size={20} />
-              </button>
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={handleSaveAllChanges}
+                  disabled={isSavingAll}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-white text-pink-600 rounded-lg hover:bg-pink-50 transition-colors text-sm font-medium disabled:opacity-50"
+                >
+                  {isSavingAll ? (
+                    <>
+                      <div className="w-3 h-3 border-2 border-pink-600 border-t-transparent rounded-full animate-spin"></div>
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Save size={14} />
+                      Save All
+                    </>
+                  )}
+                </button>
+                <button 
+                  onClick={() => {
+                    setShowEmployeeModal(false);
+                    setSelectedEmployee(null);
+                    resetEmployeeForm();
+                  }}
+                  className="text-white hover:bg-white/20 rounded-lg p-1 transition-colors"
+                >
+                  <X size={20} />
+                </button>
+              </div>
             </div>
 
             <div className="p-5 space-y-4">
-              {/* Walk-in Authorization Section - Separate from Specialty */}
-              <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="text-sm font-semibold text-gray-800">Walk-in Authorization</h3>
-                    <p className="text-xs text-gray-500">Allow this staff to accept walk-in customers</p>
+              {/* Employee Info */}
+              <div className="bg-gray-50 rounded-lg p-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 bg-gradient-to-r from-pink-500 to-pink-600 rounded-xl flex items-center justify-center shadow-lg">
+                    <span className="text-white text-lg font-bold">
+                      {getInitials(selectedEmployee.first_name, selectedEmployee.last_name)}
+                    </span>
                   </div>
-                  <button
-                    onClick={() => {
-                      setShowSpecialtyModal(false);
-                      setSelectedEmployee(selectedEmployee);
-                      handleWalkInClick(selectedEmployee);
-                    }}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 flex items-center gap-1 ${
-                      walkInAuthorizations[selectedEmployee.id]
-                        ? 'bg-green-100 text-green-700 hover:bg-green-200' 
-                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                    }`}
-                  >
-                    {walkInAuthorizations[selectedEmployee.id] ? (
-                      <>
-                        <UserCheck size={14} />
-                        <span>Authorized</span>
-                      </>
-                    ) : (
-                      <>
-                        <UserX size={14} />
-                        <span>Not Authorized</span>
-                      </>
-                    )}
-                  </button>
+                  <div>
+                    <h3 className="font-semibold text-gray-800">
+                      {selectedEmployee.first_name} {selectedEmployee.last_name}
+                    </h3>
+                    <p className="text-xs text-gray-500">{selectedEmployee.email}</p>
+                    <p className="text-xs text-gray-500">{selectedEmployee.phone_number}</p>
+                  </div>
                 </div>
               </div>
 
-              {/* Add Specialty Section - Optional */}
-              <div className="border-t border-gray-200 pt-4">
-                <h3 className="text-sm font-semibold text-gray-800 mb-3">Add Specialty (Optional)</h3>
-                <p className="text-xs text-gray-500 mb-3">Add a specialty to this staff member. This step is optional.</p>
-                <form onSubmit={handleAddSpecialty} className="space-y-3">
-                  {specialtyError && (
-                    <div className="bg-red-50 border border-red-200 rounded-lg p-2 flex items-center gap-1.5">
-                      <AlertCircle size={12} className="text-red-500" />
-                      <p className="text-red-600 text-xs">{specialtyError}</p>
+              {/* Current Commission Display */}
+              {employeeCommissions[selectedEmployee.id] > 0 && (
+                <div className="bg-green-50 rounded-lg p-3 border border-green-200">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-xs text-gray-500">Current Commission</p>
+                      <p className="text-sm font-semibold text-green-700">
+                        {employeeCommissions[selectedEmployee.id] * 100}%
+                      </p>
                     </div>
-                  )}
+                  </div>
+                </div>
+              )}
 
+              {/* Current Walk-in Status */}
+              <div className={`rounded-lg p-3 border ${
+                walkInAuthorizations[selectedEmployee.id] 
+                  ? 'bg-blue-50 border-blue-200' 
+                  : 'bg-gray-50 border-gray-200'
+              }`}>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs text-gray-500">Walk-in Authorization</p>
+                    <p className={`text-sm font-semibold ${
+                      walkInAuthorizations[selectedEmployee.id] 
+                        ? 'text-green-700' 
+                        : 'text-gray-600'
+                    }`}>
+                      {walkInAuthorizations[selectedEmployee.id] ? '✅ Authorized' : '❌ Not Authorized'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Add Specialty Section */}
+              <div className="border-t border-gray-200 pt-4">
+                <h3 className="text-sm font-semibold text-gray-800 mb-3">Add Specialty</h3>
+                <div className="space-y-3">
                   <div>
                     <label className="block text-gray-700 text-xs font-semibold mb-1">
                       Select Specialty
                     </label>
                     <select
                       name="specialty_id"
-                      value={specialtyFormData.specialty_id}
-                      onChange={handleSpecialtyInputChange}
+                      value={employeeFormData.specialty_id}
+                      onChange={handleEmployeeFormChange}
                       className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
                     >
-                      <option value="">Select a specialty (optional)...</option>
+                      <option value="">Select a specialty...</option>
                       {specialtiesList.map((specialty) => (
                         <option key={specialty.id} value={specialty.id}>
                           {formatSpecialtyName(specialty.specialty_name)}
@@ -1163,9 +1169,9 @@ function Employees() {
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input
                         type="checkbox"
-                        name="is_active"
-                        checked={specialtyFormData.is_active}
-                        onChange={handleSpecialtyInputChange}
+                        name="specialty_active"
+                        checked={employeeFormData.specialty_active}
+                        onChange={handleEmployeeFormChange}
                         className="w-3.5 h-3.5 text-pink-500 border-gray-300 rounded focus:ring-pink-500"
                       />
                       <span className="text-gray-700 text-xs font-semibold">
@@ -1173,18 +1179,10 @@ function Employees() {
                       </span>
                     </label>
                   </div>
-
-                  <button
-                    type="submit"
-                    disabled={isAddingSpecialty}
-                    className="w-full px-3 py-1.5 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 text-sm font-medium disabled:opacity-50"
-                  >
-                    {isAddingSpecialty ? 'Assigning...' : 'Assign Specialty'}
-                  </button>
-                </form>
+                </div>
               </div>
 
-              {/* Current Specialties - Display Only */}
+              {/* Current Specialties Display */}
               {selectedEmployee.staff_specialties && selectedEmployee.staff_specialties.length > 0 && (
                 <div className="border-t border-gray-200 pt-3">
                   <label className="block text-gray-700 text-xs font-semibold mb-2">
@@ -1208,101 +1206,81 @@ function Employees() {
                   </div>
                 </div>
               )}
-            </div>
-          </div>
-        </div>
-      )}
 
-      {/* Walk-in Authorization Modal - UPDATED ROUTE */}
-      {showWalkInModal && selectedEmployee && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
-            <div className="bg-gradient-to-r from-green-500 to-green-600 px-5 py-3 flex items-center justify-between">
-              <h2 className="text-lg font-bold text-white">
-                Walk-in Authorization for {selectedEmployee.first_name}
-              </h2>
-              <button 
-                onClick={() => {
-                  setShowWalkInModal(false);
-                  setSelectedEmployee(null);
-                  resetWalkInForm();
-                }}
-                className="text-white hover:bg-white/20 rounded-lg p-1 transition-colors"
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            <form onSubmit={handleUpdateWalkIn} className="p-5 space-y-4">
-              <div className="text-center">
-                <div className="w-16 h-16 bg-gradient-to-r from-green-400 to-green-600 rounded-full flex items-center justify-center mx-auto mb-3">
-                  <span className="text-white text-2xl font-bold">
-                    {getInitials(selectedEmployee.first_name, selectedEmployee.last_name)}
-                  </span>
-                </div>
-                <h3 className="text-lg font-semibold text-gray-800">
-                  {selectedEmployee.first_name} {selectedEmployee.last_name}
-                </h3>
-                <p className="text-sm text-gray-500">Staff Member</p>
-              </div>
-
-              {/* Show existing authorization status */}
-              <div className="bg-gray-50 rounded-lg p-3 text-center">
-                <p className="text-xs text-gray-500">Current Status</p>
-                <p className={`text-sm font-semibold ${
-                  walkInFormData.isAuthorizedForWalkin ? 'text-green-600' : 'text-gray-600'
-                }`}>
-                  {walkInFormData.isAuthorizedForWalkin ? '✅ Authorized for Walk-in' : '❌ Not Authorized for Walk-in'}
-                </p>
-                {walkInFormData.auth_id && (
-                  <p className="text-xs text-gray-400 mt-1">Authorization ID: #{walkInFormData.auth_id}</p>
-                )}
-              </div>
-
-              {/* Checkbox for walk-in authorization */}
-              <div className="bg-gray-50 rounded-lg p-4">
-                <label className="flex items-center gap-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    name="isAuthorizedForWalkin"
-                    checked={walkInFormData.isAuthorizedForWalkin}
-                    onChange={handleWalkInInputChange}
-                    className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500"
-                  />
-                  <div>
-                    <span className="text-gray-700 font-semibold text-sm">
-                      {walkInFormData.isAuthorizedForWalkin ? 'Revoke Authorization' : 'Authorize for Walk-in'}
-                    </span>
-                    <p className="text-xs text-gray-400">
-                      {walkInFormData.isAuthorizedForWalkin 
-                        ? 'Remove walk-in access for this staff member' 
-                        : 'Allow this staff member to accept walk-in customers'}
-                    </p>
+              {/* Add/Update Commission Section */}
+              <div className="border-t border-gray-200 pt-4">
+                <h3 className="text-sm font-semibold text-gray-800 mb-3">Commission</h3>
+                <div>
+                  <label className="block text-gray-700 text-xs font-semibold mb-1">
+                    Commission Amount (%)
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      name="commission_amount"
+                      value={employeeFormData.commission_amount}
+                      onChange={handleEmployeeFormChange}
+                      step="0.01"
+                      min="0"
+                      max="100"
+                      placeholder="e.g., 10 for 10%"
+                      className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                    />
+                    <span className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 text-sm">%</span>
                   </div>
-                </label>
+                  <p className="text-[10px] text-gray-500 mt-1">
+                    Enter the commission percentage for this staff member (e.g., 10 = 10%)
+                  </p>
+                </div>
               </div>
 
-              <div className="flex gap-2 pt-2">
+              {/* Walk-in Authorization Toggle */}
+              <div className="border-t border-gray-200 pt-4">
+                <h3 className="text-sm font-semibold text-gray-800 mb-3">Walk-in Authorization</h3>
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      name="walk_in_authorized"
+                      checked={employeeFormData.walk_in_authorized}
+                      onChange={handleEmployeeFormChange}
+                      className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500"
+                    />
+                    <div>
+                      <span className="text-gray-700 font-semibold text-sm">
+                        {employeeFormData.walk_in_authorized ? 'Revoke Authorization' : 'Authorize for Walk-in'}
+                      </span>
+                      <p className="text-xs text-gray-400">
+                        {employeeFormData.walk_in_authorized 
+                          ? 'Remove walk-in access for this staff member' 
+                          : 'Allow this staff member to accept walk-in customers'}
+                      </p>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              {/* Save Changes Button */}
+              <div className="border-t border-gray-200 pt-4">
                 <button
-                  type="button"
-                  onClick={() => {
-                    setShowWalkInModal(false);
-                    setSelectedEmployee(null);
-                    resetWalkInForm();
-                  }}
-                  className="flex-1 px-3 py-1.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium"
+                  onClick={handleSaveAllChanges}
+                  disabled={isSavingAll}
+                  className="w-full px-3 py-2 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 text-sm font-medium disabled:opacity-50 flex items-center justify-center gap-2"
                 >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isUpdatingWalkIn}
-                  className="flex-1 px-3 py-1.5 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 text-sm font-medium disabled:opacity-50"
-                >
-                  {isUpdatingWalkIn ? 'Updating...' : 'Update Authorization'}
+                  {isSavingAll ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Save size={16} />
+                      Save All Changes
+                    </>
+                  )}
                 </button>
               </div>
-            </form>
+            </div>
           </div>
         </div>
       )}

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { View, Text, TouchableOpacity, ScrollView, Alert, RefreshControl, Modal, TextInput } from "react-native";
+import { View, Text, TouchableOpacity, ScrollView, Alert, RefreshControl, Modal, TextInput, ActivityIndicator } from "react-native";
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "@/contexts/auth-context";
@@ -131,6 +131,339 @@ interface LossDamage {
   updated_at?: string;
 }
 
+// Incident Report Page Component
+const IncidentReportPage = ({ onBack, userId, onSuccess }: { onBack: () => void, userId: number, onSuccess?: () => void }) => {
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [staffList, setStaffList] = useState<any[]>([]);
+  const [isLoadingStaff, setIsLoadingStaff] = useState(true);
+  const [formData, setFormData] = useState({
+    date: '',
+    incident_type: '',
+    category: '',
+    description: '',
+    staff_id: userId,
+    status: 'reported'
+  });
+
+  const incidentTypes = [
+    { label: 'Damage', value: 'damage' },
+    { label: 'Theft', value: 'theft' },
+    { label: 'Others', value: 'others' }
+  ];
+
+  const categories = [
+    { label: 'Product', value: 'product' },
+    { label: 'Service', value: 'service' },
+    { label: 'Other', value: 'other' }
+  ];
+
+  // Fetch staff list
+  const fetchStaffList = async () => {
+    setIsLoadingStaff(true);
+    try {
+      const response = await api.get('/employees');
+      console.log('Fetched staff list:', response.data);
+      if (Array.isArray(response.data)) {
+        setStaffList(response.data);
+      }
+    } catch (error) {
+      console.error('Error fetching staff list:', error);
+      Alert.alert('Error', 'Failed to load staff list');
+    } finally {
+      setIsLoadingStaff(false);
+    }
+  };
+
+  // Set default date to today
+  useEffect(() => {
+    const today = new Date();
+    const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    setFormData(prev => ({ ...prev, date: dateStr, staff_id: userId }));
+    fetchStaffList();
+  }, [userId]);
+
+  const handleInputChange = (field: string, value: string) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleSubmit = async () => {
+    // Validate form
+    if (!formData.date) {
+      Alert.alert('Validation Error', 'Please select a date');
+      return;
+    }
+    if (!formData.incident_type) {
+      Alert.alert('Validation Error', 'Please select an incident type');
+      return;
+    }
+    if (!formData.category) {
+      Alert.alert('Validation Error', 'Please select a category');
+      return;
+    }
+    if (!formData.staff_id) {
+      Alert.alert('Validation Error', 'Please select a staff member');
+      return;
+    }
+    if (!formData.description.trim()) {
+      Alert.alert('Validation Error', 'Please enter a description');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const submitData = {
+        date: formData.date,
+        incident_type: formData.incident_type,
+        category: formData.category,
+        description: formData.description.trim(),
+        staff_id: parseInt(formData.staff_id.toString()),
+        status: 'reported'
+      };
+
+      console.log('Submitting report:', submitData);
+
+      const response = await api.post('/report/add', submitData);
+      console.log('Report submitted:', response.data);
+      
+      Alert.alert('Success', 'Report submitted successfully!');
+      if (onSuccess) onSuccess();
+      onBack();
+    } catch (error: any) {
+      console.error('Error submitting report:', error);
+      Alert.alert(
+        'Error', 
+        error.response?.data?.message || 'Failed to submit report. Please try again.'
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Dropdown component
+  const Dropdown = ({ label, options, value, onSelect, placeholder }: any) => {
+    const [showDropdown, setShowDropdown] = useState(false);
+
+    return (
+      <View className="mb-4">
+        <Text className="text-gray-700 font-semibold text-sm mb-2">{label} *</Text>
+        <TouchableOpacity
+          onPress={() => setShowDropdown(!showDropdown)}
+          className="flex-row items-center justify-between bg-gray-50 rounded-xl px-4 py-3 border border-gray-200"
+        >
+          <Text className={value ? 'text-gray-800' : 'text-gray-400'}>
+            {value ? options.find((opt: any) => opt.value === value)?.label : placeholder || 'Select...'}
+          </Text>
+          <Ionicons name={showDropdown ? "chevron-up" : "chevron-down"} size={20} color="#9ca3af" />
+        </TouchableOpacity>
+        
+        {showDropdown && (
+          <View className="mt-2 bg-white rounded-xl border border-gray-200 shadow-lg overflow-hidden">
+            {options.map((option: any) => (
+              <TouchableOpacity
+                key={option.value}
+                onPress={() => {
+                  onSelect(option.value);
+                  setShowDropdown(false);
+                }}
+                className={`px-4 py-3 ${
+                  value === option.value ? 'bg-pink-50' : ''
+                } ${option !== options[options.length - 1] ? 'border-b border-gray-100' : ''}`}
+              >
+                <Text className={value === option.value ? 'text-pink-600 font-semibold' : 'text-gray-700'}>
+                  {option.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+      </View>
+    );
+  };
+
+  // Staff Dropdown component
+  const StaffDropdown = ({ label, value, onSelect, placeholder }: any) => {
+    const [showDropdown, setShowDropdown] = useState(false);
+
+    const getStaffName = (staffId: number) => {
+      const staff = staffList.find(s => s.id === staffId);
+      if (!staff) return '';
+      return `${staff.first_name} ${staff.last_name}`;
+    };
+
+    return (
+      <View className="mb-4">
+        <Text className="text-gray-700 font-semibold text-sm mb-2">{label} *</Text>
+        <TouchableOpacity
+          onPress={() => setShowDropdown(!showDropdown)}
+          className="flex-row items-center justify-between bg-gray-50 rounded-xl px-4 py-3 border border-gray-200"
+        >
+          <Text className={value ? 'text-gray-800' : 'text-gray-400'}>
+            {value ? getStaffName(value) : placeholder || 'Select staff member...'}
+          </Text>
+          <Ionicons name={showDropdown ? "chevron-up" : "chevron-down"} size={20} color="#9ca3af" />
+        </TouchableOpacity>
+        
+        {showDropdown && (
+          <View className="mt-2 bg-white rounded-xl border border-gray-200 shadow-lg overflow-hidden">
+            {isLoadingStaff ? (
+              <View className="px-4 py-3">
+                <ActivityIndicator size="small" color="#ec4899" />
+                <Text className="text-gray-500 text-xs text-center mt-1">Loading staff...</Text>
+              </View>
+            ) : staffList.length === 0 ? (
+              <View className="px-4 py-3">
+                <Text className="text-gray-500 text-xs text-center">No staff members found</Text>
+              </View>
+            ) : (
+              staffList.map((staff) => (
+                <TouchableOpacity
+                  key={staff.id}
+                  onPress={() => {
+                    onSelect(staff.id);
+                    setShowDropdown(false);
+                  }}
+                  className={`px-4 py-3 ${
+                    value === staff.id ? 'bg-pink-50' : ''
+                  } ${staff !== staffList[staffList.length - 1] ? 'border-b border-gray-100' : ''}`}
+                >
+                  <Text className={value === staff.id ? 'text-pink-600 font-semibold' : 'text-gray-700'}>
+                    {staff.first_name} {staff.last_name}
+                  </Text>
+                </TouchableOpacity>
+              ))
+            )}
+          </View>
+        )}
+      </View>
+    );
+  };
+
+  return (
+    <View className="flex-1 bg-gray-50">
+      <View className="bg-gradient-to-r from-red-500 to-red-600 px-5 pt-12 pb-4">
+        <View className="flex-row items-center justify-between">
+          <TouchableOpacity onPress={onBack} className="p-1">
+            <Ionicons name="arrow-back" size={24} color="white" />
+          </TouchableOpacity>
+          <Text className="text-white text-lg font-semibold">Report Incident</Text>
+          <View style={{ width: 32 }} />
+        </View>
+      </View>
+
+      <ScrollView className="flex-1 p-5" showsVerticalScrollIndicator={false}>
+        <View className="bg-white rounded-2xl p-5 shadow-sm mb-5">
+          <View className="items-center mb-5">
+            <View className="w-16 h-16 bg-red-100 rounded-full items-center justify-center mb-3">
+              <Ionicons name="alert-circle" size={32} color="#ef4444" />
+            </View>
+            <Text className="text-gray-800 text-lg font-semibold text-center">
+              Report an Incident
+            </Text>
+            <Text className="text-gray-500 text-sm text-center mt-1">
+              Report damage, theft, or other incidents
+            </Text>
+          </View>
+
+          {/* Date Input */}
+          <View className="mb-4">
+            <Text className="text-gray-700 font-semibold text-sm mb-2">Date *</Text>
+            <View className="flex-row items-center bg-gray-50 rounded-xl px-4 py-3 border border-gray-200">
+              <Ionicons name="calendar-outline" size={20} color="#9ca3af" />
+              <TextInput
+                value={formData.date}
+                onChangeText={(text) => handleInputChange('date', text)}
+                placeholder="YYYY-MM-DD"
+                className="flex-1 ml-2 text-gray-800"
+              />
+            </View>
+          </View>
+
+          {/* Incident Type Dropdown */}
+          <Dropdown
+            label="Incident Type"
+            options={incidentTypes}
+            value={formData.incident_type}
+            onSelect={(value: string) => handleInputChange('incident_type', value)}
+            placeholder="Select incident type..."
+          />
+
+          {/* Category Dropdown */}
+          <Dropdown
+            label="Category"
+            options={categories}
+            value={formData.category}
+            onSelect={(value: string) => handleInputChange('category', value)}
+            placeholder="Select category..."
+          />
+
+          {/* Staff Dropdown */}
+          <StaffDropdown
+            label="Staff Member"
+            value={formData.staff_id}
+            onSelect={(value: number) => handleInputChange('staff_id', value.toString())}
+            placeholder="Select staff member..."
+          />
+
+          {/* Description */}
+          <View className="mb-4">
+            <Text className="text-gray-700 font-semibold text-sm mb-2">Description *</Text>
+            <TextInput
+              value={formData.description}
+              onChangeText={(text) => handleInputChange('description', text)}
+              placeholder="Describe the incident in detail..."
+              multiline
+              numberOfLines={4}
+              textAlignVertical="top"
+              className="border border-gray-200 rounded-xl p-3 text-gray-700 min-h-[120px]"
+            />
+          </View>
+
+          {/* Status Info - Read-only */}
+          <View className="bg-gray-50 rounded-xl p-3 mb-4 border border-gray-200">
+            <View className="flex-row items-center gap-2">
+              <Ionicons name="information-circle-outline" size={18} color="#6b7280" />
+              <Text className="text-gray-600 text-sm">
+                Status: <Text className="font-semibold">Reported</Text> (default)
+              </Text>
+            </View>
+          </View>
+
+          {/* Info Box */}
+          <View className="bg-yellow-50 rounded-xl p-3 mb-4 border border-yellow-200">
+            <View className="flex-row items-start gap-2">
+              <Ionicons name="information-circle-outline" size={18} color="#eab308" />
+              <Text className="text-yellow-700 text-xs flex-1">
+                Please provide accurate information about the incident. 
+                This report will be reviewed by the management.
+              </Text>
+            </View>
+          </View>
+
+          {/* Action Buttons */}
+          <View className="flex-row gap-3">
+            <TouchableOpacity
+              onPress={onBack}
+              className="flex-1 py-3 rounded-xl border border-gray-300 bg-white"
+            >
+              <Text className="text-gray-700 text-center font-semibold">Cancel</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              onPress={handleSubmit}
+              disabled={isSubmitting}
+              className="flex-1 py-3 rounded-xl bg-red-600"
+            >
+              <Text className="text-white text-center font-semibold">
+                {isSubmitting ? 'Submitting...' : 'Submit Report'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </ScrollView>
+    </View>
+  );
+};
+
 export default function StaffDashboard() {
   const [activeTab, setActiveTab] = useState<'home' | 'appointments' | 'schedule' | 'walkin' | 'settings'>('home');
   const [refreshing, setRefreshing] = useState(false);
@@ -140,6 +473,7 @@ export default function StaffDashboard() {
   const [isSubmittingRemit, setIsSubmittingRemit] = useState(false);
   const [totalProfit, setTotalProfit] = useState(0);
   const [remitAmount, setRemitAmount] = useState(0);
+  const [isLoadingRemit, setIsLoadingRemit] = useState(false);
 
   // Report states
   const [showReportModal, setShowReportModal] = useState(false);
@@ -154,6 +488,9 @@ export default function StaffDashboard() {
     transaction_id: ''
   });
   const [isSubmittingReport, setIsSubmittingReport] = useState(false);
+  
+  // State for report page navigation
+  const [showReportPage, setShowReportPage] = useState(false);
   
   // Local state for data
   const [staffAppointments, setStaffAppointments] = useState<Appointment[]>([]);
@@ -170,7 +507,6 @@ export default function StaffDashboard() {
 
   // Fetch staff appointments
   const fetchStaffAppointments = async () => {
-    setIsLoading(true);
     try {
       const userData = user;
       if (!userData?.id) {
@@ -206,8 +542,6 @@ export default function StaffDashboard() {
     } catch (error) {
       console.log("Error fetching staff appointments:", error);
       return [];
-    } finally {
-      setIsLoading(false);
     }
   };
 
@@ -343,7 +677,7 @@ export default function StaffDashboard() {
     }
   };
 
-  // Submit loss damage
+  // Submit loss damage (modal version)
   const submitLossDamage = async (data: any) => {
     try {
       const response = await api.post('/report/submit', data);
@@ -396,19 +730,36 @@ export default function StaffDashboard() {
     const todayStr = getTodayDateStr();
     const currentStaffId = user?.id;
     
+    console.log("=== Calculating Today's Earnings ===");
+    console.log("Today's date:", todayStr);
+    console.log("Current staff ID:", currentStaffId);
+    console.log("Total staff appointments:", staffAppointments.length);
+    console.log("Total walk-ins:", walkIns.length);
+    
     // Get today's completed appointments for this staff member
     const todayCompletedAppointments = staffAppointments.filter(app => {
       const appointmentDate = app.appointment_date;
       const isCompleted = app.service_status === 'completed' || app.status === 'completed';
-      return appointmentDate === todayStr && isCompleted;
+      const matches = appointmentDate === todayStr && isCompleted;
+      if (matches) {
+        console.log("Found completed appointment:", app.id, app.service_name, app.price);
+      }
+      return matches;
     });
     
     // Get today's completed walk-ins for this staff member
     const todayCompletedWalkIns = walkIns.filter((walkIn: WalkIn) => {
       const walkInDate = walkIn.created_at ? walkIn.created_at.split('T')[0] : '';
       const isFinished = walkIn.is_finished === 1;
-      return walkInDate === todayStr && walkIn.stylist_id === currentStaffId && isFinished;
+      const matches = walkInDate === todayStr && walkIn.stylist_id === currentStaffId && isFinished;
+      if (matches) {
+        console.log("Found completed walk-in:", walkIn.id, walkIn.customer_name, walkIn.services?.price);
+      }
+      return matches;
     });
+    
+    console.log("Today's completed appointments:", todayCompletedAppointments.length);
+    console.log("Today's completed walk-ins:", todayCompletedWalkIns.length);
     
     // Calculate total earnings from appointments
     const appointmentEarnings = todayCompletedAppointments.reduce((sum, app) => {
@@ -435,6 +786,11 @@ export default function StaffDashboard() {
     // Calculate profit (total earnings - commission earnings)
     const profit = totalEarnings - commissionEarnings;
     
+    console.log("Total earnings:", totalEarnings);
+    console.log("Commission rate:", commissionRate);
+    console.log("Commission earnings:", commissionEarnings);
+    console.log("Profit:", profit);
+    
     return {
       totalEarnings,
       commissionRate,
@@ -449,16 +805,48 @@ export default function StaffDashboard() {
   };
 
   // Load remittance data
-  const loadRemittanceData = () => {
-    const earnings = getTodayEarnings();
-    setTotalProfit(earnings.profit);
-    setRemitAmount(earnings.profit);
+  const loadRemittanceData = async () => {
+    console.log("Loading remittance data...");
+    setIsLoadingRemit(true);
+    try {
+      // Refresh all data first
+      await Promise.all([
+        fetchStaffAppointments(),
+        fetchWalkIns(),
+        fetchEmployeeCommissions()
+      ]);
+      
+      console.log("Data refreshed. Staff appointments:", staffAppointments.length);
+      console.log("Data refreshed. Walk-ins:", walkIns.length);
+      console.log("Data refreshed. Commissions:", employeeCommissions.length);
+      
+      // Now calculate earnings with fresh data
+      const earnings = getTodayEarnings();
+      console.log("Earnings calculated:", earnings);
+      
+      setTotalProfit(earnings.profit);
+      setRemitAmount(earnings.profit);
+      
+      return earnings;
+    } catch (error) {
+      console.error("Error loading remittance data:", error);
+      throw error;
+    } finally {
+      setIsLoadingRemit(false);
+    }
   };
 
   // Handle open remit modal
-  const handleOpenRemitModal = () => {
-    loadRemittanceData();
-    setShowRemitModal(true);
+  const handleOpenRemitModal = async () => {
+    console.log("Opening remit modal...");
+    try {
+      await loadRemittanceData();
+      console.log("Modal data loaded, showing modal");
+      setShowRemitModal(true);
+    } catch (error) {
+      console.error("Error loading remittance data:", error);
+      Alert.alert("Error", "Failed to load remittance data. Please try again.");
+    }
   };
 
   // Handle submit remittance
@@ -501,7 +889,7 @@ export default function StaffDashboard() {
     }
   };
 
-  // Handle submit report
+  // Handle submit report (modal version)
   const handleSubmitReport = async () => {
     // Validate form
     if (!reportFormData.incident_type) {
@@ -651,11 +1039,12 @@ export default function StaffDashboard() {
     }
   };
 
-  // Remittance Modal - Memoized to prevent re-renders
+  // Remittance Modal
   const RemittanceModal = React.memo(() => {
-    // Local state for the modal to prevent re-renders
+    // Local state for the modal
     const [localRemitAmount, setLocalRemitAmount] = useState(remitAmount);
     const [localIsSubmitting, setLocalIsSubmitting] = useState(isSubmittingRemit);
+    const [localEarnings, setLocalEarnings] = useState(getTodayEarnings());
 
     // Update local state when props change
     useEffect(() => {
@@ -665,6 +1054,19 @@ export default function StaffDashboard() {
     useEffect(() => {
       setLocalIsSubmitting(isSubmittingRemit);
     }, [isSubmittingRemit]);
+
+    // Refresh earnings when modal becomes visible
+    useEffect(() => {
+      if (showRemitModal) {
+        console.log("Modal visible, recalculating earnings...");
+        const earnings = getTodayEarnings();
+        console.log("Earnings data:", earnings);
+        setLocalEarnings(earnings);
+        setTotalProfit(earnings.profit);
+        setRemitAmount(earnings.profit);
+        setLocalRemitAmount(earnings.profit);
+      }
+    }, [showRemitModal]);
 
     const handleAmountChange = (text: string) => {
       const num = parseFloat(text) || 0;
@@ -680,9 +1082,6 @@ export default function StaffDashboard() {
       }
       await handleSubmitRemittance();
     };
-
-    // Get earnings data for display
-    const earnings = getTodayEarnings();
 
     return (
       <Modal
@@ -711,43 +1110,43 @@ export default function StaffDashboard() {
               <View className="bg-gray-50 rounded-xl p-4 mb-4">
                 <View className="flex-row justify-between items-center mb-2">
                   <Text className="text-gray-600">Appointments Completed</Text>
-                  <Text className="text-blue-600 font-bold">{earnings.appointmentCount}</Text>
+                  <Text className="text-blue-600 font-bold">{localEarnings.appointmentCount}</Text>
                 </View>
                 <View className="flex-row justify-between items-center mb-2">
                   <Text className="text-gray-600">Walk-ins Completed</Text>
-                  <Text className="text-green-600 font-bold">{earnings.walkInCount}</Text>
+                  <Text className="text-green-600 font-bold">{localEarnings.walkInCount}</Text>
                 </View>
                 <View className="flex-row justify-between items-center mb-2 border-t border-gray-200 pt-2">
                   <Text className="text-gray-600">Total Services Completed</Text>
-                  <Text className="text-pink-600 font-bold">{earnings.totalCount}</Text>
+                  <Text className="text-pink-600 font-bold">{localEarnings.totalCount}</Text>
                 </View>
                 <View className="flex-row justify-between items-center mb-2">
                   <Text className="text-gray-600">Appointment Earnings</Text>
-                  <Text className="text-blue-600 font-bold text-lg">₱{earnings.appointmentEarnings.toLocaleString()}</Text>
+                  <Text className="text-blue-600 font-bold text-lg">₱{localEarnings.appointmentEarnings.toLocaleString()}</Text>
                 </View>
                 <View className="flex-row justify-between items-center mb-2">
                   <Text className="text-gray-600">Walk-in Earnings</Text>
-                  <Text className="text-green-600 font-bold text-lg">₱{earnings.walkInEarnings.toLocaleString()}</Text>
+                  <Text className="text-green-600 font-bold text-lg">₱{localEarnings.walkInEarnings.toLocaleString()}</Text>
                 </View>
                 <View className="flex-row justify-between items-center mb-2 border-t border-gray-200 pt-2">
                   <Text className="text-gray-600 font-bold">Total Earnings</Text>
-                  <Text className="text-pink-600 font-bold text-lg">₱{earnings.totalEarnings.toLocaleString()}</Text>
+                  <Text className="text-pink-600 font-bold text-lg">₱{localEarnings.totalEarnings.toLocaleString()}</Text>
                 </View>
                 
-                {/* Commission Section - Shows both appointments and walk-ins are affected */}
+                {/* Commission Section */}
                 <View className="mt-2 bg-pink-50 rounded-xl p-3">
                   <Text className="text-gray-700 font-semibold text-sm mb-2">Commission Calculation</Text>
                   <View className="flex-row justify-between items-center mb-1">
                     <Text className="text-gray-600 text-xs">Commission Rate</Text>
-                    <Text className="text-pink-600 font-bold">{earnings.commissionRate * 100}%</Text>
+                    <Text className="text-pink-600 font-bold">{localEarnings.commissionRate * 100}%</Text>
                   </View>
                   <View className="flex-row justify-between items-center mb-1">
-                    <Text className="text-gray-600 text-xs">Applied to Total Earnings (Appointments + Walk-ins)</Text>
+                    <Text className="text-gray-600 text-xs">Applied to Total Earnings</Text>
                     <Text className="text-pink-600 font-bold">✓</Text>
                   </View>
                   <View className="flex-row justify-between items-center pt-1 border-t border-pink-200">
                     <Text className="text-gray-700 font-semibold">Commission Amount</Text>
-                    <Text className="text-orange-600 font-bold text-lg">₱{earnings.commissionEarnings.toLocaleString()}</Text>
+                    <Text className="text-orange-600 font-bold text-lg">₱{localEarnings.commissionEarnings.toLocaleString()}</Text>
                   </View>
                 </View>
                 
@@ -757,7 +1156,7 @@ export default function StaffDashboard() {
                     <Text className="text-pink-600 font-bold text-xl">₱{totalProfit.toLocaleString()}</Text>
                   </View>
                   <Text className="text-gray-400 text-xs mt-1">
-                    Total Earnings - Commission ({earnings.commissionRate * 100}%)
+                    Total Earnings - Commission ({localEarnings.commissionRate * 100}%)
                   </Text>
                 </View>
               </View>
@@ -846,15 +1245,15 @@ export default function StaffDashboard() {
               {/* Submit Button */}
               <TouchableOpacity
                 onPress={handleSubmit}
-                disabled={localIsSubmitting || earnings.totalCount === 0}
-                className={`py-3 rounded-xl mt-2 ${earnings.totalCount === 0 ? 'bg-gray-400' : 'bg-pink-500'}`}
+                disabled={localIsSubmitting || localEarnings.totalCount === 0}
+                className={`py-3 rounded-xl mt-2 ${localEarnings.totalCount === 0 ? 'bg-gray-400' : 'bg-pink-500'}`}
               >
                 <Text className="text-white text-center font-semibold">
                   {localIsSubmitting ? 'Submitting...' : 'Submit Remittance'}
                 </Text>
               </TouchableOpacity>
               
-              {earnings.totalCount === 0 && (
+              {localEarnings.totalCount === 0 && (
                 <Text className="text-gray-400 text-xs text-center mt-2">
                   No completed services to remit
                 </Text>
@@ -869,7 +1268,7 @@ export default function StaffDashboard() {
     );
   });
 
-  // Report Modal
+  // Report Modal (for reporting from appointments)
   const ReportModal = React.memo(() => {
     const [localReportFormData, setLocalReportFormData] = useState(reportFormData);
     const [localIsSubmitting, setLocalIsSubmitting] = useState(isSubmittingReport);
@@ -1083,6 +1482,20 @@ export default function StaffDashboard() {
   });
 
   const renderContent = () => {
+    // If showing report page, render it instead of settings
+    if (showReportPage) {
+      return (
+        <IncidentReportPage 
+          onBack={() => setShowReportPage(false)}
+          userId={user?.id || 0}
+          onSuccess={() => {
+            // Refresh data after submitting report
+            fetchLossDamages();
+          }}
+        />
+      );
+    }
+
     switch(activeTab) {
       case 'home':
         return (
@@ -1139,12 +1552,22 @@ export default function StaffDashboard() {
             <View className="px-5 mt-4">
               <TouchableOpacity
                 onPress={handleOpenRemitModal}
+                disabled={isLoadingRemit}
                 className="bg-gradient-to-r from-pink-500 to-pink-600 py-4 rounded-2xl shadow-lg"
               >
                 <View className="flex-row items-center justify-center gap-3">
-                  <Ionicons name="cash-outline" size={24} color="white" />
-                  <Text className="text-white font-bold text-lg">Remit Profit</Text>
-                  <Ionicons name="arrow-forward-circle-outline" size={24} color="white" />
+                  {isLoadingRemit ? (
+                    <>
+                      <ActivityIndicator size="small" color="white" />
+                      <Text className="text-white font-bold text-lg">Loading...</Text>
+                    </>
+                  ) : (
+                    <>
+                      <Ionicons name="cash-outline" size={24} color="white" />
+                      <Text className="text-white font-bold text-lg">Remit Profit</Text>
+                      <Ionicons name="arrow-forward-circle-outline" size={24} color="white" />
+                    </>
+                  )}
                 </View>
               </TouchableOpacity>
             </View>
@@ -1287,9 +1710,19 @@ export default function StaffDashboard() {
                   <Text className="ml-3 flex-1 text-gray-700">Notifications</Text>
                   <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
                 </TouchableOpacity>
-                <TouchableOpacity className="flex-row items-center px-5 py-4">
+                <TouchableOpacity className="flex-row items-center px-5 py-4 border-b border-gray-100">
                   <Ionicons name="lock-closed-outline" size={22} color="#ec4899" />
                   <Text className="ml-3 flex-1 text-gray-700">Privacy & Security</Text>
+                  <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
+                </TouchableOpacity>
+                
+                {/* Report Incident Button */}
+                <TouchableOpacity 
+                  className="flex-row items-center px-5 py-4 border-b border-gray-100"
+                  onPress={() => setShowReportPage(true)}
+                >
+                  <Ionicons name="alert-circle-outline" size={22} color="#ef4444" />
+                  <Text className="ml-3 flex-1 text-red-600 font-semibold">Report Incident</Text>
                   <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
                 </TouchableOpacity>
               </View>
@@ -1326,7 +1759,10 @@ export default function StaffDashboard() {
       <View className="flex-row justify-around items-center border-t border-gray-200 bg-white py-3">
         <TouchableOpacity 
           className="items-center py-1 px-5"
-          onPress={() => setActiveTab('home')}
+          onPress={() => {
+            setShowReportPage(false);
+            setActiveTab('home');
+          }}
         >
           <Ionicons 
             name={activeTab === 'home' ? "home" : "home-outline"} 
@@ -1340,7 +1776,10 @@ export default function StaffDashboard() {
 
         <TouchableOpacity 
           className="items-center py-1 px-5"
-          onPress={() => setActiveTab('appointments')}
+          onPress={() => {
+            setShowReportPage(false);
+            setActiveTab('appointments');
+          }}
         >
           <Ionicons 
             name={activeTab === 'appointments' ? "calendar" : "calendar-outline"} 
@@ -1354,7 +1793,10 @@ export default function StaffDashboard() {
 
         <TouchableOpacity 
           className="items-center py-1 px-5"
-          onPress={() => setActiveTab('walkin')}
+          onPress={() => {
+            setShowReportPage(false);
+            setActiveTab('walkin');
+          }}
         >
           <Ionicons 
             name={activeTab === 'walkin' ? "person-add" : "person-add-outline"} 
@@ -1368,7 +1810,10 @@ export default function StaffDashboard() {
 
         <TouchableOpacity 
           className="items-center py-1 px-5"
-          onPress={() => setActiveTab('schedule')}
+          onPress={() => {
+            setShowReportPage(false);
+            setActiveTab('schedule');
+          }}
         >
           <Ionicons 
             name={activeTab === 'schedule' ? "calendar" : "calendar-outline"} 
@@ -1382,7 +1827,10 @@ export default function StaffDashboard() {
 
         <TouchableOpacity 
           className="items-center py-1 px-5"
-          onPress={() => setActiveTab('settings')}
+          onPress={() => {
+            setShowReportPage(false);
+            setActiveTab('settings');
+          }}
         >
           <Ionicons 
             name={activeTab === 'settings' ? "settings" : "settings-outline"} 

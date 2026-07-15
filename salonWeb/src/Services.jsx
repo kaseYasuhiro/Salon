@@ -3,7 +3,7 @@ import {
   Scissors, Sparkles, Hand, Clock, DollarSign, 
   Edit, Eye, Plus, Search, Filter, Trash2,
   Star, Users, Calendar, Package, Activity, X, AlertCircle,
-  ChevronDown, CheckCircle, Tag
+  ChevronDown, CheckCircle, Tag, Save
 } from 'lucide-react';
 import api from '../api/axios';
 
@@ -13,7 +13,7 @@ function Services() {
   const [services, setServices] = useState([]);
   const [allProducts, setAllProducts] = useState([]);
   const [specialtiesList, setSpecialtiesList] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [isLoadingUsages, setIsLoadingUsages] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [showUsageModal, setShowUsageModal] = useState(false);
@@ -21,12 +21,10 @@ function Services() {
   const [selectedServiceUsages, setSelectedServiceUsages] = useState([]);
   const [editingService, setEditingService] = useState(null);
   const [formError, setFormError] = useState('');
-  const [usageFormError, setUsageFormError] = useState('');
   const [showProductDropdown, setShowProductDropdown] = useState(false);
   const [productSearchTerm, setProductSearchTerm] = useState('');
   const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
-  const [isAddingSpecialty, setIsAddingSpecialty] = useState(false);
-  const [specialtyError, setSpecialtyError] = useState('');
+  const [isSavingAll, setIsSavingAll] = useState(false);
 
   const [usageFormData, setUsageFormData] = useState({
     service_id: '',
@@ -178,13 +176,11 @@ function Services() {
   const handleUsageInputChange = (e) => {
     const { name, value } = e.target;
     setUsageFormData(prev => ({ ...prev, [name]: value }));
-    setUsageFormError('');
   };
 
   const handleServiceSpecialtyChange = (e) => {
     const { name, value } = e.target;
     setServiceSpecialtyFormData(prev => ({ ...prev, [name]: value }));
-    setSpecialtyError('');
   };
 
   // Handle product selection from dropdown
@@ -203,132 +199,71 @@ function Services() {
     product.product_name.toLowerCase().includes(productSearchTerm.toLowerCase())
   );
 
-  // Add service specialty
-  const handleAddServiceSpecialty = async (e) => {
-    e.preventDefault();
-    
-    if (!serviceSpecialtyFormData.specialty_id) {
-      setSpecialtyError('Please select a specialty');
+  // SAVE ALL CHANGES - Single API call
+  const handleSaveAllChanges = async () => {
+    if (!selectedService) return;
+
+    // Validate that we have at least one change to save
+    const hasSpecialtyToAdd = serviceSpecialtyFormData.specialty_id;
+    const hasProductToAdd = usageFormData.product_id && usageFormData.estimated_usage;
+
+    if (!hasSpecialtyToAdd && !hasProductToAdd) {
+      showToast('No changes to save. Please add a specialty or product usage.', 'info');
       return;
     }
 
-    setIsAddingSpecialty(true);
+    setIsSavingAll(true);
     try {
-      await api.post('/services/specialty/add', {
-        service_id: parseInt(serviceSpecialtyFormData.service_id),
-        specialty_id: parseInt(serviceSpecialtyFormData.specialty_id)
-      });
+      // Prepare the data for the single API call
+      const updateData = {
+        service_id: selectedService.id,
+        specialty_id: hasSpecialtyToAdd ? parseInt(serviceSpecialtyFormData.specialty_id) : null,
+        product_id: hasProductToAdd ? parseInt(usageFormData.product_id) : null,
+        estimated_usage: hasProductToAdd ? parseFloat(usageFormData.estimated_usage) : null
+      };
+
+      console.log('Saving all changes with:', updateData);
+
+      // Single API call to update everything
+      const response = await api.post('/services/update-all', updateData);
       
-      showToast('Specialty added to service successfully!', 'success');
-      setServiceSpecialtyFormData({
-        service_id: selectedService?.id || '',
-        specialty_id: ''
-      });
-      await fetchServices();
-      if (selectedService) {
-        await fetchProductUsages(selectedService.id);
+      console.log('Update response:', response.data);
+
+      if (response.data.success) {
+        showToast(response.data.message, 'success');
+        
+        // Reset forms after successful save
+        setServiceSpecialtyFormData({
+          service_id: selectedService.id,
+          specialty_id: ''
+        });
+        setUsageFormData({
+          service_id: selectedService.id,
+          product_id: '',
+          product_name: '',
+          estimated_usage: ''
+        });
+        setProductSearchTerm('');
+        
+        // Refresh everything
+        await Promise.all([
+          fetchServices(),
+          fetchProductUsages(selectedService.id)
+        ]);
+      } else {
+        showToast(response.data.message || 'Some changes could not be saved.', 'warning');
+        // Refresh to show current state
+        await Promise.all([
+          fetchServices(),
+          fetchProductUsages(selectedService.id)
+        ]);
       }
+
     } catch (error) {
-      console.error('Error adding service specialty:', error);
-      setSpecialtyError(error.response?.data?.message || 'Error adding specialty');
-      showToast(error.response?.data?.message || 'Error adding specialty', 'error');
+      console.error('Error saving all changes:', error);
+      showToast(error.response?.data?.message || 'Error saving changes. Please try again.', 'error');
     } finally {
-      setIsAddingSpecialty(false);
-    }
-  };
-
-  // Format specialty name for display
-  const formatSpecialtyName = (specialtyName) => {
-    if (!specialtyName) return '';
-    return specialtyName.split('_').map(word => 
-      word.charAt(0).toUpperCase() + word.slice(1)
-    ).join(' ');
-  };
-
-  // Get specialty icon
-  const getSpecialtyIcon = (specialtyName) => {
-    const name = specialtyName?.toLowerCase();
-    if (name === 'stylist') return <Scissors size={10} />;
-    if (name === 'barber') return <Scissors size={10} />;
-    if (name === 'nail_technician') return <Hand size={10} />;
-    if (name === 'massage_therapist') return <Activity size={10} />;
-    if (name === 'makeup_artist') return <Star size={10} />;
-    if (name === 'esthetician') return <Sparkles size={10} />;
-    return <Star size={10} />;
-  };
-
-  // Get product name from service product usage
-  const getProductNameFromUsage = (usage) => {
-    if (usage.product && usage.product.product_name) {
-      return usage.product.product_name;
-    }
-    if (usage.product_name) {
-      return usage.product_name;
-    }
-    const foundProduct = allProducts.find(p => p.id === usage.product_id);
-    if (foundProduct) {
-      return foundProduct.product_name;
-    }
-    return `Product ID: ${usage.product_id}`;
-  };
-
-  // Get product unit from service product usage
-  const getProductUnit = (usage) => {
-    if (usage.product && usage.product.unit) {
-      return usage.product.unit;
-    }
-    const foundProduct = allProducts.find(p => p.id === usage.product_id);
-    if (foundProduct && foundProduct.unit) {
-      return foundProduct.unit;
-    }
-    return '';
-  };
-
-  // Get product unit size from service product usage
-  const getProductUnitSize = (usage) => {
-    if (usage.product && usage.product.unit_size) {
-      return usage.product.unit_size;
-    }
-    const foundProduct = allProducts.find(p => p.id === usage.product_id);
-    if (foundProduct && foundProduct.unit_size) {
-      return foundProduct.unit_size;
-    }
-    return '';
-  };
-
-  // Add product usage for service
-  const handleAddProductUsage = async (e) => {
-    e.preventDefault();
-    
-    if (!usageFormData.service_id || !usageFormData.product_id || !usageFormData.estimated_usage) {
-      setUsageFormError('Please select a product and enter estimated usage');
-      return;
-    }
-
-    setIsLoadingUsages(true);
-    try {
-      const response = await api.post('/service/usage/add', {
-        service_id: parseInt(usageFormData.service_id),
-        product_id: parseInt(usageFormData.product_id),
-        estimated_usage: parseFloat(usageFormData.estimated_usage)
-      });
-      
-      console.log('Product usage added:', response.data);
-      showToast('Product usage added successfully!', 'success');
-      setUsageFormData({
-        service_id: selectedService?.id || '',
-        product_id: '',
-        product_name: '',
-        estimated_usage: ''
-      });
-      setProductSearchTerm('');
-      await fetchProductUsages(selectedService.id);
-    } catch (error) {
-      console.error('Error adding product usage:', error);
-      setUsageFormError(error.response?.data?.message || 'Error adding product usage');
-      showToast(error.response?.data?.message || 'Error adding product usage', 'error');
-    } finally {
-      setIsLoadingUsages(false);
+      setIsSavingAll(false);
     }
   };
 
@@ -449,7 +384,6 @@ function Services() {
       specialty_id: ''
     });
     setProductSearchTerm('');
-    setSpecialtyError('');
     await fetchProductUsages(service.id);
     setShowUsageModal(true);
   };
@@ -466,6 +400,65 @@ function Services() {
     if (searchTerm && !service.service_name.toLowerCase().includes(searchTerm.toLowerCase())) return false;
     return true;
   });
+
+  // Format specialty name for display
+  const formatSpecialtyName = (specialtyName) => {
+    if (!specialtyName) return '';
+    return specialtyName.split('_').map(word => 
+      word.charAt(0).toUpperCase() + word.slice(1)
+    ).join(' ');
+  };
+
+  // Get specialty icon
+  const getSpecialtyIcon = (specialtyName) => {
+    const name = specialtyName?.toLowerCase();
+    if (name === 'stylist') return <Scissors size={10} />;
+    if (name === 'barber') return <Scissors size={10} />;
+    if (name === 'nail_technician') return <Hand size={10} />;
+    if (name === 'massage_therapist') return <Activity size={10} />;
+    if (name === 'makeup_artist') return <Star size={10} />;
+    if (name === 'esthetician') return <Sparkles size={10} />;
+    return <Star size={10} />;
+  };
+
+  // Get product name from service product usage
+  const getProductNameFromUsage = (usage) => {
+    if (usage.product && usage.product.product_name) {
+      return usage.product.product_name;
+    }
+    if (usage.product_name) {
+      return usage.product_name;
+    }
+    const foundProduct = allProducts.find(p => p.id === usage.product_id);
+    if (foundProduct) {
+      return foundProduct.product_name;
+    }
+    return `Product ID: ${usage.product_id}`;
+  };
+
+  // Get product unit from service product usage
+  const getProductUnit = (usage) => {
+    if (usage.product && usage.product.unit) {
+      return usage.product.unit;
+    }
+    const foundProduct = allProducts.find(p => p.id === usage.product_id);
+    if (foundProduct && foundProduct.unit) {
+      return foundProduct.unit;
+    }
+    return '';
+  };
+
+  // Get product unit size from service product usage
+  const getProductUnitSize = (usage) => {
+    if (usage.product && usage.product.unit_size) {
+      return usage.product.unit_size;
+    }
+    const foundProduct = allProducts.find(p => p.id === usage.product_id);
+    if (foundProduct && foundProduct.unit_size) {
+      return foundProduct.unit_size;
+    }
+    return '';
+  };
 
   if (isLoading && services.length === 0) {
     return (
@@ -484,7 +477,9 @@ function Services() {
       {toast.show && (
         <div className="fixed top-4 right-4 z-50 animate-slide-in">
           <div className={`rounded-lg shadow-lg p-4 flex items-center gap-3 ${
-            toast.type === 'success' ? 'bg-green-500' : 'bg-red-500'
+            toast.type === 'success' ? 'bg-green-500' : 
+            toast.type === 'warning' ? 'bg-yellow-500' :
+            'bg-red-500'
           } text-white min-w-[300px]`}>
             {toast.type === 'success' ? (
               <CheckCircle size={20} />
@@ -763,25 +758,48 @@ function Services() {
         </div>
       )}
 
-      {/* Service Details Modal */}
+      {/* Service Details Modal with Save All Button - WITH HIDDEN SCROLLBAR */}
       {showUsageModal && selectedService && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl mx-4 overflow-hidden max-h-[85vh] overflow-y-auto">
-            <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-5 py-3 flex items-center justify-between sticky top-0">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl mx-4 overflow-hidden max-h-[85vh]">
+            <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-5 py-3 flex items-center justify-between sticky top-0 z-10">
               <h2 className="text-lg font-bold text-white">{selectedService.service_name}</h2>
-              <button 
-                onClick={() => {
-                  setShowUsageModal(false);
-                  setSelectedService(null);
-                  setSelectedServiceUsages([]);
-                }}
-                className="text-white hover:bg-white/20 rounded-lg p-1 transition-colors"
-              >
-                <X size={20} />
-              </button>
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={handleSaveAllChanges}
+                  disabled={isSavingAll}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-white text-pink-600 rounded-lg hover:bg-pink-50 transition-colors text-sm font-medium disabled:opacity-50"
+                >
+                  {isSavingAll ? (
+                    <>
+                      <div className="w-3 h-3 border-2 border-pink-600 border-t-transparent rounded-full animate-spin"></div>
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Save size={14} />
+                      Save All Changes
+                    </>
+                  )}
+                </button>
+                <button 
+                  onClick={() => {
+                    setShowUsageModal(false);
+                    setSelectedService(null);
+                    setSelectedServiceUsages([]);
+                  }}
+                  className="text-white hover:bg-white/20 rounded-lg p-1 transition-colors"
+                >
+                  <X size={20} />
+                </button>
+              </div>
             </div>
 
-            <div className="p-5">
+            {/* Scrollable content with hidden scrollbar */}
+            <div 
+              className="p-5 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+              style={{ maxHeight: 'calc(85vh - 60px)' }}
+            >
               {/* Service Details */}
               <div className="mb-5">
                 <h3 className="text-sm font-semibold text-gray-800 mb-2">Service Details</h3>
@@ -833,14 +851,7 @@ function Services() {
               {/* Add Service Specialty Form - Compact */}
               <div className="border-t border-gray-200 pt-4 mb-5">
                 <h3 className="text-sm font-semibold text-gray-800 mb-2">Add Service Specialty</h3>
-                <form onSubmit={handleAddServiceSpecialty} className="space-y-3">
-                  {specialtyError && (
-                    <div className="bg-red-50 border border-red-200 rounded-lg p-2 flex items-center gap-1.5">
-                      <AlertCircle size={12} className="text-red-500" />
-                      <p className="text-red-600 text-xs">{specialtyError}</p>
-                    </div>
-                  )}
-
+                <div className="space-y-3">
                   <div>
                     <label className="block text-gray-700 text-xs font-semibold mb-1">
                       Select Specialty *
@@ -850,7 +861,6 @@ function Services() {
                       value={serviceSpecialtyFormData.specialty_id}
                       onChange={handleServiceSpecialtyChange}
                       className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
-                      required
                     >
                       <option value="">Select a specialty...</option>
                       {specialtiesList.map((specialty) => (
@@ -860,15 +870,7 @@ function Services() {
                       ))}
                     </select>
                   </div>
-
-                  <button
-                    type="submit"
-                    disabled={isAddingSpecialty}
-                    className="w-full px-3 py-1.5 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 text-sm font-medium disabled:opacity-50"
-                  >
-                    {isAddingSpecialty ? 'Adding...' : 'Add Specialty'}
-                  </button>
-                </form>
+                </div>
               </div>
 
               {/* Current Specialties List */}
@@ -942,14 +944,7 @@ function Services() {
               {/* Add Product Usage Form - Compact */}
               <div className="border-t border-gray-200 pt-4">
                 <h3 className="text-sm font-semibold text-gray-800 mb-2">Add Product Usage</h3>
-                <form onSubmit={handleAddProductUsage} className="space-y-3">
-                  {usageFormError && (
-                    <div className="bg-red-50 border border-red-200 rounded-lg p-2 flex items-center gap-1.5">
-                      <AlertCircle size={12} className="text-red-500" />
-                      <p className="text-red-600 text-xs">{usageFormError}</p>
-                    </div>
-                  )}
-
+                <div className="space-y-3">
                   <input type="hidden" name="service_id" value={usageFormData.service_id} />
                   
                   <div>
@@ -979,7 +974,7 @@ function Services() {
                       </div>
                       
                       {showProductDropdown && filteredProducts.length > 0 && (
-                        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-40 overflow-y-auto">
+                        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-40 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
                           {filteredProducts.map(product => (
                             <div
                               key={product.id}
@@ -1015,7 +1010,6 @@ function Services() {
                       step="0.01"
                       placeholder="Amount used per service"
                       className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
-                      required
                     />
                   </div>
 
@@ -1031,15 +1025,8 @@ function Services() {
                     >
                       Close
                     </button>
-                    <button
-                      type="submit"
-                      disabled={isLoadingUsages}
-                      className="flex-1 px-3 py-1.5 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 text-sm font-medium disabled:opacity-50"
-                    >
-                      {isLoadingUsages ? 'Adding...' : 'Add Product'}
-                    </button>
                   </div>
-                </form>
+                </div>
               </div>
             </div>
           </div>

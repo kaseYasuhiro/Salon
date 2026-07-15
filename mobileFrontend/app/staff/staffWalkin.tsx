@@ -82,6 +82,79 @@ interface StaffFeedback {
   rating: number;
 }
 
+interface WalkIn {
+  id: number;
+  customer_name: string;
+  service_id: number;
+  stylist_id: number;
+  is_finished: number;
+  created_at: string;
+  updated_at: string;
+  services?: {
+    id: number;
+    service_name: string;
+    description: string;
+    price: string;
+    duration_minutes: number;
+    is_multitaskable: number;
+    service_status: string;
+    created_at: string;
+    updated_at: string;
+  };
+  user?: {
+    id: number;
+    first_name: string;
+    last_name: string;
+    profile_image: string | null;
+    email: string;
+    email_verified_at: string | null;
+    phone_number: string;
+    role: string;
+    created_at: string;
+    updated_at: string;
+  };
+}
+
+// Appointment interface for staff's appointments
+interface StaffAppointment {
+  id: number;
+  appointment_id: number;
+  service_id: number;
+  customer_name: string;
+  customer_phone: string;
+  customer_email: string;
+  appointment_date: string;
+  appointment_time: string;
+  status: string;
+  service_status: string;
+  assigned_employee_id?: number;
+  service_name: string;
+  duration_minutes: number;
+  price: string;
+  created_at: string;
+  updated_at: string;
+  staff_name?: string;
+  notes?: string;
+}
+
+// Payment Data Interface
+interface PaymentData {
+  id: number;
+  billing_id: number;
+  payment_method: string;
+  payment_proof: string | null;
+  created_at: string;
+  updated_at: string;
+  billing?: {
+    id: number;
+    appointment_id: number;
+    total_amount: string;
+    payment_type: string;
+    created_at: string;
+    updated_at: string;
+  };
+}
+
 interface StaffWalkInProps {
   onSuccess?: () => void;
 }
@@ -90,11 +163,23 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
   const [selectedStaffId, setSelectedStaffId] = useState<number | null>(null);
   const [selectedServiceId, setSelectedServiceId] = useState<number | null>(null);
   const [customerName, setCustomerName] = useState('');
-  const [bookingStep, setBookingStep] = useState<'stylist' | 'services' | 'confirm'>('stylist');
+  const [bookingStep, setBookingStep] = useState<'stylist' | 'services' | 'confirm' | 'manage'>('stylist');
   const [isProcessing, setIsProcessing] = useState(false);
   const [isAuthorized, setIsAuthorized] = useState<boolean | null>(null);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const [showUnauthorizedModal, setShowUnauthorizedModal] = useState(false);
+  const [walkIns, setWalkIns] = useState<WalkIn[]>([]);
+  const [staffAppointments, setStaffAppointments] = useState<StaffAppointment[]>([]);
+  const [isLoadingWalkIns, setIsLoadingWalkIns] = useState(false);
+  const [selectedWalkIn, setSelectedWalkIn] = useState<WalkIn | null>(null);
+  const [selectedAppointment, setSelectedAppointment] = useState<StaffAppointment | null>(null);
+  const [showWalkInModal, setShowWalkInModal] = useState(false);
+  const [showAppointmentModal, setShowAppointmentModal] = useState(false);
+  const [showPaymentProofModal, setShowPaymentProofModal] = useState(false);
+  const [selectedPaymentData, setSelectedPaymentData] = useState<PaymentData | null>(null);
+  const [isUpdatingWalkIn, setIsUpdatingWalkIn] = useState(false);
+  const [isUpdatingAppointment, setIsUpdatingAppointment] = useState(false);
+  const [activeTab, setActiveTab] = useState<'walkins' | 'appointments'>('walkins');
   
   // Local state for data
   const [staff, setStaff] = useState<StaffMember[]>([]);
@@ -202,6 +287,236 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
     }
   };
 
+  // Fetch walk-ins
+  const fetchWalkIns = async () => {
+    setIsLoadingWalkIns(true);
+    try {
+      const response = await api.get('/walk-in');
+      console.log('Fetched walk-ins:', response.data);
+      
+      let walkInsData: WalkIn[] = [];
+      if (Array.isArray(response.data)) {
+        walkInsData = response.data.map((item: any) => ({
+          id: item.id,
+          customer_name: item.customer_name,
+          service_id: item.service_id,
+          stylist_id: item.stylist_id,
+          is_finished: item.is_finished,
+          created_at: item.created_at,
+          updated_at: item.updated_at,
+          services: item.services,
+          user: item.user
+        }));
+      }
+      
+      // Filter walk-ins assigned to current staff
+      const currentStaffId = user?.id;
+      const filteredWalkIns = walkInsData.filter(w => w.stylist_id === currentStaffId);
+      
+      console.log('Processed walk-ins:', filteredWalkIns);
+      setWalkIns(filteredWalkIns);
+      return filteredWalkIns;
+    } catch (error) {
+      console.error('Error fetching walk-ins:', error);
+      return [];
+    } finally {
+      setIsLoadingWalkIns(false);
+    }
+  };
+
+  // Fetch staff's appointments
+  const fetchStaffAppointments = async () => {
+    try {
+      const userData = user;
+      if (!userData?.id) {
+        console.log("No user ID found");
+        return [];
+      }
+      
+      const response = await api.get(`/staff/${userData.id}/appointments`);
+      console.log("Staff appointments response:", response.data);
+      
+      let appointmentsData: StaffAppointment[] = [];
+      if (Array.isArray(response.data)) {
+        appointmentsData = response.data.map((item: any) => ({
+          id: item.id,
+          appointment_id: item.appointment_id,
+          service_id: item.service_id,
+          customer_name: item.customer_name || 'Walk-in Customer',
+          customer_phone: item.customer_phone || 'N/A',
+          customer_email: item.customer_email || 'N/A',
+          appointment_date: item.appointment_date,
+          appointment_time: item.appointment_time || '--:--',
+          status: item.status,
+          service_status: item.service_status,
+          assigned_employee_id: item.assigned_employee_id,
+          service_name: item.service_name,
+          duration_minutes: item.duration_minutes,
+          price: item.price,
+          created_at: item.created_at,
+          updated_at: item.updated_at,
+          notes: item.notes
+        }));
+      }
+      
+      console.log("Processed staff appointments:", appointmentsData);
+      setStaffAppointments(appointmentsData);
+      return appointmentsData;
+    } catch (error) {
+      console.log("Error fetching staff appointments:", error);
+      return [];
+    }
+  };
+
+  // Fetch payment proof for appointment - FIXED
+  const fetchPaymentProof = async (appointmentId: number) => {
+    try {
+      console.log(`Fetching payment proof for appointment ID: ${appointmentId}`);
+      
+      // Get the payment data for this specific appointment
+      const response = await api.get(`/appointment/payment?appointment_id=${appointmentId}`);
+      console.log('Payment data response:', response.data);
+      
+      if (!response.data) {
+        Alert.alert('No Payment Found', 'No payment record found for this appointment.');
+        return;
+      }
+      
+      let paymentData = null;
+      
+      // Handle array response
+      if (Array.isArray(response.data)) {
+        console.log('All payments found:', response.data.map((p: any) => ({
+          id: p.id,
+          appointment_id: p.billing?.appointment_id || p.appointment_id,
+          payment_type: p.billing?.payment_type || p.payment_type,
+          billing_id: p.billing_id
+        })));
+        
+        // First, try to find a payment that matches the appointment ID AND has a payment proof
+        const matchingPayment = response.data.find((item: any) => {
+          const itemAppointmentId = item.billing?.appointment_id || item.appointment_id;
+          return itemAppointmentId === appointmentId;
+        });
+        
+        if (matchingPayment) {
+          paymentData = matchingPayment;
+          console.log('Found matching payment for appointment:', paymentData);
+        } else {
+          console.warn(`No payment found for appointment ID: ${appointmentId}`);
+          console.log('Available appointment IDs in payments:', 
+            response.data.map((p: any) => p.billing?.appointment_id || p.appointment_id)
+          );
+        }
+      } 
+      // Handle single object response
+      else if (response.data.billing || response.data.appointment_id) {
+        const itemAppointmentId = response.data.billing?.appointment_id || response.data.appointment_id;
+        
+        if (itemAppointmentId === appointmentId) {
+          paymentData = response.data;
+          console.log('Found matching payment for appointment:', paymentData);
+        } else {
+          console.warn(`Payment found but appointment ID mismatch. Expected: ${appointmentId}, Got: ${itemAppointmentId}`);
+        }
+      }
+      
+      if (paymentData) {
+        // Double check we have the right appointment
+        const actualAppointmentId = paymentData.billing?.appointment_id || paymentData.appointment_id;
+        
+        if (actualAppointmentId && actualAppointmentId !== appointmentId) {
+          console.warn(`Payment found for different appointment: Expected ${appointmentId}, got ${actualAppointmentId}`);
+          Alert.alert('Data Mismatch', 'Payment data does not match this appointment. Please try again.');
+          return;
+        }
+        
+        // Check if there's actually a payment proof
+        if (paymentData.payment_proof) {
+          setSelectedPaymentData(paymentData);
+          setShowPaymentProofModal(true);
+        } else {
+          Alert.alert('No Payment Proof', 'This payment does not have a payment proof uploaded yet.');
+        }
+      } else {
+        Alert.alert('No Payment Found', `No payment record found for appointment #${appointmentId}.`);
+      }
+    } catch (error: any) {
+      console.error('Error fetching payment proof:', error);
+      Alert.alert('Error', error.response?.data?.message || 'Failed to fetch payment data');
+    }
+  };
+
+  // Update walk-in status
+  const updateWalkInStatus = async (walkInId: number, isFinished: number) => {
+    setIsUpdatingWalkIn(true);
+    try {
+      const walkIn = walkIns.find(w => w.id === walkInId);
+      if (!walkIn) {
+        Alert.alert('Error', 'Walk-in not found');
+        return;
+      }
+
+      const response = await api.post(`/walk-in/update/${walkInId}`, {
+        customer_name: walkIn.customer_name,
+        service_id: walkIn.service_id,
+        stylist_id: walkIn.stylist_id,
+        amount_paid: 0,
+        is_finished: isFinished
+      });
+      
+      console.log('Walk-in updated:', response.data);
+      Alert.alert(
+        'Success', 
+        isFinished === 1 ? 'Walk-in marked as completed!' : 'Walk-in marked as pending!'
+      );
+      
+      setShowWalkInModal(false);
+      setSelectedWalkIn(null);
+      await fetchWalkIns();
+    } catch (error: any) {
+      console.error('Error updating walk-in:', error);
+      Alert.alert('Error', error.response?.data?.message || 'Failed to update walk-in');
+    } finally {
+      setIsUpdatingWalkIn(false);
+    }
+  };
+
+  // Update appointment status - FIXED to use the correct route
+  const updateAppointmentStatus = async (appointment: StaffAppointment, newStatus: string) => {
+    setIsUpdatingAppointment(true);
+    try {
+      // Use the correct ID field - the appointment might have 'appointment_id' or 'id'
+      const appointmentId = appointment.appointment_id || appointment.id;
+      
+      console.log("Updating appointment:", {
+        appointmentId,
+        newStatus,
+        appointment
+      });
+      
+      const response = await api.put(`/appointments/update/${appointmentId}`, {
+        status: newStatus
+      });
+      
+      console.log('Appointment status updated:', response.data);
+      Alert.alert(
+        'Success', 
+        newStatus === 'confirmed' ? 'Appointment confirmed successfully!' : 'Appointment cancelled successfully!'
+      );
+      
+      setShowAppointmentModal(false);
+      setSelectedAppointment(null);
+      await fetchStaffAppointments();
+    } catch (error: any) {
+      console.error('Error updating appointment:', error);
+      console.error('Error response:', error.response?.data);
+      Alert.alert('Error', error.response?.data?.message || 'Failed to update appointment');
+    } finally {
+      setIsUpdatingAppointment(false);
+    }
+  };
+
   // Submit walk-in
   const submitWalkIn = async (data: { customer_name: string; service_id: number; stylist_id: number; is_finished: number }) => {
     try {
@@ -219,18 +534,6 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
     }
   };
 
-  // Fetch walk-ins
-  const fetchWalkIns = async () => {
-    try {
-      const response = await api.get('/walk-in');
-      console.log('Fetched walk-ins:', response.data);
-      return response.data;
-    } catch (error) {
-      console.error('Error fetching walk-ins:', error);
-      return [];
-    }
-  };
-
   // Check if the current staff is authorized for walk-in
   const checkWalkInAuthorization = async () => {
     setIsCheckingAuth(true);
@@ -239,7 +542,6 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
       console.log('Walk-in authorization data:', response.data);
       
       if (Array.isArray(response.data)) {
-        // Find the current staff's authorization
         const currentStaffId = user?.id;
         const authData = response.data.find(
           (auth: WalkInAuthorization) => auth.staff_id === currentStaffId
@@ -247,7 +549,6 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
         
         console.log('Auth data for staff:', authData);
         
-        // Check both possible field names
         const isAuthorizedWalkIn = 
           authData?.isAuthorizedForWalkin === 1 || 
           authData?.isAuthorizedForWalkIn === 1;
@@ -260,13 +561,11 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
           setShowUnauthorizedModal(true);
         }
       } else {
-        // If no data, assume not authorized
         setIsAuthorized(false);
         setShowUnauthorizedModal(true);
       }
     } catch (error) {
       console.error('Error checking walk-in authorization:', error);
-      // If error, assume not authorized
       setIsAuthorized(false);
       setShowUnauthorizedModal(true);
     } finally {
@@ -328,15 +627,12 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
     const selectedStaff = staff.find(s => s.id === selectedStaffId);
     if (!selectedStaff) return [];
     
-    // Get all specialties of the selected staff
     const staffSpecialties = selectedStaff.staff_specialties
       ?.filter(s => s.is_active === 1)
       .map(s => s.specialties?.specialty_name?.toLowerCase()) || [];
     
-    // Get all active services
     const activeServices = services.filter(s => s.service_status === 'active');
     
-    // Filter services that match the staff's specialties
     return activeServices.filter(service => {
       const serviceSpecialties = getServiceSpecialties(service.id);
       return serviceSpecialties.some(ss => {
@@ -364,6 +660,12 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
 
   const handleBackToServices = () => {
     setBookingStep('services');
+  };
+
+  const handleBackToManage = () => {
+    setBookingStep('manage');
+    fetchWalkIns();
+    fetchStaffAppointments();
   };
 
   const handleConfirmWalkIn = async () => {
@@ -396,13 +698,11 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
       
       Alert.alert("Success", "Walk-in customer added successfully!");
       
-      // Reset form
       setCustomerName('');
       setSelectedStaffId(null);
       setSelectedServiceId(null);
-      setBookingStep('stylist');
+      setBookingStep('manage');
       
-      // Refresh walk-ins
       await fetchWalkIns();
       
       if (onSuccess) {
@@ -447,7 +747,6 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
     return service?.price || 0;
   };
 
-  // Get staff rating with error handling
   const getStaffRating = (staffId: number) => {
     try {
       const staffReviews = staffFeedbacks.filter(f => f.staff_id === staffId);
@@ -469,7 +768,6 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
     }
   };
 
-  // Generate star rating display with error handling
   const renderStars = (rating: number) => {
     const validRating = typeof rating === 'number' && !isNaN(rating) ? rating : 0;
     const fullStars = Math.floor(validRating);
@@ -489,6 +787,382 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
     return stars;
   };
 
+  const formatDate = (dateString: string) => {
+    if (!dateString) return 'N/A';
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-US', { 
+      year: 'numeric', 
+      month: 'short', 
+      day: 'numeric' 
+    });
+  };
+
+  const formatTime = (timeString: string) => {
+    if (!timeString) return 'N/A';
+    const [hours, minutes] = timeString.split(':');
+    const hour = parseInt(hours);
+    const ampm = hour >= 12 ? 'PM' : 'AM';
+    const displayHour = hour % 12 || 12;
+    return `${displayHour}:${minutes} ${ampm}`;
+  };
+
+  const getStatusColor = (status: string) => {
+    switch(status) {
+      case 'confirmed': return 'bg-green-100 text-green-700';
+      case 'pending': return 'bg-yellow-100 text-yellow-700';
+      case 'completed': return 'bg-blue-100 text-blue-700';
+      case 'cancelled': return 'bg-red-100 text-red-700';
+      default: return 'bg-gray-100 text-gray-700';
+    }
+  };
+
+  // Payment Proof Modal Component
+  const PaymentProofModal = () => {
+    if (!selectedPaymentData) return null;
+    
+    const { payment_method, payment_proof, billing } = selectedPaymentData;
+    const appointment_id = billing?.appointment_id || 'N/A';
+    const total_amount = billing?.total_amount || '0.00';
+    const payment_type = billing?.payment_type || 'N/A';
+    
+    const proofUrl = payment_proof ? `http://192.168.100.73:8000${payment_proof}` : null;
+    
+    return (
+      <Modal
+        transparent={true}
+        animationType="slide"
+        visible={showPaymentProofModal}
+        onRequestClose={() => {
+          setShowPaymentProofModal(false);
+          setSelectedPaymentData(null);
+        }}
+      >
+        <View className="flex-1 justify-center items-center bg-black/50 p-4">
+          <View className="bg-white rounded-2xl overflow-hidden w-full max-w-md">
+            <View className="bg-gradient-to-r from-pink-500 to-pink-600 px-6 py-4 flex-row justify-between items-center">
+              <Text className="text-white text-xl font-bold">Payment Proof</Text>
+              <TouchableOpacity 
+                onPress={() => {
+                  setShowPaymentProofModal(false);
+                  setSelectedPaymentData(null);
+                }}
+              >
+                <Ionicons name="close" size={24} color="white" />
+              </TouchableOpacity>
+            </View>
+
+            <View className="p-6">
+              <View className="bg-gray-50 rounded-lg p-4 mb-4">
+                <View className="flex-row justify-between mb-2">
+                  <Text className="text-gray-500 text-sm">Appointment ID</Text>
+                  <Text className="text-gray-800 font-semibold">#{appointment_id}</Text>
+                </View>
+                <View className="flex-row justify-between mb-2">
+                  <Text className="text-gray-500 text-sm">Payment Type</Text>
+                  <Text className="text-gray-800 font-semibold capitalize">{payment_type}</Text>
+                </View>
+                <View className="flex-row justify-between mb-2">
+                  <Text className="text-gray-500 text-sm">Total Amount</Text>
+                  <Text className="text-pink-600 font-bold">₱{parseFloat(total_amount).toLocaleString()}</Text>
+                </View>
+                <View className="flex-row justify-between">
+                  <Text className="text-gray-500 text-sm">Payment Method</Text>
+                  <Text className="text-gray-800 font-semibold">{payment_method || 'N/A'}</Text>
+                </View>
+              </View>
+
+              {proofUrl ? (
+                <View className="mb-4">
+                  <Text className="text-gray-500 text-sm mb-2">Payment Proof Screenshot</Text>
+                  <View className="bg-gray-100 rounded-lg overflow-hidden border border-gray-200 h-64">
+                    <Image 
+                      source={{ uri: proofUrl }}
+                      className="w-full h-full"
+                      resizeMode="contain"
+                    />
+                  </View>
+                </View>
+              ) : (
+                <View className="bg-gray-100 rounded-lg p-8 mb-4 items-center">
+                  <Ionicons name="image-outline" size={48} color="#9ca3af" />
+                  <Text className="text-gray-500 text-sm mt-2">No payment proof uploaded</Text>
+                </View>
+              )}
+
+              <TouchableOpacity
+                onPress={() => {
+                  setShowPaymentProofModal(false);
+                  setSelectedPaymentData(null);
+                }}
+                className="w-full py-3 bg-pink-500 rounded-xl"
+              >
+                <Text className="text-white text-center font-semibold">Close</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    );
+  };
+
+  // Walk-in Details Modal
+  const WalkInDetailsModal = () => {
+    if (!selectedWalkIn) return null;
+    
+    const isFinished = selectedWalkIn.is_finished === 1;
+    const stylistName = selectedWalkIn.user 
+      ? `${selectedWalkIn.user.first_name || ''} ${selectedWalkIn.user.last_name || ''}`.trim()
+      : 'Unknown Stylist';
+    
+    return (
+      <Modal
+        transparent={true}
+        animationType="slide"
+        visible={showWalkInModal}
+        onRequestClose={() => {
+          setShowWalkInModal(false);
+          setSelectedWalkIn(null);
+        }}
+      >
+        <View className="flex-1 justify-center items-center bg-black/50 p-4">
+          <View className="bg-white rounded-2xl overflow-hidden w-full max-w-md">
+            <View className="bg-gradient-to-r from-pink-500 to-pink-600 px-6 py-4 flex-row justify-between items-center">
+              <Text className="text-white text-xl font-bold">Walk-in Details</Text>
+              <TouchableOpacity 
+                onPress={() => {
+                  setShowWalkInModal(false);
+                  setSelectedWalkIn(null);
+                }}
+              >
+                <Ionicons name="close" size={24} color="white" />
+              </TouchableOpacity>
+            </View>
+
+            <View className="p-6">
+              <View className="bg-gray-50 rounded-lg p-4 mb-4">
+                <View className="flex-row justify-between mb-2">
+                  <Text className="text-gray-500 text-sm">Customer</Text>
+                  <Text className="text-gray-800 font-semibold">{selectedWalkIn.customer_name}</Text>
+                </View>
+                <View className="flex-row justify-between mb-2">
+                  <Text className="text-gray-500 text-sm">Service</Text>
+                  <Text className="text-gray-800 font-semibold">{selectedWalkIn.services?.service_name || 'Unknown'}</Text>
+                </View>
+                <View className="flex-row justify-between mb-2">
+                  <Text className="text-gray-500 text-sm">Stylist</Text>
+                  <Text className="text-gray-800 font-semibold">{stylistName}</Text>
+                </View>
+                <View className="flex-row justify-between mb-2">
+                  <Text className="text-gray-500 text-sm">Date</Text>
+                  <Text className="text-gray-800 font-semibold">{formatDate(selectedWalkIn.created_at)}</Text>
+                </View>
+                <View className="flex-row justify-between">
+                  <Text className="text-gray-500 text-sm">Time</Text>
+                  <Text className="text-gray-800 font-semibold">{formatTime(selectedWalkIn.created_at?.split('T')[1] || '')}</Text>
+                </View>
+              </View>
+
+              <View className="mb-4 p-3 bg-gray-50 rounded-lg">
+                <Text className="text-gray-500 text-sm">Current Status</Text>
+                <View className={`mt-1 px-3 py-1 rounded-full self-start ${
+                  isFinished ? 'bg-green-100' : 'bg-yellow-100'
+                }`}>
+                  <Text className={`text-xs font-semibold ${
+                    isFinished ? 'text-green-700' : 'text-yellow-700'
+                  }`}>
+                    {isFinished ? '✅ Completed' : '⏳ Pending'}
+                  </Text>
+                </View>
+              </View>
+
+              <View className="flex-row gap-3">
+                <TouchableOpacity
+                  onPress={() => {
+                    setShowWalkInModal(false);
+                    setSelectedWalkIn(null);
+                  }}
+                  className="flex-1 py-3 rounded-xl border border-gray-300"
+                >
+                  <Text className="text-gray-600 text-center font-semibold">Close</Text>
+                </TouchableOpacity>
+                
+                {!isFinished ? (
+                  <TouchableOpacity
+                    onPress={() => updateWalkInStatus(selectedWalkIn.id, 1)}
+                    disabled={isUpdatingWalkIn}
+                    className="flex-1 py-3 rounded-xl bg-green-600"
+                  >
+                    <Text className="text-white text-center font-semibold">
+                      {isUpdatingWalkIn ? 'Updating...' : 'Mark Complete'}
+                    </Text>
+                  </TouchableOpacity>
+                ) : (
+                  <TouchableOpacity
+                    onPress={() => updateWalkInStatus(selectedWalkIn.id, 0)}
+                    disabled={isUpdatingWalkIn}
+                    className="flex-1 py-3 rounded-xl bg-yellow-600"
+                  >
+                    <Text className="text-white text-center font-semibold">
+                      {isUpdatingWalkIn ? 'Updating...' : 'Mark Pending'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    );
+  };
+
+  // Appointment Details Modal with Confirm/Cancel buttons and Payment Proof
+  const AppointmentDetailsModal = () => {
+    if (!selectedAppointment) return null;
+    
+    const isPending = selectedAppointment.status === 'pending';
+    const appointmentId = selectedAppointment.appointment_id || selectedAppointment.id;
+    
+    return (
+      <Modal
+        transparent={true}
+        animationType="slide"
+        visible={showAppointmentModal}
+        onRequestClose={() => {
+          setShowAppointmentModal(false);
+          setSelectedAppointment(null);
+        }}
+      >
+        <View className="flex-1 justify-center items-center bg-black/50 p-4">
+          <View className="bg-white rounded-2xl overflow-hidden w-full max-w-md">
+            <View className="bg-gradient-to-r from-pink-500 to-pink-600 px-6 py-4 flex-row justify-between items-center">
+              <Text className="text-white text-xl font-bold">Appointment Details</Text>
+              <TouchableOpacity 
+                onPress={() => {
+                  setShowAppointmentModal(false);
+                  setSelectedAppointment(null);
+                }}
+              >
+                <Ionicons name="close" size={24} color="white" />
+              </TouchableOpacity>
+            </View>
+
+            <View className="p-6">
+              <View className="bg-gray-50 rounded-lg p-4 mb-4">
+                <View className="flex-row justify-between mb-2">
+                  <Text className="text-gray-500 text-sm">Customer</Text>
+                  <Text className="text-gray-800 font-semibold">{selectedAppointment.customer_name}</Text>
+                </View>
+                <View className="flex-row justify-between mb-2">
+                  <Text className="text-gray-500 text-sm">Service</Text>
+                  <Text className="text-gray-800 font-semibold">{selectedAppointment.service_name}</Text>
+                </View>
+                <View className="flex-row justify-between mb-2">
+                  <Text className="text-gray-500 text-sm">Date</Text>
+                  <Text className="text-gray-800 font-semibold">{formatDate(selectedAppointment.appointment_date)}</Text>
+                </View>
+                <View className="flex-row justify-between mb-2">
+                  <Text className="text-gray-500 text-sm">Time</Text>
+                  <Text className="text-gray-800 font-semibold">{formatTime(selectedAppointment.appointment_time)}</Text>
+                </View>
+                <View className="flex-row justify-between">
+                  <Text className="text-gray-500 text-sm">Duration</Text>
+                  <Text className="text-gray-800 font-semibold">{selectedAppointment.duration_minutes} mins</Text>
+                </View>
+                {selectedAppointment.notes && (
+                  <View className="flex-row justify-between mt-2 pt-2 border-t border-gray-200">
+                    <Text className="text-gray-500 text-sm">Notes</Text>
+                    <Text className="text-gray-800 text-sm flex-1 ml-2">{selectedAppointment.notes}</Text>
+                  </View>
+                )}
+              </View>
+
+              <View className="mb-4 p-3 bg-gray-50 rounded-lg">
+                <Text className="text-gray-500 text-sm">Status</Text>
+                <View className={`mt-1 px-3 py-1 rounded-full self-start ${getStatusColor(selectedAppointment.status)}`}>
+                  <Text className="text-xs font-semibold capitalize">{selectedAppointment.status}</Text>
+                </View>
+                <View className="mt-2">
+                  <Text className="text-gray-500 text-sm">Service Status</Text>
+                  <View className={`mt-1 px-3 py-1 rounded-full self-start ${
+                    selectedAppointment.service_status === 'completed' ? 'bg-green-100' :
+                    selectedAppointment.service_status === 'in_progress' ? 'bg-blue-100' : 'bg-yellow-100'
+                  }`}>
+                    <Text className={`text-xs font-semibold capitalize ${
+                      selectedAppointment.service_status === 'completed' ? 'text-green-700' :
+                      selectedAppointment.service_status === 'in_progress' ? 'text-blue-700' : 'text-yellow-700'
+                    }`}>
+                      {selectedAppointment.service_status || 'pending'}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+
+              {/* View Payment Proof Button */}
+              <TouchableOpacity
+                onPress={() => fetchPaymentProof(appointmentId)}
+                className="flex-row items-center justify-center gap-2 py-3 rounded-xl bg-purple-100 mb-4"
+              >
+                <Ionicons name="image-outline" size={20} color="#7c3aed" />
+                <Text className="text-purple-700 font-semibold">View Payment Proof</Text>
+              </TouchableOpacity>
+
+              {isPending ? (
+                <View className="flex-row gap-3">
+                  <TouchableOpacity
+                    onPress={() => {
+                      setShowAppointmentModal(false);
+                      setSelectedAppointment(null);
+                    }}
+                    className="flex-1 py-3 rounded-xl border border-gray-300"
+                  >
+                    <Text className="text-gray-600 text-center font-semibold">Close</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => updateAppointmentStatus(selectedAppointment, 'confirmed')}
+                    disabled={isUpdatingAppointment}
+                    className="flex-1 py-3 rounded-xl bg-green-600"
+                  >
+                    <Text className="text-white text-center font-semibold">
+                      {isUpdatingAppointment ? 'Updating...' : 'Confirm'}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => updateAppointmentStatus(selectedAppointment, 'cancelled')}
+                    disabled={isUpdatingAppointment}
+                    className="flex-1 py-3 rounded-xl bg-red-600"
+                  >
+                    <Text className="text-white text-center font-semibold">
+                      {isUpdatingAppointment ? 'Updating...' : 'Cancel'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <View className="flex-row gap-3">
+                  <TouchableOpacity
+                    onPress={() => {
+                      setShowAppointmentModal(false);
+                      setSelectedAppointment(null);
+                    }}
+                    className="flex-1 py-3 rounded-xl border border-gray-300"
+                  >
+                    <Text className="text-gray-600 text-center font-semibold">Close</Text>
+                  </TouchableOpacity>
+                  <View className="flex-1 py-3 rounded-xl bg-gray-200 items-center justify-center">
+                    <Text className="text-gray-600 text-center font-semibold">
+                      {selectedAppointment.status === 'confirmed' ? '✅ Confirmed' : 
+                       selectedAppointment.status === 'completed' ? '✅ Completed' : 
+                       selectedAppointment.status === 'cancelled' ? '❌ Cancelled' : ''}
+                    </Text>
+                  </View>
+                </View>
+              )}
+            </View>
+          </View>
+        </View>
+      </Modal>
+    );
+  };
+
   // Load data on mount
   useEffect(() => {
     setIsLoading(true);
@@ -499,7 +1173,9 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
       fetchServices(),
       fetchServiceSpecialties(),
       fetchStaffFeedbacks(),
-      checkWalkInAuthorization()
+      checkWalkInAuthorization(),
+      fetchWalkIns(),
+      fetchStaffAppointments()
     ]).finally(() => setIsLoading(false));
   }, []);
 
@@ -533,7 +1209,6 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
               className="bg-pink-500 py-3 rounded-xl"
               onPress={() => {
                 setShowUnauthorizedModal(false);
-                // Go back to previous screen or close the tab
                 if (onSuccess) {
                   onSuccess();
                 }
@@ -580,6 +1255,178 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
     const servicesForStaff = getServicesForStaff();
     const totalPrice = getServicePrice();
 
+    // Manage View - List of walk-ins and appointments
+    if (bookingStep === 'manage') {
+      const pendingAppointments = staffAppointments.filter(a => a.status === 'pending');
+      
+      return (
+        <View className="flex-1 bg-gray-50">
+          <View className="px-5 pt-6">
+            <View className="flex-row justify-between items-center mb-4">
+              <Text className="text-3xl font-bold text-gray-800">My Walk-ins</Text>
+              <TouchableOpacity 
+                className="bg-pink-500 px-4 py-2 rounded-xl flex-row items-center"
+                onPress={() => {
+                  setCustomerName('');
+                  setSelectedStaffId(null);
+                  setSelectedServiceId(null);
+                  setBookingStep('stylist');
+                }}
+              >
+                <Ionicons name="add" size={20} color="white" />
+                <Text className="text-white font-semibold ml-1">New</Text>
+              </TouchableOpacity>
+            </View>
+            <Text className="text-gray-500 mb-4">Manage your walk-in customers and pending appointments</Text>
+
+            {/* Tab Selector */}
+            <View className="flex-row bg-gray-100 rounded-xl p-1 mb-4">
+              <TouchableOpacity
+                className={`flex-1 py-2 rounded-lg ${activeTab === 'walkins' ? 'bg-white shadow-sm' : ''}`}
+                onPress={() => setActiveTab('walkins')}
+              >
+                <Text className={`text-center font-semibold ${activeTab === 'walkins' ? 'text-pink-600' : 'text-gray-600'}`}>
+                  Walk-ins ({walkIns.length})
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                className={`flex-1 py-2 rounded-lg ${activeTab === 'appointments' ? 'bg-white shadow-sm' : ''}`}
+                onPress={() => setActiveTab('appointments')}
+              >
+                <Text className={`text-center font-semibold ${activeTab === 'appointments' ? 'text-pink-600' : 'text-gray-600'}`}>
+                  Pending Appointments ({pendingAppointments.length})
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {activeTab === 'walkins' ? (
+              // Walk-ins List
+              isLoadingWalkIns ? (
+                <View className="py-10 items-center">
+                  <ActivityIndicator size="large" color="#ec4899" />
+                  <Text className="text-center text-gray-500 mt-2">Loading walk-ins...</Text>
+                </View>
+              ) : walkIns.length === 0 ? (
+                <View className="bg-white rounded-2xl p-12 items-center" style={{ elevation: 2 }}>
+                  <Ionicons name="walk-outline" size={60} color="#d1d5db" />
+                  <Text className="text-gray-500 text-center mt-4">No walk-in customers yet</Text>
+                  <TouchableOpacity 
+                    className="mt-4 bg-pink-500 px-6 py-2 rounded-full"
+                    onPress={() => {
+                      setCustomerName('');
+                      setSelectedStaffId(null);
+                      setSelectedServiceId(null);
+                      setBookingStep('stylist');
+                    }}
+                  >
+                    <Text className="text-white font-semibold">Add Walk-in</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                walkIns.map((walkIn) => {
+                  const isFinished = walkIn.is_finished === 1;
+                  const stylistName = walkIn.user 
+                    ? `${walkIn.user.first_name || ''} ${walkIn.user.last_name || ''}`.trim()
+                    : 'Unknown Stylist';
+                  
+                  return (
+                    <TouchableOpacity
+                      key={walkIn.id}
+                      className="bg-white rounded-2xl p-4 mb-4 shadow-sm border border-gray-100"
+                      onPress={() => {
+                        setSelectedWalkIn(walkIn);
+                        setShowWalkInModal(true);
+                      }}
+                    >
+                      <View className="flex-row justify-between items-start">
+                        <View className="flex-1">
+                          <Text className="text-lg font-bold text-gray-800">{walkIn.customer_name}</Text>
+                          <Text className="text-gray-500 text-sm">{walkIn.services?.service_name || 'Unknown Service'}</Text>
+                          <Text className="text-gray-400 text-xs">Stylist: {stylistName}</Text>
+                          <Text className="text-gray-400 text-xs">Created: {formatDate(walkIn.created_at)}</Text>
+                        </View>
+                        <View className={`px-3 py-1 rounded-full ${
+                          isFinished ? 'bg-green-100' : 'bg-yellow-100'
+                        }`}>
+                          <Text className={`text-xs font-semibold ${
+                            isFinished ? 'text-green-700' : 'text-yellow-700'
+                          }`}>
+                            {isFinished ? 'COMPLETED' : 'PENDING'}
+                          </Text>
+                        </View>
+                      </View>
+                      
+                      <View className="flex-row justify-between items-center mt-2 pt-2 border-t border-gray-100">
+                        <Text className="text-pink-500 font-bold text-sm">
+                          ₱{parseFloat(walkIn.services?.price || '0').toLocaleString()}
+                        </Text>
+                        <TouchableOpacity 
+                          className="bg-blue-100 px-3 py-1.5 rounded-lg"
+                          onPress={() => {
+                            setSelectedWalkIn(walkIn);
+                            setShowWalkInModal(true);
+                          }}
+                        >
+                          <Text className="text-blue-700 text-xs font-semibold">View</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })
+              )
+            ) : (
+              // Pending Appointments List
+              pendingAppointments.length === 0 ? (
+                <View className="bg-white rounded-2xl p-12 items-center" style={{ elevation: 2 }}>
+                  <Ionicons name="calendar-outline" size={60} color="#d1d5db" />
+                  <Text className="text-gray-500 text-center mt-4">No pending appointments</Text>
+                  <Text className="text-gray-400 text-sm text-center mt-1">All appointments have been confirmed or completed</Text>
+                </View>
+              ) : (
+                pendingAppointments.map((appointment) => (
+                  <TouchableOpacity
+                    key={appointment.id}
+                    className="bg-white rounded-2xl p-4 mb-4 shadow-sm border border-gray-100"
+                    onPress={() => {
+                      setSelectedAppointment(appointment);
+                      setShowAppointmentModal(true);
+                    }}
+                  >
+                    <View className="flex-row justify-between items-start">
+                      <View className="flex-1">
+                        <Text className="text-lg font-bold text-gray-800">{appointment.customer_name}</Text>
+                        <Text className="text-gray-500 text-sm">{appointment.service_name}</Text>
+                        <Text className="text-gray-400 text-xs">
+                          {formatDate(appointment.appointment_date)} at {formatTime(appointment.appointment_time)}
+                        </Text>
+                        <View className={`mt-1 px-2 py-0.5 rounded-full self-start ${getStatusColor(appointment.status)}`}>
+                          <Text className="text-xs font-semibold capitalize">{appointment.status}</Text>
+                        </View>
+                      </View>
+                      <Text className="text-pink-500 font-bold">₱{parseFloat(appointment.price).toLocaleString()}</Text>
+                    </View>
+                    
+                    <View className="flex-row justify-end items-center mt-2 pt-2 border-t border-gray-100 gap-2">
+                      <TouchableOpacity 
+                        className="bg-blue-100 px-3 py-1.5 rounded-lg"
+                        onPress={() => {
+                          setSelectedAppointment(appointment);
+                          setShowAppointmentModal(true);
+                        }}
+                      >
+                        <Text className="text-blue-700 text-xs font-semibold">View</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </TouchableOpacity>
+                ))
+              )
+            )}
+          </View>
+        </View>
+      );
+    }
+
+    // Add Walk-in Flow
     return (
       <View className="flex-1 bg-gray-50">
         <ScrollView 
@@ -602,6 +1449,18 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
                 </Text>
               </TouchableOpacity>
             )}
+            
+            {/* Always show back to manage button */}
+            <TouchableOpacity 
+              className="flex-row items-center mb-4"
+              onPress={handleBackToManage}
+              disabled={isProcessing}
+            >
+              <Ionicons name="list-outline" size={24} color="#6b7280" />
+              <Text className="text-gray-600 font-semibold ml-2">
+                View My Walk-ins
+              </Text>
+            </TouchableOpacity>
             
             <Text className="text-3xl font-bold text-gray-800 mb-2">
               {bookingStep === 'stylist' ? 'Select Stylist' : 
@@ -912,5 +1771,12 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
     );
   };
 
-  return renderContent();
+  return (
+    <View className="flex-1 bg-gray-50">
+      {renderContent()}
+      <WalkInDetailsModal />
+      <AppointmentDetailsModal />
+      <PaymentProofModal />
+    </View>
+  );
 }

@@ -18,6 +18,7 @@ return new class extends Migration
             $table->enum('unit', ['ml', 'l', 'gr', 'sachet', 'mg']);
             $table->integer('unit_size');
             $table->integer('estimated_usages_per_unit');
+            $table->string('product_image')->nullable();
             $table->boolean('is_active')->default(true);
             $table->timestamps();
         });

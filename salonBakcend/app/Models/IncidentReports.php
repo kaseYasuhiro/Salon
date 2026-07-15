@@ -8,9 +8,9 @@ use App\Models\Transaction;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
-class LossDamage extends Model
+class IncidentReports extends Model
 {
-    protected $table = 'loss_damages';
+    protected $table = 'incident_reports';
     protected $fillable = [
         'date',
         'incident_type',
