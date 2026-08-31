@@ -174,7 +174,7 @@ function Reports() {
     }
   };
 
-  // Report Details Modal
+  // Report Details Modal - WITH HIDDEN SCROLLBAR
   const ReportModal = () => {
     if (!selectedReport) return null;
     
@@ -182,8 +182,8 @@ function Reports() {
     
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-        <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl mx-4 overflow-hidden max-h-[85vh] overflow-y-auto">
-          <div className="bg-gradient-to-r from-red-500 to-red-600 px-5 py-3 flex items-center justify-between sticky top-0">
+        <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl mx-4 overflow-hidden max-h-[85vh]">
+          <div className="bg-gradient-to-r from-red-500 to-red-600 px-5 py-3 flex items-center justify-between sticky top-0 z-10">
             <h2 className="text-lg font-bold text-white">Report Details</h2>
             <button 
               onClick={() => {
@@ -196,7 +196,10 @@ function Reports() {
             </button>
           </div>
           
-          <div className="p-5">
+          <div 
+            className="p-5 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+            style={{ maxHeight: 'calc(85vh - 60px)' }}
+          >
             {/* Report ID and Status */}
             <div className="flex items-center justify-between mb-4">
               <div>

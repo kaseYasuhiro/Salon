@@ -13,6 +13,8 @@ interface ProductUsage {
   current_quantity: number;
   current_usages: number;
   quantity_change: number;
+  service_id?: number;
+  service_name?: string;
 }
 
 interface ServiceTransaction {
@@ -24,10 +26,15 @@ interface ServiceTransaction {
   service_status: string;
   notes?: string;
   transaction_id: number;
+  hair_length?: string | null;
+  hair_thickness?: string | null;
+  preferred_color?: string | null;
+  completed_at?: string | null;
 }
 
 interface Appointment {
   id: number;
+  customer_id: number;
   customer_name: string;
   customer_phone?: string;
   appointment_date?: string;
@@ -42,7 +49,6 @@ interface Appointment {
   service_name?: string;
   duration_minutes?: number;
   price?: string;
-  service_status?: string;
   notes?: string;
   transaction_id?: number;
 }
@@ -79,6 +85,9 @@ interface WalkIn {
     created_at: string;
     updated_at: string;
   };
+  hair_length?: string;
+  hair_thickness?: string;
+  preferred_color?: string;
 }
 
 // Combined item for display
@@ -94,7 +103,6 @@ interface DisplayItem {
   service_names: string[];
   total_price: number;
   total_duration: number;
-  service_status: string;
   notes?: string;
   transaction_id?: number;
   is_walk_in: boolean;
@@ -158,7 +166,6 @@ export default function StaffAppointments({
   const [productUsages, setProductUsages] = useState<ProductUsage[]>([]);
   const [updateFormData, setUpdateFormData] = useState({
     status: '',
-    service_status: '',
     notes: ''
   });
   const [isUpdating, setIsUpdating] = useState(false);
@@ -202,7 +209,7 @@ export default function StaffAppointments({
     }
   };
 
-  // Fetch staff appointments
+  // Fetch staff appointments from the updated backend function
   const fetchStaffAppointments = async () => {
     try {
       const userData = user;
@@ -224,6 +231,7 @@ export default function StaffAppointments({
       // Group transactions by appointment_id
       const appointmentMap = new Map<number, {
         id: number;
+        customer_id: number;
         customer_name: string;
         customer_phone?: string;
         appointment_date?: string;
@@ -236,19 +244,20 @@ export default function StaffAppointments({
         const appointmentId = item.id;
         
         if (!appointmentMap.has(appointmentId)) {
-          // Create a new appointment entry
+          // Create a new appointment entry with the appointment status
           appointmentMap.set(appointmentId, {
             id: appointmentId,
+            customer_id: item.customer_id || 0,
             customer_name: item.customer_name || 'Walk-in Customer',
             customer_phone: item.customer_phone || 'N/A',
             appointment_date: item.appointment_date,
             appointment_time: item.appointment_time || '--:--',
-            status: item.status || 'pending',
+            status: item.status || 'pending', // Use the appointment's status
             services: []
           });
         }
         
-        // Add the service to the appointment
+        // Add the service to the appointment with hair details from the transaction
         const appointment = appointmentMap.get(appointmentId)!;
         appointment.services.push({
           id: item.transaction_id || item.id,
@@ -257,8 +266,12 @@ export default function StaffAppointments({
           duration_minutes: item.duration_minutes || 0,
           price: item.price || '0',
           service_status: item.service_status || 'pending',
-          notes: item.notes,
-          transaction_id: item.transaction_id || item.id
+          notes: item.notes || '',
+          transaction_id: item.transaction_id || item.id,
+          hair_length: item.hair_length || '',
+          hair_thickness: item.hair_thickness || '',
+          preferred_color: item.preferred_color || '',
+          completed_at: item.completed_at || null
         });
       });
       
@@ -270,31 +283,17 @@ export default function StaffAppointments({
           const totalPrice = services.reduce((sum, s) => sum + parseFloat(s.price || '0'), 0);
           const totalDuration = services.reduce((sum, s) => sum + (s.duration_minutes || 0), 0);
           
-          // Determine overall service status
-          let overallStatus = 'pending';
-          if (services.length > 0) {
-            const hasPending = services.some(s => s.service_status === 'pending');
-            const allCompleted = services.every(s => s.service_status === 'completed');
-            
-            if (allCompleted) {
-              overallStatus = 'completed';
-            } else if (!hasPending) {
-              overallStatus = 'in_progress';
-            } else {
-              overallStatus = 'pending';
-            }
-          }
-          
           // Get the first transaction ID for backward compatibility
           const firstTransaction = services[0];
           
           return {
             id: appointment.id,
+            customer_id: appointment.customer_id,
             customer_name: appointment.customer_name,
             customer_phone: appointment.customer_phone,
             appointment_date: appointment.appointment_date,
             appointment_time: appointment.appointment_time,
-            status: appointment.status,
+            status: appointment.status, // Use the appointment's status
             services: services,
             service_names: serviceNames,
             total_price: totalPrice,
@@ -303,12 +302,11 @@ export default function StaffAppointments({
             service_name: serviceNames.join(' + ') || 'No Service',
             duration_minutes: totalDuration,
             price: totalPrice.toString(),
-            service_status: overallStatus,
             notes: services.map(s => s.notes).filter(Boolean).join(', ') || '',
             transaction_id: firstTransaction?.transaction_id
           };
         })
-        // Filter out appointments that are NOT confirmed
+        // Filter out appointments that are NOT confirmed or completed based on appointment status
         .filter(app => app.status === 'confirmed' || app.status === 'completed');
       
       console.log("Grouped staff appointments (confirmed only):", groupedAppointments);
@@ -386,7 +384,10 @@ export default function StaffAppointments({
           created_at: item.created_at,
           updated_at: item.updated_at,
           services: item.services,
-          user: item.user
+          user: item.user,
+          hair_length: item.hair_length || '',
+          hair_thickness: item.hair_thickness || '',
+          preferred_color: item.preferred_color || ''
         }));
       }
       
@@ -576,27 +577,46 @@ export default function StaffAppointments({
     return staff.filter(s => staffIds.includes(s.id));
   }, [businessSchedules, staffAssignments, staff]);
 
-  const fetchProductUsagesForService = async (serviceId: number) => {
+  // Fetch product usages for ALL services and keep them all
+  const fetchAllProductUsagesForAppointment = async (services: ServiceTransaction[]) => {
     try {
-      console.log("Fetching product usages for service ID:", serviceId);
-      const response = await api.get(`/service/${serviceId}/product-usages`);
-      console.log("Product usages response:", response.data);
+      console.log("Fetching product usages for services:", services);
       
-      if (Array.isArray(response.data)) {
-        const usages = response.data.map((usage: any) => ({
-          id: usage.id,
-          product_id: usage.product_id,
-          product_name: usage.product_name,
-          estimated_usage: usage.estimated_usage,
-          inventory_id: usage.inventory_id,
-          current_quantity: usage.current_quantity,
-          current_usages: usage.current_usages,
-          quantity_change: 0
-        }));
-        return usages;
-      } else {
-        return [];
+      let allUsages: ProductUsage[] = [];
+      
+      // Fetch product usages for each service
+      for (const service of services) {
+        if (!service.service_id) continue;
+        
+        console.log(`Fetching product usages for service: ${service.service_name} (ID: ${service.service_id})`);
+        
+        const response = await api.get(`/service/${service.service_id}/product-usages`);
+        console.log(`Product usages response for service ${service.service_name}:`, response.data);
+        
+        if (Array.isArray(response.data) && response.data.length > 0) {
+          const usages = response.data.map((usage: any) => ({
+            id: usage.id,
+            product_id: usage.product_id,
+            product_name: usage.product_name || 'Unknown Product',
+            estimated_usage: usage.estimated_usage || 0,
+            inventory_id: usage.inventory_id,
+            current_quantity: usage.current_quantity || 0,
+            current_usages: usage.current_usages || 0,
+            quantity_change: 0,
+            service_id: service.service_id,
+            service_name: service.service_name
+          }));
+          allUsages = [...allUsages, ...usages];
+          console.log(`Added ${usages.length} products from service ${service.service_name}`);
+        } else {
+          console.log(`No product usages found for service: ${service.service_name}`);
+        }
       }
+      
+      console.log("Total product usages fetched:", allUsages.length);
+      console.log("All product usages:", allUsages);
+      
+      return allUsages;
     } catch (error) {
       console.error("Error fetching product usages:", error);
       Alert.alert("Error", "Failed to load product information");
@@ -615,7 +635,18 @@ export default function StaffAppointments({
       });
       
       if (item.walk_in_data.service_id) {
-        const usages = await fetchProductUsagesForService(item.walk_in_data.service_id);
+        const usages = await fetchAllProductUsagesForAppointment([
+          {
+            id: item.walk_in_data.id,
+            service_id: item.walk_in_data.service_id,
+            service_name: item.walk_in_data.services?.service_name || 'Unknown Service',
+            duration_minutes: item.walk_in_data.services?.duration_minutes || 0,
+            price: item.walk_in_data.services?.price?.toString() || '0',
+            service_status: 'pending',
+            notes: 'Walk-in customer',
+            transaction_id: item.walk_in_data.id
+          }
+        ]);
         setWalkInProductUsages(usages);
       } else {
         setWalkInProductUsages([]);
@@ -637,20 +668,15 @@ export default function StaffAppointments({
     setSelectedAppointment(appointment);
     setUpdateFormData({
       status: appointment.status,
-      service_status: appointment.service_status || 'pending',
       notes: appointment.notes || ''
     });
     
-    // If there are services, fetch product usages for the first service
+    // Fetch product usages for ALL services in the appointment
     if (appointment.services && appointment.services.length > 0) {
-      const firstService = appointment.services[0];
-      if (firstService.service_id) {
-        console.log("Fetching product usages for service ID:", firstService.service_id);
-        const usages = await fetchProductUsagesForService(firstService.service_id);
-        setProductUsages(usages);
-      } else {
-        setProductUsages([]);
-      }
+      console.log("Fetching product usages for all services:", appointment.services);
+      const usages = await fetchAllProductUsagesForAppointment(appointment.services);
+      console.log("Product usages to display:", usages);
+      setProductUsages(usages);
     } else {
       setProductUsages([]);
     }
@@ -693,7 +719,6 @@ export default function StaffAppointments({
     try {
       const updateData = {
         status: updateFormData.status,
-        service_status: updateFormData.service_status,
         notes: updateFormData.notes,
         product_usages: productUsages
           .filter(p => p.quantity_change > 0 && p.inventory_id)
@@ -802,7 +827,6 @@ export default function StaffAppointments({
         appointment_date: app.appointment_date,
         appointment_time: app.appointment_time,
         status: app.status,
-        service_status: app.service_status || 'pending',
         services: services,
         service_names: app.service_names || ['No Service'],
         total_price: app.total_price || 0,
@@ -840,7 +864,10 @@ export default function StaffAppointments({
         price: walkIn.services?.price?.toString() || '0',
         service_status: serviceStatus,
         notes: 'Walk-in customer',
-        transaction_id: walkIn.id
+        transaction_id: walkIn.id,
+        hair_length: walkIn.hair_length || '',
+        hair_thickness: walkIn.hair_thickness || '',
+        preferred_color: walkIn.preferred_color || ''
       };
       
       return {
@@ -850,7 +877,6 @@ export default function StaffAppointments({
         appointment_date: walkIn.created_at ? walkIn.created_at.split('T')[0] : undefined,
         appointment_time: walkIn.created_at ? walkIn.created_at.split('T')[1]?.slice(0, 5) : undefined,
         status: isFinished ? 'completed' : 'pending',
-        service_status: serviceStatus,
         services: [service],
         service_names: [service.service_name],
         total_price: parseFloat(service.price),
@@ -1040,7 +1066,6 @@ export default function StaffAppointments({
         case 'pending': return 'bg-yellow-100 text-yellow-700';
         case 'completed': return 'bg-blue-100 text-blue-700';
         case 'cancelled': return 'bg-red-100 text-red-700';
-        case 'in_progress': return 'bg-purple-100 text-purple-700';
         default: return 'bg-gray-100 text-gray-700';
       }
     };
@@ -1055,7 +1080,7 @@ export default function StaffAppointments({
           <View className="flex-row items-center">
             {value ? (
               <View className={`px-3 py-1 rounded-full ${getStatusColor(value)}`}>
-                <Text className="capitalize text-xs font-semibold">{value.replace('_', ' ')}</Text>
+                <Text className="capitalize text-xs font-semibold">{value}</Text>
               </View>
             ) : (
               <Text className="text-gray-400 text-sm">{placeholder || 'Select status...'}</Text>
@@ -1078,7 +1103,7 @@ export default function StaffAppointments({
                 } ${option !== options[options.length - 1] ? 'border-b border-gray-100' : ''}`}
               >
                 <View className={`px-3 py-1 rounded-full ${getStatusColor(option)}`}>
-                  <Text className="capitalize text-xs font-semibold">{option.replace('_', ' ')}</Text>
+                  <Text className="capitalize text-xs font-semibold">{option}</Text>
                 </View>
                 {value === option && (
                   <Ionicons name="checkmark-circle" size={20} color="#ec4899" />
@@ -1091,8 +1116,91 @@ export default function StaffAppointments({
     );
   };
 
+  // Helper function to render hair details
+  const renderHairDetails = (services: ServiceTransaction[]) => {
+    // Get unique hair details from all services
+    const hairDetails = services
+      .filter(s => s.hair_length || s.hair_thickness || s.preferred_color)
+      .map(s => ({
+        hair_length: s.hair_length,
+        hair_thickness: s.hair_thickness,
+        preferred_color: s.preferred_color
+      }));
+    
+    // If no hair details, return null
+    if (hairDetails.length === 0) return null;
+    
+    // Get the first non-empty hair details
+    const details = hairDetails.find(d => d.hair_length || d.hair_thickness || d.preferred_color);
+    if (!details) return null;
+    
+    const parts = [];
+    if (details.hair_length) parts.push(`Length: ${details.hair_length.charAt(0).toUpperCase() + details.hair_length.slice(1)}`);
+    if (details.hair_thickness) parts.push(`Thickness: ${details.hair_thickness.charAt(0).toUpperCase() + details.hair_thickness.slice(1)}`);
+    if (details.preferred_color) parts.push(`Color: ${details.preferred_color}`);
+    
+    if (parts.length === 0) return null;
+    
+    return (
+      <View className="flex-row items-center mt-1 flex-wrap">
+        <Ionicons name="color-palette-outline" size={12} color="#8b5cf6" />
+        <Text className="text-purple-600 text-xs ml-1">
+          {parts.join(' • ')}
+        </Text>
+      </View>
+    );
+  };
+
+  // Helper function to render transaction details in the update modal
+  const renderTransactionDetails = (services: ServiceTransaction[]) => {
+    if (!services || services.length === 0) return null;
+    
+    return (
+      <View className="mb-4 p-3 bg-gray-50 rounded-xl">
+        <Text className="text-gray-600 text-sm font-semibold mb-2">Transaction Details</Text>
+        {services.map((service, index) => {
+          const hasHairDetails = service.hair_length || service.hair_thickness || service.preferred_color;
+          return (
+            <View key={index} className={`${index > 0 ? 'border-t border-gray-200 pt-2 mt-2' : ''}`}>
+              <Text className="text-gray-800 font-semibold text-sm">{service.service_name}</Text>
+              <View className="mt-1 space-y-1">
+                {service.hair_length && (
+                  <View className="flex-row items-center">
+                    <Text className="text-gray-500 text-xs w-24">Hair Length:</Text>
+                    <Text className="text-gray-700 text-xs font-medium capitalize">{service.hair_length}</Text>
+                  </View>
+                )}
+                {service.hair_thickness && (
+                  <View className="flex-row items-center">
+                    <Text className="text-gray-500 text-xs w-24">Hair Thickness:</Text>
+                    <Text className="text-gray-700 text-xs font-medium capitalize">{service.hair_thickness}</Text>
+                  </View>
+                )}
+                {service.preferred_color && (
+                  <View className="flex-row items-center">
+                    <Text className="text-gray-500 text-xs w-24">Preferred Color:</Text>
+                    <Text className="text-gray-700 text-xs font-medium">{service.preferred_color}</Text>
+                  </View>
+                )}
+                {!hasHairDetails && (
+                  <Text className="text-gray-400 text-xs italic">No hair details recorded</Text>
+                )}
+                {service.completed_at && (
+                  <View className="flex-row items-center">
+                    <Text className="text-gray-500 text-xs w-24">Completed:</Text>
+                    <Text className="text-gray-700 text-xs font-medium">{new Date(service.completed_at).toLocaleDateString()}</Text>
+                  </View>
+                )}
+              </View>
+            </View>
+          );
+        })}
+      </View>
+    );
+  };
+
   const renderItemCard = (item: DisplayItem) => {
-    const isCompleted = item.service_status === 'completed' || item.status === 'completed';
+    const isCompleted = item.status === 'completed';
     const isWalkIn = item.is_walk_in;
     const isMultipleServices = item.services && item.services.length > 1;
     const services = item.services || [];
@@ -1100,6 +1208,9 @@ export default function StaffAppointments({
     const stylistName = isWalkIn && item.walk_in_data?.user 
       ? `${item.walk_in_data.user.first_name || ''} ${item.walk_in_data.user.last_name || ''}`.trim()
       : item.stylist_name || '';
+    
+    // Get hair details from the services
+    const hairDetails = renderHairDetails(services);
     
     return (
       <View key={`${item.id}`} className="bg-white rounded-2xl p-4 mb-4 shadow-sm border border-gray-100">
@@ -1150,6 +1261,9 @@ export default function StaffAppointments({
               </Text>
             </View>
             
+            {/* Hair Details */}
+            {hairDetails}
+            
             {isMultipleServices && services.length > 0 && (
               <View className="mt-1 ml-5">
                 {services.map((service, index) => (
@@ -1158,6 +1272,12 @@ export default function StaffAppointments({
                     <Text className="text-gray-500 text-xs">
                       {service.service_name} ({service.duration_minutes} mins) - ₱{parseFloat(service.price).toLocaleString()}
                     </Text>
+                    {/* Show individual service hair details if any */}
+                    {(service.hair_length || service.hair_thickness || service.preferred_color) && (
+                      <Text className="text-purple-500 text-[10px] ml-1">
+                        [{service.hair_length || ''} {service.hair_thickness || ''} {service.preferred_color || ''}]
+                      </Text>
+                    )}
                   </View>
                 ))}
               </View>
@@ -1179,16 +1299,16 @@ export default function StaffAppointments({
           </View>
           
           <View className={`px-3 py-1.5 rounded-full ${
-            item.service_status === 'completed' ? 'bg-green-100' :
-            item.service_status === 'in_progress' ? 'bg-blue-100' : 'bg-pink-100'
+            item.status === 'completed' ? 'bg-green-100' :
+            item.status === 'confirmed' ? 'bg-blue-100' : 'bg-pink-100'
           }`}>
             <Text className={`text-xs font-semibold ${
-              item.service_status === 'in_progress' ? 'text-blue-700' :
-              item.service_status === 'completed' ? 'text-green-700' : 'text-pink-700'
+              item.status === 'confirmed' ? 'text-blue-700' :
+              item.status === 'completed' ? 'text-green-700' : 'text-pink-700'
             }`}>
-              {item.service_status === 'in_progress' ? 'IN PROGRESS' : 
-               item.service_status === 'completed' ? 'COMPLETED' : 
-               item.service_status?.toUpperCase() || 'PENDING'}
+              {item.status === 'confirmed' ? 'CONFIRMED' : 
+               item.status === 'completed' ? 'COMPLETED' : 
+               item.status?.toUpperCase() || 'PENDING'}
             </Text>
           </View>
         </View>
@@ -1329,7 +1449,7 @@ export default function StaffAppointments({
         </View>
       </ScrollView>
 
-      {/* Update Modal for Regular Appointments - With Dropdowns */}
+      {/* Update Modal for Regular Appointments */}
       <Modal
         animationType="slide"
         transparent={true}
@@ -1339,7 +1459,7 @@ export default function StaffAppointments({
         <View className="flex-1 justify-center items-center bg-black/50">
           <View className="bg-white rounded-2xl w-full max-w-md mx-4 max-h-[90%] overflow-hidden">
             <View className="bg-pink-500 px-6 py-4 flex-row justify-between items-center">
-              <Text className="text-xl font-bold text-white">Update Service</Text>
+              <Text className="text-xl font-bold text-white">Update Appointment</Text>
               <TouchableOpacity onPress={() => setShowUpdateModal(false)}>
                 <Ionicons name="close" size={24} color="white" />
               </TouchableOpacity>
@@ -1364,22 +1484,18 @@ export default function StaffAppointments({
                 )}
               </View>
               
-              {/* Appointment Status - Dropdown */}
+              {/* Transaction Details */}
+              {selectedAppointment?.services && selectedAppointment.services.length > 0 && (
+                renderTransactionDetails(selectedAppointment.services)
+              )}
+              
+              {/* Appointment Status - Dropdown ONLY */}
               <StatusDropdown
                 label="Appointment Status"
                 value={updateFormData.status}
                 onValueChange={(value) => setUpdateFormData(prev => ({ ...prev, status: value }))}
                 options={['pending', 'confirmed', 'completed', 'cancelled']}
                 placeholder="Select appointment status..."
-              />
-              
-              {/* Service Status - Dropdown */}
-              <StatusDropdown
-                label="Service Status"
-                value={updateFormData.service_status}
-                onValueChange={(value) => setUpdateFormData(prev => ({ ...prev, service_status: value }))}
-                options={['pending', 'in_progress', 'completed', 'cancelled']}
-                placeholder="Select service status..."
               />
               
               <View className="mb-4">
@@ -1402,13 +1518,22 @@ export default function StaffAppointments({
                 {productUsages.length === 0 ? (
                   <View className="bg-yellow-50 rounded-xl p-4">
                     <Text className="text-yellow-600 text-sm text-center">
-                      No products configured for this service
+                      No products configured for these services
                     </Text>
                   </View>
                 ) : (
                   productUsages.map((product, index) => (
-                    <View key={product.id} className="bg-gray-50 rounded-xl p-3 mb-3">
-                      <Text className="text-gray-800 font-semibold">{product.product_name}</Text>
+                    <View key={`${product.id}-${product.service_id || index}`} className="bg-gray-50 rounded-xl p-3 mb-3">
+                      <View className="flex-row justify-between items-start">
+                        <Text className="text-gray-800 font-semibold flex-1">{product.product_name}</Text>
+                        {product.service_name && (
+                          <View className="bg-pink-100 px-2 py-0.5 rounded-full ml-2">
+                            <Text className="text-pink-600 text-[10px] font-medium">
+                              {product.service_name}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
                       <Text className="text-gray-500 text-xs mb-2">
                         Estimated Usage: {product.estimated_usage} per service
                       </Text>
@@ -1437,7 +1562,7 @@ export default function StaffAppointments({
                 className="bg-pink-500 py-3 rounded-xl mt-4"
               >
                 <Text className="text-white text-center font-semibold">
-                  {isUpdating ? 'Updating...' : 'Update Service'}
+                  {isUpdating ? 'Updating...' : 'Update Appointment'}
                 </Text>
               </TouchableOpacity>
             </ScrollView>
@@ -1497,6 +1622,30 @@ export default function StaffAppointments({
                     ₱{selectedWalkIn?.amount_paid?.toLocaleString() || '0.00'}
                   </Text>
                 </View>
+                {/* Walk-in Hair Details */}
+                {(selectedWalkIn?.hair_length || selectedWalkIn?.hair_thickness || selectedWalkIn?.preferred_color) && (
+                  <View className="mt-2 pt-2 border-t border-gray-200">
+                    <Text className="text-gray-600 text-sm font-semibold">Hair Details</Text>
+                    {selectedWalkIn?.hair_length && (
+                      <View className="flex-row justify-between items-center mt-1">
+                        <Text className="text-gray-500 text-sm">Hair Length:</Text>
+                        <Text className="text-gray-700 text-sm capitalize">{selectedWalkIn.hair_length}</Text>
+                      </View>
+                    )}
+                    {selectedWalkIn?.hair_thickness && (
+                      <View className="flex-row justify-between items-center mt-1">
+                        <Text className="text-gray-500 text-sm">Hair Thickness:</Text>
+                        <Text className="text-gray-700 text-sm capitalize">{selectedWalkIn.hair_thickness}</Text>
+                      </View>
+                    )}
+                    {selectedWalkIn?.preferred_color && (
+                      <View className="flex-row justify-between items-center mt-1">
+                        <Text className="text-gray-500 text-sm">Preferred Color:</Text>
+                        <Text className="text-gray-700 text-sm">{selectedWalkIn.preferred_color}</Text>
+                      </View>
+                    )}
+                  </View>
+                )}
               </View>
 
               {/* Customer Name */}

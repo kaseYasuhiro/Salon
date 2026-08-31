@@ -113,4 +113,9 @@ class User extends Authenticatable
         return $this->hasMany(WalkinAuthorization::class, 'staff_id', 'id');
     }
 
+    public function cancelledBy()
+    {
+        return $this->hasMany(Appointments::class, 'cancelled_by', 'id');
+    }
+
 }

@@ -5,20 +5,6 @@ import { useAuth } from "@/contexts/auth-context";
 import api from '@/api/axios';
 
 // Define types locally
-interface Appointment {
-  id: number;
-  customer_id: number;
-  appointment_date: string;
-  appointment_time: string;
-  status: string;
-  service_status: string;
-  service_name: string;
-  duration_minutes: number;
-  price: string;
-  assigned_employee_id?: number;
-  stylist_name?: string;
-}
-
 interface Transaction {
   id: number;
   appointment_id: number;
@@ -56,6 +42,32 @@ interface Transaction {
     email: string;
     phone_number: string;
   };
+}
+
+interface Appointment {
+  id: number;
+  customer_id: number;
+  appointment_date: string;
+  appointment_time: string;
+  status: string;
+  service_status: string;
+  // Grouped fields
+  services: Array<{
+    service_name: string;
+    duration_minutes: number;
+    price: string;
+    service_status: string;
+  }>;
+  service_names: string[];
+  total_price: number;
+  total_duration: number;
+  assigned_employee_id?: number;
+  stylist_name?: string;
+  stylist_id?: number; // Added for easier access
+  // For backward compatibility
+  service_name?: string;
+  duration_minutes?: number;
+  price?: string;
 }
 
 interface Feedback {
@@ -159,14 +171,23 @@ const FeedbackPage = ({
       <ScrollView className="flex-1 p-5">
         <View className="bg-white rounded-2xl p-6 shadow-sm mb-5">
           <Text className="text-gray-800 text-lg font-bold text-center mb-2">
-            {appointment.service_name}
+            {appointment.service_names?.join(' + ') || appointment.service_name || 'Appointment'}
           </Text>
           <Text className="text-gray-500 text-sm text-center">
             {formatDate(appointment.appointment_date)} at {appointment.appointment_time}
           </Text>
-          <Text className="text-gray-500 text-sm text-center mt-1">
-            Stylist: {appointment.stylist_name || 'Not assigned'}
-          </Text>
+          {appointment.stylist_name && appointment.stylist_name !== 'Not assigned' && (
+            <Text className="text-gray-500 text-sm text-center mt-1">
+              Stylist: <Text className="font-semibold">{appointment.stylist_name}</Text>
+            </Text>
+          )}
+          {appointment.services && appointment.services.length > 1 && (
+            <View className="mt-2 pt-2 border-t border-gray-100">
+              <Text className="text-gray-400 text-xs text-center">
+                {appointment.services.length} services included
+              </Text>
+            </View>
+          )}
         </View>
 
         {/* Service Rating Section */}
@@ -204,7 +225,7 @@ const FeedbackPage = ({
             Rate the Stylist
           </Text>
           <Text className="text-gray-500 text-sm text-center mb-4">
-            How was your experience with the stylist?
+            How was your experience with {appointment.stylist_name || 'the stylist'}?
           </Text>
           
           <View className="flex-row justify-center gap-3 mb-2">
@@ -290,26 +311,103 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
       const response = await api.get("/appointments");
       console.log("Raw appointments response:", response.data);
       
-      let appointmentsData: Appointment[] = [];
+      let transactionsData: any[] = [];
       if (Array.isArray(response.data)) {
-        appointmentsData = response.data.map((item: any) => ({
-          id: item.id,
-          customer_id: item.customer_id,
-          appointment_date: item.appointment_date,
-          appointment_time: item.appointment_time,
-          status: item.status,
-          service_status: item.service_status,
-          service_name: item.service_name,
-          duration_minutes: item.duration_minutes,
-          price: item.price,
-          assigned_employee_id: item.assigned_employee_id,
-          stylist_name: item.stylist_name
-        }));
+        transactionsData = response.data;
       }
       
-      console.log("Processed appointments data:", appointmentsData);
-      setAppointments(appointmentsData);
-      return appointmentsData;
+      console.log("Processed transactions:", transactionsData);
+      
+      // Group transactions by appointment_id
+      const appointmentMap = new Map<number, {
+        id: number;
+        customer_id: number;
+        appointment_date: string;
+        appointment_time: string;
+        status: string;
+        services: Array<{
+          service_name: string;
+          duration_minutes: number;
+          price: string;
+          service_status: string;
+        }>;
+        assigned_employee_id?: number;
+        stylist_name?: string;
+      }>();
+      
+      transactionsData.forEach((item: any) => {
+        const appointmentId = item.id;
+        
+        if (!appointmentMap.has(appointmentId)) {
+          // Create a new appointment entry
+          appointmentMap.set(appointmentId, {
+            id: appointmentId,
+            customer_id: item.customer_id,
+            appointment_date: item.appointment_date,
+            appointment_time: item.appointment_time,
+            status: item.status,
+            services: [],
+            assigned_employee_id: item.assigned_employee_id,
+            stylist_name: item.stylist_name
+          });
+        }
+        
+        // Add the service to the appointment
+        const appointment = appointmentMap.get(appointmentId)!;
+        appointment.services.push({
+          service_name: item.service_name || 'Unknown Service',
+          duration_minutes: item.duration_minutes || 0,
+          price: item.price || '0',
+          service_status: item.service_status || 'pending'
+        });
+      });
+      
+      // Convert the map to an array of appointments
+      const groupedAppointments: Appointment[] = Array.from(appointmentMap.values()).map((appointment) => {
+        const serviceNames = appointment.services.map(s => s.service_name);
+        const totalPrice = appointment.services.reduce((sum, s) => sum + parseFloat(s.price || '0'), 0);
+        const totalDuration = appointment.services.reduce((sum, s) => sum + s.duration_minutes, 0);
+        
+        // Determine overall service status
+        const overallStatus = appointment.services.some(s => s.service_status === 'pending') 
+          ? 'pending' 
+          : appointment.services.every(s => s.service_status === 'completed') 
+            ? 'completed' 
+            : 'in_progress';
+        
+        // Get stylist name from staff list if available
+        let stylistName = appointment.stylist_name;
+        if (!stylistName && appointment.assigned_employee_id) {
+          const staffMember = staff.find(s => s.id === appointment.assigned_employee_id);
+          if (staffMember) {
+            stylistName = `${staffMember.first_name} ${staffMember.last_name}`;
+          }
+        }
+        
+        return {
+          id: appointment.id,
+          customer_id: appointment.customer_id,
+          appointment_date: appointment.appointment_date,
+          appointment_time: appointment.appointment_time,
+          status: appointment.status,
+          services: appointment.services,
+          service_names: serviceNames,
+          total_price: totalPrice,
+          total_duration: totalDuration,
+          assigned_employee_id: appointment.assigned_employee_id,
+          stylist_name: stylistName || 'Not assigned',
+          stylist_id: appointment.assigned_employee_id,
+          // For backward compatibility
+          service_name: serviceNames.join(' + '),
+          duration_minutes: totalDuration,
+          price: totalPrice.toString(),
+          service_status: overallStatus
+        };
+      });
+      
+      console.log("Grouped appointments:", groupedAppointments);
+      setAppointments(groupedAppointments);
+      return groupedAppointments;
     } catch (error) {
       console.log("Error fetching appointments:", error);
       return [];
@@ -482,39 +580,47 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
 
   // Get staff name by ID
   const getStaffName = (staffId: number) => {
-    if (!staffId) return 'Not assigned';
+    if (!staffId) return null;
     const staffMember = staff.find(s => s.id === staffId);
-    return staffMember ? `${staffMember.first_name} ${staffMember.last_name}` : 'Not assigned';
+    return staffMember ? `${staffMember.first_name} ${staffMember.last_name}` : null;
   };
 
-  // Get stylist name for an appointment from transactions
-  const getStylistNameForAppointment = (appointmentId: number) => {
-    // First check if the appointment already has stylist_name
-    const appointment = appointments.find(a => a.id === appointmentId);
-    if (appointment && appointment.stylist_name) {
+  // Get stylist name for an appointment
+  const getStylistNameForAppointment = (appointment: Appointment) => {
+    // First check if the appointment already has a stylist name
+    if (appointment.stylist_name && appointment.stylist_name !== 'Not assigned') {
       return appointment.stylist_name;
     }
     
-    // If not, try to get from transactions
-    const transaction = transactions.find(t => t.appointment_id === appointmentId);
-    if (transaction?.assigned_employee) {
-      return `${transaction.assigned_employee.first_name} ${transaction.assigned_employee.last_name}`;
+    // Check if there's an assigned employee ID
+    if (appointment.assigned_employee_id) {
+      const name = getStaffName(appointment.assigned_employee_id);
+      if (name) return name;
     }
-    if (transaction?.assigned_employee_id) {
-      return getStaffName(transaction.assigned_employee_id);
+    
+    // If we have transactions, try to get from there
+    if (transactions.length > 0) {
+      const transaction = transactions.find(t => t.appointment_id === appointment.id);
+      if (transaction?.assigned_employee) {
+        return `${transaction.assigned_employee.first_name} ${transaction.assigned_employee.last_name}`;
+      }
+      if (transaction?.assigned_employee_id) {
+        const name = getStaffName(transaction.assigned_employee_id);
+        if (name) return name;
+      }
     }
+    
     return 'Not assigned';
   };
 
-  // Get stylist ID for an appointment from transactions
+  // Get stylist ID for an appointment
   const getStylistIdForAppointment = (appointmentId: number) => {
-    // First check if the appointment already has assigned_employee_id
     const appointment = appointments.find(a => a.id === appointmentId);
     if (appointment && appointment.assigned_employee_id) {
       return appointment.assigned_employee_id;
     }
     
-    // If not, try to get from transactions
+    // Try to get from transactions
     const transaction = transactions.find(t => t.appointment_id === appointmentId);
     if (transaction?.assigned_employee_id) {
       return transaction.assigned_employee_id;
@@ -523,15 +629,14 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
   };
 
   // Handle opening feedback page
-  const handleOpenFeedbackPage = (appointment: any) => {
-    // Get stylist name and ID for this appointment
-    const stylistName = getStylistNameForAppointment(appointment.id);
+  const handleOpenFeedbackPage = (appointment: Appointment) => {
+    const stylistName = getStylistNameForAppointment(appointment);
     const stylistId = getStylistIdForAppointment(appointment.id);
     
-    // Create enriched appointment object with stylist info
     const enrichedAppointment = {
       ...appointment,
       stylist_name: stylistName,
+      stylist_id: stylistId,
       assigned_employee_id: stylistId
     };
     
@@ -567,9 +672,10 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
     });
 
     // Submit staff feedback if staff is assigned
-    if (selectedAppointmentForFeedback.assigned_employee_id) {
+    if (selectedAppointmentForFeedback.stylist_id || selectedAppointmentForFeedback.assigned_employee_id) {
+      const staffId = selectedAppointmentForFeedback.stylist_id || selectedAppointmentForFeedback.assigned_employee_id;
       await submitStaffFeedback({
-        staff_id: selectedAppointmentForFeedback.assigned_employee_id,
+        staff_id: staffId,
         customer_id: customerId,
         rating: staffRating,
         comments: comment
@@ -683,15 +789,45 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
             const hasGivenFeedback = hasFeedback(item.id);
             const existingRating = getFeedbackRating(item.id);
             const isCompleted = item.status === 'completed';
-            const stylistName = getStylistNameForAppointment(item.id);
+            const isMultipleServices = item.services && item.services.length > 1;
+            const services = item.services || [];
+            const serviceNames = item.service_names || ['No Service'];
+            
+            // Get stylist name for this appointment
+            const stylistName = getStylistNameForAppointment(item);
             const stylistId = getStylistIdForAppointment(item.id);
             
             return (
               <View key={item.id} className="bg-white rounded-2xl p-4 mb-3 shadow-sm">
                 <View className="flex-row justify-between items-start">
                   <View className="flex-1">
-                    <Text className="font-semibold text-gray-800 text-lg">{item.service_name}</Text>
-                    <Text className="text-gray-500 text-sm">{item.duration_minutes} mins</Text>
+                    <View className="flex-row flex-wrap items-center">
+                      <Text className="font-semibold text-gray-800 text-lg">
+                        {serviceNames.join(' + ')}
+                      </Text>
+                      {isMultipleServices && (
+                        <View className="ml-2 bg-pink-100 px-2 py-0.5 rounded-full">
+                          <Text className="text-pink-600 text-xs font-semibold">
+                            {services.length} services
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                    
+                    {/* Service Details */}
+                    {isMultipleServices && services.length > 0 && (
+                      <View className="mt-1">
+                        {services.map((service, index) => (
+                          <View key={index} className="flex-row items-center mt-0.5">
+                            <View className="w-1.5 h-1.5 bg-pink-400 rounded-full mr-2" />
+                            <Text className="text-gray-500 text-xs">
+                              {service.service_name} ({service.duration_minutes} mins) - ₱{parseFloat(service.price).toLocaleString()}
+                            </Text>
+                          </View>
+                        ))}
+                      </View>
+                    )}
+                    
                     <View className="flex-row items-center mt-1">
                       <Ionicons name="calendar-outline" size={12} color="#9ca3af" />
                       <Text className="text-gray-400 text-xs ml-1">{formatDate(item.appointment_date)}</Text>
@@ -700,14 +836,35 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
                       <Ionicons name="time-outline" size={12} color="#9ca3af" />
                       <Text className="text-gray-400 text-xs ml-1">{item.appointment_time}</Text>
                     </View>
-                    {stylistName && stylistName !== 'Not assigned' && (
+                    
+                    {/* Stylist Name - Always displayed with a person icon */}
+                    <View className="flex-row items-center mt-1">
+                      <Ionicons name="person-outline" size={12} color="#9ca3af" />
+                      <Text className="text-gray-400 text-xs ml-1">
+                        Stylist: <Text className="font-medium text-gray-600">{stylistName}</Text>
+                      </Text>
+                    </View>
+                    
+                    {isMultipleServices && (
                       <View className="flex-row items-center mt-1">
-                        <Ionicons name="person-outline" size={12} color="#9ca3af" />
-                        <Text className="text-gray-400 text-xs ml-1">Stylist: {stylistName}</Text>
+                        <Ionicons name="hourglass-outline" size={12} color="#9ca3af" />
+                        <Text className="text-gray-400 text-xs ml-1">Total: {item.total_duration} mins</Text>
+                      </View>
+                    )}
+                    
+                    {/* Show total price for multiple services */}
+                    {isMultipleServices && (
+                      <View className="flex-row items-center mt-1">
+                        <Ionicons name="cash-outline" size={12} color="#9ca3af" />
+                        <Text className="text-gray-400 text-xs ml-1">Total: ₱{item.total_price.toLocaleString()}</Text>
                       </View>
                     )}
                   </View>
-                  <Text className="text-pink-500 font-semibold">₱{parseFloat(item.price).toLocaleString()}</Text>
+                  {!isMultipleServices && (
+                    <Text className="text-pink-500 font-semibold">
+                      ₱{parseFloat(item.price || '0').toLocaleString()}
+                    </Text>
+                  )}
                 </View>
                 
                 <View className="flex-row items-center justify-between mt-3 pt-2 border-t border-gray-100">
@@ -716,7 +873,7 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
                   </View>
                   
                   {/* Rate Button - Only show for completed appointments without feedback */}
-                  {isCompleted && !hasGivenFeedback && stylistId && (
+                  {isCompleted && !hasGivenFeedback && stylistId && stylistName !== 'Not assigned' && (
                     <TouchableOpacity 
                       onPress={() => handleOpenFeedbackPage(item)}
                       className="flex-row items-center gap-1 px-3 py-1.5 bg-yellow-50 rounded-full"
@@ -727,7 +884,7 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
                   )}
                   
                   {/* Rate Button - Show even without stylist but with a warning */}
-                  {isCompleted && !hasGivenFeedback && !stylistId && (
+                  {isCompleted && !hasGivenFeedback && (!stylistId || stylistName === 'Not assigned') && (
                     <TouchableOpacity 
                       onPress={() => {
                         Alert.alert(
@@ -737,7 +894,17 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
                             { text: "Cancel", style: "cancel" },
                             { 
                               text: "Continue", 
-                              onPress: () => handleOpenFeedbackPage(item)
+                              onPress: () => {
+                                // Create a version with no stylist
+                                const appointmentWithoutStylist = {
+                                  ...item,
+                                  stylist_name: 'Not assigned',
+                                  stylist_id: null,
+                                  assigned_employee_id: null
+                                };
+                                setSelectedAppointmentForFeedback(appointmentWithoutStylist);
+                                setShowFeedbackPage(true);
+                              }
                             }
                           ]
                         );
@@ -745,7 +912,7 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
                       className="flex-row items-center gap-1 px-3 py-1.5 bg-yellow-50 rounded-full"
                     >
                       <Ionicons name="star-outline" size={14} color="#eab308" />
-                      <Text className="text-xs font-semibold text-yellow-600">Rate</Text>
+                      <Text className="text-xs font-semibold text-yellow-600">Rate Service</Text>
                     </TouchableOpacity>
                   )}
                   

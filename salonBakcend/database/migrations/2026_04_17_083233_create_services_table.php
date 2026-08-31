@@ -18,6 +18,7 @@ return new class extends Migration
             $table->decimal('price', 10,2);
             $table->integer('duration_minutes');
             $table->boolean('is_multitaskable')->default(true);
+            $table->boolean('reqHairColor')->nullable();
             $table->enum('service_status', ['active', 'inactive'])->default('active');
             $table->timestamps();
         });

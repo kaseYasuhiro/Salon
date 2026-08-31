@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Models\Billing;
 use App\Models\Transaction;
 use App\Models\Feedback;
+use App\Models\Refunds;
 use Illuminate\Database\Eloquent\Model;
 
 class Appointments extends Model
@@ -16,7 +17,10 @@ class Appointments extends Model
         'customer_id',
         'appointment_date',
         'appointment_time',
-        'status'
+        'status',
+        'cancellation_reason',
+        'cancelled_by',
+        'cancelled_at'
     ];
 
     public function user()
@@ -37,6 +41,16 @@ class Appointments extends Model
     public function feedback()
     {
         return $this->hasMany(Feedback::class, 'appointment_id', 'id');
+    }
+
+    public function cancelledBy()
+    {
+        return this->belongsTo(User::class, 'cancelled_by', 'id');
+    }
+
+    public function refunds()
+    {
+        return $this->hasMany(Refunds::class, 'appointment_id', 'id');
     }
 
 }

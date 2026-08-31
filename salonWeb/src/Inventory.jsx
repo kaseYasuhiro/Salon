@@ -48,7 +48,7 @@ function Inventory() {
   const stats = [
     { label: 'Total Products', value: '0', icon: Package, color: 'bg-pink-100', textColor: 'text-pink-600' },
     { label: 'Low Stock', value: '0', icon: AlertCircle, color: 'bg-yellow-100', textColor: 'text-yellow-600' },
-    { label: 'Total Value', value: '$0', icon: DollarSign, color: 'bg-green-100', textColor: 'text-green-600' },
+    { label: 'Total Value', value: 'P0', icon: DollarSign, color: 'bg-green-100', textColor: 'text-green-600' },
   ];
 
   // Toast notification component
@@ -663,11 +663,11 @@ function Inventory() {
         </div>
       )}
 
-      {/* Add Stock Modal */}
+      {/* Add Stock Modal - WITH HIDDEN SCROLLBAR */}
       {showAddStockModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden max-h-[85vh] overflow-y-auto">
-            <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-5 py-3 flex items-center justify-between sticky top-0">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden max-h-[85vh]">
+            <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-5 py-3 flex items-center justify-between sticky top-0 z-10">
               <h2 className="text-lg font-bold text-white">Add New Stock</h2>
               <button 
                 onClick={() => {
@@ -680,7 +680,7 @@ function Inventory() {
               </button>
             </div>
 
-            <form onSubmit={handleAddStock} className="p-5 space-y-3">
+            <form onSubmit={handleAddStock} className="p-5 space-y-3 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden" style={{ maxHeight: 'calc(85vh - 60px)' }}>
               {formError && (
                 <div className="bg-red-50 border border-red-200 rounded-lg p-2 flex items-center gap-1.5">
                   <AlertCircle size={12} className="text-red-500" />
@@ -719,7 +719,7 @@ function Inventory() {
                     required
                   />
                   {showProductDropdown && (
-                    <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                    <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
                       {getAvailableProducts().length === 0 ? (
                         <div className="px-3 py-2 text-sm text-gray-500">
                           {filteredProducts.length === 0 ? 'No products found' : 'All products already have stock'}
@@ -920,11 +920,11 @@ function Inventory() {
         </div>
       )}
 
-      {/* Transactions Modal */}
+      {/* Transactions Modal - WITH HIDDEN SCROLLBAR */}
       {showTransactionsModal && selectedInventoryItem && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl mx-4 overflow-hidden max-h-[85vh] overflow-y-auto">
-            <div className="bg-gradient-to-r from-blue-500 to-blue-600 px-5 py-3 flex items-center justify-between sticky top-0">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl mx-4 overflow-hidden max-h-[85vh]">
+            <div className="bg-gradient-to-r from-blue-500 to-blue-600 px-5 py-3 flex items-center justify-between sticky top-0 z-10">
               <div>
                 <h2 className="text-lg font-bold text-white">Transaction History</h2>
                 <p className="text-blue-100 text-xs mt-0.5">{selectedInventoryItem.product_name}</p>
@@ -940,7 +940,7 @@ function Inventory() {
               </button>
             </div>
 
-            <div className="p-5">
+            <div className="p-5 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden" style={{ maxHeight: 'calc(85vh - 60px)' }}>
               {/* Product Info Summary */}
               <div className="grid grid-cols-4 gap-3 mb-4">
                 <div className="bg-gray-50 rounded-lg p-2 text-center">

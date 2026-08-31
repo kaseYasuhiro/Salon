@@ -6,6 +6,8 @@ use App\Models\ServiceProductUsage;
 use App\Models\Transaction;
 use App\Models\ServiceSpecialties;
 use App\Models\WalkIn;
+use App\Models\ServiceHairColors;
+use App\Models\ServicePriceAdjustments;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
@@ -18,6 +20,7 @@ class Services extends Model
         'price',
         'duration_minutes',
         'is_multitaskable',
+        'reqHairColor',
         'service_status'
     ];
 
@@ -39,5 +42,15 @@ class Services extends Model
     public function walkIn()
     {
         return $this->hasMany(WalkIn::class, 'service_id', 'id');
+    }
+
+    public function serviceHairColors()
+    {
+        return $this->hasMany(ServiceHairColor::class, 'service_id', 'id');
+    }
+
+    public function servicePriceAdjustments()
+    {
+        return $this->hasMany(ServicePriceAdjustments::class, 'service_id', 'id');
     }
 }

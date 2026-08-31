@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
   Calendar, Scissors, Plus, Filter,
   ChevronLeft, ChevronRight, Search,
   User, Clock, Phone, Edit, Trash2, MoreVertical,
   CheckCircle, XCircle, AlertCircle, Eye, X, Save,
   Settings, Clock as ClockIcon, Sun, Moon, Users as UsersIcon,
-  Image as ImageIcon, FileText
+  Image as ImageIcon, FileText, CreditCard, RefreshCw
 } from 'lucide-react';
 import api from '../api/axios';
 
@@ -38,6 +39,7 @@ const Toast = ({ message, type, onClose }) => {
 };
 
 function Appointments() {
+  const navigate = useNavigate();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedStatus, setSelectedStatus] = useState('all');
   const [viewMode, setViewMode] = useState('calendar');
@@ -50,6 +52,7 @@ function Appointments() {
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [showAssignStaffModal, setShowAssignStaffModal] = useState(false);
   const [showPaymentProofModal, setShowPaymentProofModal] = useState(false);
+  const [showCancelModal, setShowCancelModal] = useState(false);
   const [selectedPaymentData, setSelectedPaymentData] = useState(null);
   const [selectedDay, setSelectedDay] = useState(null);
   const [editingAppointment, setEditingAppointment] = useState(null);
@@ -75,6 +78,16 @@ function Appointments() {
   const [isAssigningStaff, setIsAssigningStaff] = useState(false);
   const [businessSchedules, setBusinessSchedules] = useState([]);
   const [assignedStaff, setAssignedStaff] = useState([]);
+  
+  // Cancel/Refund state
+  const [cancelFormData, setCancelFormData] = useState({
+    appointment_id: '',
+    payment_id: '',
+    cancellation_reason: '',
+    refund_method: 'cash',
+    refund_amount: 0
+  });
+  const [isProcessingCancel, setIsProcessingCancel] = useState(false);
   
   // Toast state
   const [toast, setToast] = useState(null);
@@ -265,6 +278,105 @@ function Appointments() {
     }
   };
 
+  // Fetch payment details for an appointment
+  const fetchPaymentDetails = async (appointmentId) => {
+    try {
+      const response = await api.get(`/appointment/payment-details/${appointmentId}`);
+      console.log('Payment details:', response.data);
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching payment details:', error);
+      showToast('Failed to fetch payment details', 'error');
+      return null;
+    }
+  };
+
+  // Cancel appointment with refund
+  const handleCancelWithRefund = async (e) => {
+    e.preventDefault();
+    
+    if (!cancelFormData.cancellation_reason.trim()) {
+      showToast('Please provide a reason for cancellation', 'warning');
+      return;
+    }
+    
+    if (!cancelFormData.refund_method) {
+      showToast('Please select a refund method', 'warning');
+      return;
+    }
+    
+    if (cancelFormData.refund_amount <= 0) {
+      showToast('Refund amount must be greater than 0', 'warning');
+      return;
+    }
+    
+    setIsProcessingCancel(true);
+    try {
+      const response = await api.post('/appointment/cancel-with-refund', {
+        appointment_id: cancelFormData.appointment_id,
+        payment_id: cancelFormData.payment_id,
+        cancellation_reason: cancelFormData.cancellation_reason,
+        refund_method: cancelFormData.refund_method,
+        refund_amount: cancelFormData.refund_amount
+      });
+      
+      console.log('Appointment cancelled with refund:', response.data);
+      showToast('Appointment cancelled and refund processed successfully!', 'success');
+      
+      // Close modal and reset form
+      setShowCancelModal(false);
+      resetCancelForm();
+      
+      // Refresh data
+      await fetchAppointments();
+      
+    } catch (error) {
+      console.error('Error cancelling appointment:', error);
+      showToast(error.response?.data?.message || 'Failed to cancel appointment', 'error');
+    } finally {
+      setIsProcessingCancel(false);
+    }
+  };
+
+  // Open cancel modal
+  const handleOpenCancelModal = async (appointment) => {
+    try {
+      // Fetch payment details for this appointment
+      const paymentData = await fetchPaymentDetails(appointment.appointment_id);
+      
+      if (!paymentData) {
+        showToast('No payment record found for this appointment', 'warning');
+        return;
+      }
+      
+      // Get the amount from billing
+      const refundAmount = paymentData.billing?.total_amount || 0;
+      
+      setCancelFormData({
+        appointment_id: appointment.appointment_id,
+        payment_id: paymentData.id,
+        cancellation_reason: '',
+        refund_method: 'cash',
+        refund_amount: parseFloat(refundAmount)
+      });
+      
+      setShowCancelModal(true);
+    } catch (error) {
+      console.error('Error opening cancel modal:', error);
+      showToast('Failed to load payment details', 'error');
+    }
+  };
+
+  const resetCancelForm = () => {
+    setCancelFormData({
+      appointment_id: '',
+      payment_id: '',
+      cancellation_reason: '',
+      refund_method: 'cash',
+      refund_amount: 0
+    });
+  };
+
   // Fetch all appointments - GROUPED BY APPOINTMENT ID
   const fetchAppointments = async () => {
     setIsLoading(true);
@@ -330,17 +442,8 @@ function Appointments() {
             staffName = staffNameMap.get(appointment.assigned_employee_id) || `Staff ID: ${appointment.assigned_employee_id}`;
           }
           
-          // Determine overall status
-          const hasPending = appointment.services.some(s => s.service_status === 'pending');
-          const allCompleted = appointment.services.every(s => s.service_status === 'completed');
+          // Determine overall status - use the appointment status directly
           let overallStatus = appointment.status;
-          
-          // If all services are completed, mark appointment as completed
-          if (allCompleted && appointment.services.length > 0) {
-            overallStatus = 'completed';
-          } else if (hasPending && overallStatus !== 'cancelled') {
-            overallStatus = 'pending';
-          }
           
           return {
             id: appointment.id,
@@ -368,10 +471,12 @@ function Appointments() {
         console.log('Grouped appointments:', groupedAppointments);
         setAppointments(groupedAppointments);
         
-        // Calculate stats
+        // Calculate stats based on appointment status
         const total = groupedAppointments.length;
         const pending = groupedAppointments.filter(a => a.status === 'pending').length;
+        const confirmed = groupedAppointments.filter(a => a.status === 'confirmed').length;
         const completed = groupedAppointments.filter(a => a.status === 'completed').length;
+        const cancelled = groupedAppointments.filter(a => a.status === 'cancelled').length;
         const today = new Date().toISOString().split('T')[0];
         const todayAppointments = groupedAppointments.filter(a => a.appointment_date === today).length;
         
@@ -488,13 +593,20 @@ function Appointments() {
     setShowModal(true);
   };
 
+  // Navigate to AppointmentDetails when "View Appointments" is clicked
   const handleViewAppointments = () => {
-    const dayAppointments = getAppointmentsForDay(selectedDay);
-    setSelectedDayAppointments(dayAppointments);
+    // Get the selected date in YYYY-MM-DD format
+    const year = currentDate.getFullYear();
+    const month = String(currentDate.getMonth() + 1).padStart(2, '0');
+    const dayStr = String(selectedDay).padStart(2, '0');
+    const dateStr = `${year}-${month}-${dayStr}`;
+    
+    // Close the modal
     setShowModal(false);
-    setTimeout(() => {
-      setShowModal(true);
-    }, 100);
+    setSelectedDay(null);
+    
+    // Navigate to the appointments list with the date as a query parameter
+    navigate(`/dashboard/appointments/list?date=${dateStr}`);
   };
 
   const handleEditSchedule = () => {
@@ -540,6 +652,15 @@ function Appointments() {
 
   // Update appointment status - Updates all services in the appointment
   const handleUpdateAppointmentStatus = async (appointmentId, newStatus) => {
+    // If cancelling, open the cancel modal instead
+    if (newStatus === 'cancelled') {
+      const appointment = appointments.find(a => a.appointment_id === appointmentId);
+      if (appointment) {
+        await handleOpenCancelModal(appointment);
+      }
+      return;
+    }
+    
     setIsUpdating(true);
     try {
       const response = await api.put(`/appointments/update/${appointmentId}`, {
@@ -568,21 +689,10 @@ function Appointments() {
         );
       }
       
-      showToast(`Appointment ${newStatus === 'confirmed' ? 'confirmed' : 'cancelled'} successfully!`, 'success');
+      showToast(`Appointment ${newStatus === 'confirmed' ? 'confirmed' : 'updated'} successfully!`, 'success');
       
       // Refresh stats
-      const total = appointments.length;
-      const pending = appointments.filter(a => a.status === 'pending').length;
-      const completed = appointments.filter(a => a.status === 'completed').length;
-      const today = new Date().toISOString().split('T')[0];
-      const todayAppointments = appointments.filter(a => a.appointment_date === today).length;
-      
-      setStats([
-        { ...stats[0], value: total.toString(), change: `+${total}`, changeType: 'up' },
-        { ...stats[1], value: todayAppointments.toString(), change: `+${todayAppointments}`, changeType: 'up' },
-        { ...stats[2], value: pending.toString(), change: `${pending}`, changeType: pending > 0 ? 'up' : 'down' },
-        { ...stats[3], value: completed.toString(), change: `+${completed}`, changeType: 'up' },
-      ]);
+      await fetchAppointments();
       
     } catch (error) {
       console.error('Error updating appointment status:', error);
@@ -755,6 +865,138 @@ function Appointments() {
               Close
             </button>
           </div>
+        </div>
+      </div>
+    );
+  };
+
+  // Cancel/Refund Modal
+  const CancelModal = () => {
+    if (!showCancelModal) return null;
+    
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+        <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
+          <div className="bg-gradient-to-r from-red-500 to-red-600 px-6 py-3 flex items-center justify-between">
+            <h2 className="text-lg font-bold text-white">Cancel Appointment & Refund</h2>
+            <button 
+              onClick={() => { 
+                setShowCancelModal(false); 
+                resetCancelForm(); 
+              }} 
+              className="text-white hover:bg-white/20 rounded-lg p-1"
+            >
+              <X size={20} />
+            </button>
+          </div>
+
+          <form onSubmit={handleCancelWithRefund} className="p-6 space-y-4">
+            <div>
+              <label className="block text-gray-700 text-xs font-semibold mb-1">
+                Refund Amount *
+              </label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 font-semibold">₱</span>
+                <input
+                  type="number"
+                  value={cancelFormData.refund_amount}
+                  onChange={(e) => setCancelFormData(prev => ({ ...prev, refund_amount: parseFloat(e.target.value) || 0 }))}
+                  className="w-full pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+                  step="0.01"
+                  min="0"
+                  required
+                />
+              </div>
+              <p className="text-xs text-gray-500 mt-1">Enter the amount to refund to the customer</p>
+            </div>
+
+            <div>
+              <label className="block text-gray-700 text-xs font-semibold mb-1">
+                Refund Method *
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setCancelFormData(prev => ({ ...prev, refund_method: 'cash' }))}
+                  className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border-2 transition-all ${
+                    cancelFormData.refund_method === 'cash'
+                      ? 'border-green-500 bg-green-50 text-green-700'
+                      : 'border-gray-200 hover:border-green-300'
+                  }`}
+                >
+                  <CreditCard size={18} />
+                  <span className="font-medium text-sm">Cash</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCancelFormData(prev => ({ ...prev, refund_method: 'gcash' }))}
+                  className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border-2 transition-all ${
+                    cancelFormData.refund_method === 'gcash'
+                      ? 'border-blue-500 bg-blue-50 text-blue-700'
+                      : 'border-gray-200 hover:border-blue-300'
+                  }`}
+                >
+                  <Phone size={18} />
+                  <span className="font-medium text-sm">GCash</span>
+                </button>
+              </div>
+              <p className="text-xs text-gray-500 mt-1">Select how the refund will be processed</p>
+            </div>
+
+            <div>
+              <label className="block text-gray-700 text-xs font-semibold mb-1">
+                Cancellation Reason *
+              </label>
+              <textarea
+                value={cancelFormData.cancellation_reason}
+                onChange={(e) => setCancelFormData(prev => ({ ...prev, cancellation_reason: e.target.value }))}
+                rows="3"
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 resize-none"
+                placeholder="Provide a reason for cancelling this appointment..."
+                required
+              />
+              <p className="text-xs text-gray-500 mt-1">This reason will be visible to the customer</p>
+            </div>
+
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+              <div className="flex items-start gap-2">
+                <AlertCircle size={16} className="text-yellow-600 mt-0.5 flex-shrink-0" />
+                <p className="text-xs text-yellow-700">
+                  <span className="font-semibold">Note:</span> This action will cancel the appointment and process a refund to the customer. This cannot be undone.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => { 
+                  setShowCancelModal(false); 
+                  resetCancelForm(); 
+                }}
+                className="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={isProcessingCancel}
+                className="flex-1 px-4 py-2.5 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 text-sm font-medium disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {isProcessingCancel ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    Processing...
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw size={16} />
+                    Process Cancellation & Refund
+                  </>
+                )}
+              </button>
+            </div>
+          </form>
         </div>
       </div>
     );
@@ -1033,7 +1275,7 @@ function Appointments() {
         </div>
       )}
 
-      {/* Appointment Details Modal - WITH HIDDEN SCROLLBAR using Tailwind v4 arbitrary values */}
+      {/* Appointment Details Modal - Now with View Full Details button */}
       {showModal && selectedDayAppointments.length > 0 && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden max-h-[80vh]">
@@ -1056,7 +1298,6 @@ function Appointments() {
               </button>
             </div>
 
-            {/* Scrollable content with hidden scrollbar */}
             <div 
               className="p-4 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
               style={{ maxHeight: 'calc(80vh - 60px)' }}
@@ -1064,6 +1305,7 @@ function Appointments() {
               <div className="space-y-3">
                 {selectedDayAppointments.map((appointment) => {
                   const isPending = appointment.status === 'pending';
+                  const isCancelled = appointment.status === 'cancelled';
                   const isMultipleServices = appointment.services && appointment.services.length > 1;
                   const services = appointment.services || [];
                   
@@ -1143,7 +1385,7 @@ function Appointments() {
                               className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white rounded-md transition-colors text-xs font-medium disabled:opacity-50"
                             >
                               <XCircle size={14} />
-                              Cancel
+                              Cancel & Refund
                             </button>
                           </>
                         )}
@@ -1156,13 +1398,27 @@ function Appointments() {
                           View Payment Proof
                         </button>
                         
-                        {!isPending && (
+                        {!isPending && !isCancelled && (
                           <div className="w-full text-center text-xs text-gray-500 bg-gray-100 rounded-md py-1.5 mt-1">
                             {appointment.status === 'confirmed' ? '✅ Appointment confirmed' : 
-                             appointment.status === 'completed' ? '✅ Appointment completed' : 
-                             appointment.status === 'cancelled' ? '❌ Appointment cancelled' : ''}
+                             appointment.status === 'completed' ? '✅ Appointment completed' : ''}
                           </div>
                         )}
+                        
+                        {isCancelled && (
+                          <div className="w-full text-center text-xs text-red-500 bg-red-50 rounded-md py-1.5 mt-1">
+                            ❌ Appointment cancelled
+                          </div>
+                        )}
+
+                        {/* View Full Details Button - Navigates to AppointmentDetails */}
+                        <button 
+                          onClick={() => navigate(`/dashboard/appointments/${appointment.appointment_id}`)}
+                          className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 bg-pink-500 hover:bg-pink-600 text-white rounded-md transition-colors text-xs font-medium"
+                        >
+                          <Eye size={14} />
+                          View Full Details
+                        </button>
                       </div>
                     </div>
                   );
@@ -1374,142 +1630,31 @@ function Appointments() {
       {/* Payment Proof Modal */}
       <PaymentProofModal />
 
-      {/* List View */}
+      {/* Cancel/Refund Modal */}
+      <CancelModal />
+
+      {/* List View - Now redirects to AppointmentDetails */}
       {viewMode === 'list' && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50 border-b border-gray-100">
-                <tr>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Customer</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Services</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Date</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Time</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Staff</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Status</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Contact</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {filteredAppointments.map((appointment) => {
-                  const isPending = appointment.status === 'pending';
-                  const isMultipleServices = appointment.services && appointment.services.length > 1;
-                  
-                  return (
-                    <tr key={appointment.appointment_id} className="hover:bg-pink-50/30 transition-colors duration-200">
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <div className="flex items-center gap-2">
-                          <div className="w-7 h-7 bg-gradient-to-br from-pink-100 to-pink-200 rounded-full flex items-center justify-center">
-                            <User size={12} className="text-pink-600" />
-                          </div>
-                          <span className="text-sm font-medium text-gray-900">{appointment.customer_name}</span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex flex-col gap-0.5">
-                          <span className="text-sm font-medium text-gray-800">
-                            {appointment.service_name}
-                          </span>
-                          {isMultipleServices && (
-                            <span className="text-[10px] text-pink-600 font-semibold bg-pink-50 px-2 py-0.5 rounded-full inline-block w-fit">
-                              {appointment.services.length} services • ₱{appointment.total_price.toLocaleString()}
-                            </span>
-                          )}
-                          {isMultipleServices && appointment.services && (
-                            <div className="text-[10px] text-gray-400 space-y-0.5 mt-0.5">
-                              {appointment.services.map((service, idx) => (
-                                <div key={idx} className="truncate">
-                                  • {service.service_name} ({service.duration_minutes} min)
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">{formatDate(appointment.appointment_date)}</td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <div className="flex items-center gap-1.5">
-                          <Clock size={12} className="text-gray-400" />
-                          <span className="text-sm text-gray-600">{formatTime(appointment.appointment_time)}</span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <div className="flex items-center gap-1.5">
-                          <User size={12} className="text-gray-400" />
-                          <span className="text-sm text-gray-600">{appointment.staff_name}</span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full ${getStatusColor(appointment.status)}`}>
-                          {getStatusIcon(appointment.status)}
-                          {appointment.status?.charAt(0).toUpperCase() + appointment.status?.slice(1) || 'Unknown'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <div className="flex items-center gap-1.5">
-                          <Phone size={11} className="text-gray-400" />
-                          <span className="text-xs text-gray-500">{appointment.customer_phone}</span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <div className="flex items-center gap-2">
-                          {isPending ? (
-                            <>
-                              <button 
-                                onClick={() => handleUpdateAppointmentStatus(appointment.appointment_id, 'confirmed')}
-                                disabled={isUpdating}
-                                className="p-1 hover:bg-green-100 rounded-lg transition-colors text-green-600 disabled:opacity-50"
-                                title="Confirm Appointment"
-                              >
-                                <CheckCircle size={16} />
-                              </button>
-                              <button 
-                                onClick={() => handleUpdateAppointmentStatus(appointment.appointment_id, 'cancelled')}
-                                disabled={isUpdating}
-                                className="p-1 hover:bg-red-100 rounded-lg transition-colors text-red-600 disabled:opacity-50"
-                                title="Cancel Appointment"
-                              >
-                                <XCircle size={16} />
-                              </button>
-                            </>
-                          ) : (
-                            <span className="text-xs text-gray-400">
-                              {appointment.status === 'confirmed' ? 'Confirmed' : 
-                               appointment.status === 'completed' ? 'Completed' : 
-                               appointment.status === 'cancelled' ? 'Cancelled' : ''}
-                            </span>
-                          )}
-                          <button 
-                            onClick={() => fetchPaymentProof(appointment.appointment_id)}
-                            className="p-1 hover:bg-purple-100 rounded-lg transition-colors text-purple-600"
-                            title="View Payment Proof"
-                          >
-                            <ImageIcon size={16} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center">
+          <div className="w-20 h-20 bg-gradient-to-r from-pink-100 to-pink-200 rounded-full flex items-center justify-center mx-auto mb-4">
+            <Eye size={32} className="text-pink-600" />
           </div>
-          <div className="px-4 py-3 border-t border-gray-100 bg-gray-50/50 flex items-center justify-between flex-wrap gap-3">
-            <p className="text-xs text-gray-500">Showing {filteredAppointments.length} of {appointments.length} appointments</p>
-            <div className="flex gap-1.5">
-              <button className="px-2 py-1 text-xs border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50" disabled>Previous</button>
-              <button className="px-2 py-1 text-xs bg-pink-500 text-white rounded-lg hover:bg-pink-600">1</button>
-              <button className="px-2 py-1 text-xs border border-gray-200 rounded-lg hover:bg-gray-50">2</button>
-              <button className="px-2 py-1 text-xs border border-gray-200 rounded-lg hover:bg-gray-50">3</button>
-              <button className="px-2 py-1 text-xs border border-gray-200 rounded-lg hover:bg-gray-50">Next</button>
-            </div>
-          </div>
+          <h3 className="text-lg font-semibold text-gray-800 mb-2">Switch to List View</h3>
+          <p className="text-gray-500 text-sm mb-4">
+            The list view has been moved to the Appointments Details page.
+          </p>
+          <button 
+            onClick={() => navigate('/dashboard/appointments/list')}
+            className="inline-flex items-center gap-2 px-6 py-2.5 bg-pink-500 hover:bg-pink-600 text-white rounded-lg transition-colors text-sm font-medium"
+          >
+            <Eye size={16} />
+            View All Appointments
+          </button>
         </div>
       )}
 
       {/* Empty State */}
-      {filteredAppointments.length === 0 && !isLoading && (
+      {viewMode === 'calendar' && filteredAppointments.length === 0 && !isLoading && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 text-center">
           <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
             <Calendar size={28} className="text-gray-400" />

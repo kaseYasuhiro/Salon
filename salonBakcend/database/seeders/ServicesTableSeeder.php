@@ -19,6 +19,7 @@ class ServicesTableSeeder extends Seeder
             'price' => 120.00,
             'duration_minutes' => 30,
             'is_multitaskable' => false,
+            'reqHairColor' => false
         ]);
 
         Services::create([
@@ -27,22 +28,16 @@ class ServicesTableSeeder extends Seeder
             'price' => 150.00,
             'duration_minutes' => 30,
             'is_multitaskable' => false,
+            'reqHairColor' => false
         ]);
 
         Services::create([
-            'service_name' => 'Brazillian Hair Rebond (Long Hair)',
+            'service_name' => 'Brazillian Hair Rebond',
             'description' => 'test',
             'price' => '2000',
             'duration_minutes' => 240,
-            'is_multitaskable' => true
-        ]);
-
-        Services::create([
-            'service_name' => 'Brazillian Hair Rebond (Short Hair)',
-            'description' => 'test',
-            'price' => '1500',
-            'duration_minutes' => 240,
-            'is_multitaskable' => true
+            'is_multitaskable' => true,
+            'reqHairColor' => false
         ]);
 
         Services::create([
@@ -51,23 +46,18 @@ class ServicesTableSeeder extends Seeder
             'price' => 300.00,
             'duration_minutes' => 30,
             'is_multitaskable' => false,
+            'reqHairColor' => false
         ]);
 
         Services::create([
-            'service_name' => 'Hair Brazillian (Long Hair)',
+            'service_name' => 'Hair Brazillian',
             'description' => 'test',
             'price' => 1000.00,
             'duration_minutes' => 30,
             'is_multitaskable' => false,
+            'reqHairColor' => false
         ]);
 
-        Services::create([
-            'service_name' => 'Hair Brazillian (Short Hair)',
-            'description' => 'test',
-            'price' => 800.00,
-            'duration_minutes' => 30,
-            'is_multitaskable' => false,
-        ]);
         
     }
 }

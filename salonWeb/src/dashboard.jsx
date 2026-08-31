@@ -251,7 +251,7 @@ function Dashboard() {
 
   // Check current routes
   const isDashboardRoute = location.pathname === '/dashboard';
-  const isAppointmentsRoute = location.pathname === '/dashboard/appointments';
+  const isAppointmentsRoute = location.pathname === '/dashboard/appointments' || location.pathname === '/dashboard/appointments/list' || location.pathname.startsWith('/dashboard/appointments/');
   const isServicesRoute = location.pathname === '/dashboard/services';
   const isEmployeesRoute = location.pathname === '/dashboard/employees';
   const isInventoryRoute = location.pathname === '/dashboard/inventory';
@@ -359,7 +359,7 @@ function Dashboard() {
     setSelectedAppointment(null);
   };
 
-  // Appointment Details Modal
+  // Appointment Details Modal - UPDATED: Removed service_status
   const AppointmentModal = () => {
     if (!selectedAppointment) return null;
     
@@ -418,12 +418,6 @@ function Dashboard() {
                   <span className="font-medium">Status:</span>
                   <span className={`ml-2 px-2 py-0.5 text-xs rounded-full ${getStatusColor(selectedAppointment.status)}`}>
                     {selectedAppointment.status}
-                  </span>
-                </p>
-                <p className="text-sm text-gray-700">
-                  <span className="font-medium">Service Status:</span>
-                  <span className="ml-2 px-2 py-0.5 text-xs rounded-full bg-blue-100 text-blue-700">
-                    {selectedAppointment.service_status || 'pending'}
                   </span>
                 </p>
                 <p className="text-sm text-gray-700">
@@ -819,8 +813,7 @@ function Dashboard() {
               to="/dashboard/employees"
               onClick={() => setSidebarOpen(false)}
               className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg transition-all text-sm ${
-                isEmployeesRoute
-                  ? 'bg-gradient-to-r from-pink-50 to-pink-100 text-pink-600 font-semibold' 
+                isEmployeesRoute                  ? 'bg-gradient-to-r from-pink-50 to-pink-100 text-pink-600 font-semibold' 
                   : 'text-gray-600 hover:bg-gray-50'
               }`}
             >

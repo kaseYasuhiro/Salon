@@ -17,7 +17,9 @@ return new class extends Migration
             $table->unsignedBigInteger('service_id');
             $table->unsignedBigInteger('assigned_employee_id')->nullable();
             $table->string('notes')->nullable();
-            $table->enum('service_status', ['pending', 'completed', 'cancelled']);
+            $table->string('hair_length', 50)->nullable();
+            $table->string('hair_thickness', 50)->nullable();
+            $table->string('preferred_color', 100)->nullable();
             $table->date('completed_at')->nullable();
             $table->foreign('appointment_id')->references('id')->on('appointments')->cascadeOnDelete()->cascadeOnUpdate();
             $table->foreign('service_id')->references('id')->on('services')->cascadeOnDelete()->cascadeOnUpdate();

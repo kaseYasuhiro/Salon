@@ -222,23 +222,6 @@ function Products() {
     }
   };
 
-  // Delete product
-  const handleDeleteProduct = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this product?')) {
-      return;
-    }
-    
-    try {
-      const response = await api.post(`/products/delete/${id}`);
-      console.log('Product deleted:', response.data);
-      showToast(response.data.message || 'Product deleted successfully!', 'success');
-      fetchProducts();
-    } catch (error) {
-      console.error('Error deleting product:', error);
-      showToast(error.response?.data?.message || 'Failed to delete product', 'error');
-    }
-  };
-
   // Reset form
   const resetForm = () => {
     setFormData({
@@ -513,22 +496,14 @@ function Products() {
                   </div>
                 </div>
                 
-                <div className="flex gap-2">
-                  <button 
-                    onClick={() => handleEdit(product)}
-                    className="flex-1 flex items-center justify-center gap-1 px-3 py-1.5 bg-pink-50 text-pink-600 rounded-lg hover:bg-pink-100 transition-colors text-xs font-medium"
-                  >
-                    <Edit size={12} />
-                    Edit
-                  </button>
-                  <button 
-                    onClick={() => handleDeleteProduct(product.id)}
-                    className="flex-1 flex items-center justify-center gap-1 px-3 py-1.5 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors text-xs font-medium"
-                  >
-                    <Trash2 size={12} />
-                    Delete
-                  </button>
-                </div>
+                {/* Only Edit button - Delete removed */}
+                <button 
+                  onClick={() => handleEdit(product)}
+                  className="w-full flex items-center justify-center gap-1 px-3 py-1.5 bg-pink-50 text-pink-600 rounded-lg hover:bg-pink-100 transition-colors text-xs font-medium"
+                >
+                  <Edit size={12} />
+                  Edit
+                </button>
               </div>
             </div>
           );
@@ -574,11 +549,11 @@ function Products() {
         </div>
       )}
 
-      {/* Add/Edit Product Modal */}
+      {/* Add/Edit Product Modal - WITH HIDDEN SCROLLBAR */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden max-h-[85vh] overflow-y-auto">
-            <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-5 py-3 flex items-center justify-between sticky top-0">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden max-h-[85vh]">
+            <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-5 py-3 flex items-center justify-between sticky top-0 z-10">
               <h2 className="text-lg font-bold text-white">
                 {editingProduct ? 'Edit Product' : 'Add New Product'}
               </h2>
@@ -593,7 +568,11 @@ function Products() {
               </button>
             </div>
 
-            <form onSubmit={editingProduct ? handleUpdateProduct : handleAddProduct} className="p-5 space-y-3">
+            <form 
+              onSubmit={editingProduct ? handleUpdateProduct : handleAddProduct} 
+              className="p-5 space-y-3 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+              style={{ maxHeight: 'calc(85vh - 60px)' }}
+            >
               <div>
                 <label className="block text-gray-700 text-xs font-semibold mb-1">
                   Product Name *

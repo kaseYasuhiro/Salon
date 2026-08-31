@@ -18,7 +18,9 @@ class Transaction extends Model
         'service_id',
         'assigned_employee_id',
         'notes',
-        'service_status',
+        'hair_length',
+        'hair_thickness',
+        'preferred_color',
         'completed_at'
     ];
 

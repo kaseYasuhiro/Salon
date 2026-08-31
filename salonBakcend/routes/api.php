@@ -23,6 +23,9 @@ use App\Http\Controllers\WalkInController;
 use App\Http\Controllers\WalkInTransactionController;
 use App\Http\Controllers\WalkinAuthorizationController;
 use App\Http\Controllers\PaymentsController;
+use App\Http\Controllers\HairColorsController;
+use App\Http\Controllers\RefundsController;
+use App\Http\Controllers\ServiceHairColorsController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -106,11 +109,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/feedbacks/staff/submit', [StaffFeedbackController::class, 'submitStaffFeedback']);
     Route::post('/payment/remaining', [JoinedController::class, 'remainingBalancePayment']);
     
+    
 
 
     //staff side
     Route::get('/staff/{staffId}/appointments', [JoinedController::class, 'getStaffAppointments']);
-    Route::put('/staff/transaction/{transactionId}/status', [JoinedController::class, 'updateTransactionStatus']);
+    // Route::put('/staff/transaction/{transactionId}/status', [JoinedController::class, 'updateTransactionStatus']);
     Route::put('/staff/transaction/{transactionId}/complete', [JoinedController::class, 'completeService']);
     Route::put('/staff/transaction/{transactionId}/update', [JoinedController::class, 'updateServiceWithInventory']);
     Route::get('/service/{serviceId}/product-usages', [JoinedController::class, 'getServiceProductUsages']);
@@ -130,18 +134,23 @@ Route::middleware('auth:sanctum')->group(function () {
 
 });
 
-
+//dipa sure
 Route::post('/profile/add', [UserController::class, 'addProfileImage']);
+Route::post('/refund/submit', [RefundsController::class, 'submitRefund']);
+Route::post('/refund/update', [RefundsController::class, 'updateRefund']);
+Route::post('/service/haircolors/add', [ServiceHairColorsController::class, 'addAvailableColors']);
+
+//goods na ni
+Route::get('/services/price/adjustment', [JoinedController::class, 'serviecsWithPriceAdjustments']);
+Route::get('/services/price/adjustment/{serviceId}', [JoinedController::class, 'getServicePriceAdjustments']);
+Route::get('/service/haircolors', [JoinedController::class, 'serviceHairColor']);
+Route::get('/haircolors', [HairColorsController::class, 'displayHairColors']);
+Route::get('/transact', [JoinedController::class, 'transactionWithAppointments']);
 
 
+Route::get('/appointment/payment-details/{appointmentId}', [JoinedController::class, 'getPaymentDetails']);
+Route::post('/appointment/cancel-with-refund', [JoinedController::class, 'cancelWithRefund']);
 
-
-
-
-
-
- 
-
-
+Route::get('/appointment/{id}', [JoinedController::class, 'getAppointmentDetails']);
 
 

@@ -909,11 +909,11 @@ function Employees() {
         </div>
       )}
 
-      {/* Add/Edit Staff Modal - Compact */}
+      {/* Add/Edit Staff Modal - WITH HIDDEN SCROLLBAR */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden max-h-[85vh] overflow-y-auto">
-            <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-5 py-3 flex items-center justify-between sticky top-0">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden max-h-[85vh]">
+            <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-5 py-3 flex items-center justify-between sticky top-0 z-10">
               <h2 className="text-lg font-bold text-white">
                 {editingEmployee ? 'Edit Staff Member' : 'Add New Staff Member'}
               </h2>
@@ -928,7 +928,11 @@ function Employees() {
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="p-5 space-y-3">
+            <form 
+              onSubmit={handleSubmit} 
+              className="p-5 space-y-3 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+              style={{ maxHeight: 'calc(85vh - 60px)' }}
+            >
               {formError && (
                 <div className="bg-red-50 border border-red-200 rounded-lg p-2 flex items-center gap-1.5">
                   <AlertCircle size={12} className="text-red-500" />
@@ -1050,46 +1054,30 @@ function Employees() {
         </div>
       )}
 
-      {/* Employee Management Modal - Combined */}
+      {/* Employee Management Modal - Combined - WITH HIDDEN SCROLLBAR (TOP SAVE BUTTON REMOVED) */}
       {showEmployeeModal && selectedEmployee && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden max-h-[85vh] overflow-y-auto">
-            <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-5 py-3 flex items-center justify-between sticky top-0">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden max-h-[85vh]">
+            <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-5 py-3 flex items-center justify-between sticky top-0 z-10">
               <h2 className="text-lg font-bold text-white">
                 Manage {selectedEmployee.first_name}
               </h2>
-              <div className="flex items-center gap-2">
-                <button 
-                  onClick={handleSaveAllChanges}
-                  disabled={isSavingAll}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-white text-pink-600 rounded-lg hover:bg-pink-50 transition-colors text-sm font-medium disabled:opacity-50"
-                >
-                  {isSavingAll ? (
-                    <>
-                      <div className="w-3 h-3 border-2 border-pink-600 border-t-transparent rounded-full animate-spin"></div>
-                      Saving...
-                    </>
-                  ) : (
-                    <>
-                      <Save size={14} />
-                      Save All
-                    </>
-                  )}
-                </button>
-                <button 
-                  onClick={() => {
-                    setShowEmployeeModal(false);
-                    setSelectedEmployee(null);
-                    resetEmployeeForm();
-                  }}
-                  className="text-white hover:bg-white/20 rounded-lg p-1 transition-colors"
-                >
-                  <X size={20} />
-                </button>
-              </div>
+              <button 
+                onClick={() => {
+                  setShowEmployeeModal(false);
+                  setSelectedEmployee(null);
+                  resetEmployeeForm();
+                }}
+                className="text-white hover:bg-white/20 rounded-lg p-1 transition-colors"
+              >
+                <X size={20} />
+              </button>
             </div>
 
-            <div className="p-5 space-y-4">
+            <div 
+              className="p-5 space-y-4 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+              style={{ maxHeight: 'calc(85vh - 60px)' }}
+            >
               {/* Employee Info */}
               <div className="bg-gray-50 rounded-lg p-3">
                 <div className="flex items-center gap-3">
@@ -1260,7 +1248,7 @@ function Employees() {
                 </div>
               </div>
 
-              {/* Save Changes Button */}
+              {/* Save Changes Button - Only at the bottom */}
               <div className="border-t border-gray-200 pt-4">
                 <button
                   onClick={handleSaveAllChanges}

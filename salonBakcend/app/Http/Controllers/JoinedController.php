@@ -24,6 +24,10 @@ use App\Models\IncidentReports;
 use App\Models\WalkIn;
 use App\Models\WalkInTransaction;
 use App\Models\WalkinAuthorization;
+use App\Models\ServicePriceAdjustments;
+use App\Models\Refunds;
+use App\Models\HairColors;
+use App\Models\ServiceHairColors;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Http\Request;
 
@@ -121,9 +125,36 @@ class JoinedController extends Controller
         return WalkinAuthorization::with('user')->get();
     }
 
+    public function serviecsWithPriceAdjustments()
+    {
+        return Services::with('servicePriceAdjustments')->get();
+    }
 
+    public function allRefunds()
+    {
+        return Refunds::with(['payments', 'appointments'])->get();
+    }
 
+    public function serviceHairColor()
+    {
+        return ServiceHairColors::with(['hairColors'])->get();
+    }
 
+    public function transactionWithAppointments()
+    {
+        return Appointments::with(['transaction', 'user'])->get();
+    }
+
+    public function getServicePriceAdjustments($serviceId)
+    {
+        $adjustments = ServicePriceAdjustments::where('service_id', $serviceId)->get();
+        
+        if ($adjustments->isEmpty()) {
+            return response()->json([]);
+        }
+        
+        return response()->json($adjustments);
+    }
 
 
 
@@ -232,7 +263,6 @@ class JoinedController extends Controller
                 'appointment_date' => $transaction->appointments->appointment_date,
                 'appointment_time' => $transaction->appointments->appointment_time,
                 'status' => $transaction->appointments->status,
-                'service_status' => $transaction->service_status,
                 'service_name' => $transaction->services->service_name ?? null,
                 'duration_minutes' => $transaction->services->duration_minutes ?? 0,
                 'price' => $transaction->services->price ?? '0',
@@ -292,7 +322,9 @@ class JoinedController extends Controller
             'appointment_time' => ['required', 'date_format:H:i'],
             'status' => ['required', 'string'],
             'assigned_employee_id' => ['required', 'numeric'],
-            'service_status' => ['required', 'string'],
+            'hair_length' => ['nullable', 'string'],
+            'hair_thickness' => ['nullable', 'string'],
+            'preferred_color' => ['nullable', 'string'],
             'total_amount' => ['required', 'numeric'],
             'payment_type' => ['required', 'string', 'in:downpayment,remaining'],
             'payment_method' => ['required', 'string', 'in:gcash,cash'],
@@ -328,7 +360,9 @@ class JoinedController extends Controller
                 'appointment_id' => $appointment->id,
                 'service_id' => $serviceId,
                 'assigned_employee_id' => $request->assigned_employee_id,
-                'service_status' => $request->service_status,
+                'hair_length' => $request->hair_length,
+                'hair_thickness' => $request->hair_thickness,
+                'preferred_color' => $request->preferred_color
             ]);
             $transactions[] = $transaction;
         }
@@ -449,7 +483,6 @@ class JoinedController extends Controller
                 'appointment_date' => $appointment->appointment_date ?? null,
                 'appointment_time' => $appointment->appointment_time ?? null,
                 'status' => $appointment->status ?? null,
-                'service_status' => $transaction->service_status,
                 'assigned_employee_id' => $transaction->assigned_employee_id ?? null,
                 'service_name' => $transaction->services->service_name ?? null,
                 'duration_minutes' => $transaction->services->duration_minutes ?? 0,
@@ -477,11 +510,10 @@ class JoinedController extends Controller
     public function updateAppointment(Request $request, $id)
     {
         $request->validate([
+            'appointment_date' => ['nullable', 'date', 'date_format:Y-m-d'],
             'appointment_time' => ['nullable', 'date_format:H:i:s'],
             'assigned_employee_id' => ['nullable', 'numeric', 'exists:users,id'], 
-            'status' => ['nullable', 'string', 'in:pending,confirmed,completed,cancelled'],
-            'service_status' => ['nullable', 'string', 'in:pending,in_progress,completed,cancelled'],
-            'notes' => ['nullable', 'string']
+            'status' => ['nullable', 'string', 'in:pending,confirmed,completed,cancelled']
         ]);
 
         try {
@@ -490,15 +522,15 @@ class JoinedController extends Controller
             // Find the appointment
             $appointment = Appointments::findOrFail($id);
             
-            // Update appointment fields (only fields that exist in appointments table)
+            // Update appointment fields
+            if ($request->has('appointment_date')) {
+                $appointment->appointment_date = $request->appointment_date;
+            }
             if ($request->has('appointment_time')) {
                 $appointment->appointment_time = $request->appointment_time;
             }
             if ($request->has('status')) {
                 $appointment->status = $request->status;
-            }
-            if ($request->has('notes')) {
-                $appointment->notes = $request->notes;
             }
             $appointment->save();
 
@@ -511,32 +543,13 @@ class JoinedController extends Controller
                     $transaction->assigned_employee_id = $request->assigned_employee_id;
                 }
                 
-                // Update service status
-                if ($request->has('service_status')) {
-                    $transaction->service_status = $request->service_status;
-                    
-                    // If status is completed, set completed_at date
-                    if ($request->service_status === 'completed') {
-                        $transaction->completed_at = now();
-                    } elseif ($request->service_status === 'pending' || $request->service_status === 'in_progress') {
-                        $transaction->completed_at = null;
-                    }
-                }
-                
-                // Update notes if provided and if transactions table has notes field
-                if ($request->has('notes')) {
-                    $transaction->notes = $request->notes;
-                }
-                
                 $transaction->save();
             } else {
                 // If no transaction exists, create one
                 $transaction = Transaction::create([
                     'appointment_id' => $appointment->id,
-                    'service_id' => $request->service_id ?? 1, // You might need to adjust this
-                    'assigned_employee_id' => $request->assigned_employee_id ?? null,
-                    'service_status' => $request->service_status ?? 'pending',
-                    'notes' => $request->notes ?? null
+                    'service_id' => $request->service_id ?? 1,
+                    'assigned_employee_id' => $request->assigned_employee_id ?? null
                 ]);
             }
 
@@ -631,88 +644,91 @@ class JoinedController extends Controller
                 'appointment_date' => $appointment->appointment_date ?? null,
                 'appointment_time' => $appointment->appointment_time ?? null,
                 'status' => $appointment->status ?? null,
-                'service_status' => $transaction->service_status ?? 'pending',
                 'service_name' => $transaction->services->service_name ?? 'Service',
                 'duration_minutes' => $transaction->services->duration_minutes ?? 0,
                 'price' => $transaction->services->price ?? '0',
                 'notes' => $transaction->notes,
                 'transaction_id' => $transaction->id,
+                // Hair details from the transaction
+                'hair_length' => $transaction->hair_length ?? null,
+                'hair_thickness' => $transaction->hair_thickness ?? null,
+                'preferred_color' => $transaction->preferred_color ?? null,
             ];
         });
         
         return response()->json($result);
     }
 
-    public function updateTransactionStatus(Request $request, $transactionId)
-    {
-        $request->validate([
-            'service_status' => ['required', 'string', 'in:pending,in_progress,completed,cancelled']
-        ]);
+    // public function updateTransactionStatus(Request $request, $transactionId)
+    // {
+    //     $request->validate([
+    //         'service_status' => ['required', 'string', 'in:pending,in_progress,completed,cancelled']
+    //     ]);
         
-        try {
-            DB::beginTransaction();
+    //     try {
+    //         DB::beginTransaction();
             
-            $transaction = Transaction::findOrFail($transactionId);
-            $oldStatus = $transaction->service_status;
-            $transaction->service_status = $request->service_status;
+    //         $transaction = Transaction::findOrFail($transactionId);
+    //         $oldStatus = $transaction->service_status;
+    //         $transaction->service_status = $request->service_status;
             
-            if ($request->service_status === 'completed') {
-                $transaction->completed_at = now();
+    //         if ($request->service_status === 'completed') {
+    //             $transaction->completed_at = now();
                 
-                // Update appointment status
-                if ($transaction->appointments) {
-                    $transaction->appointments->status = 'completed';
-                    $transaction->appointments->save();
-                }
-            }
+    //             // Update appointment status
+    //             if ($transaction->appointments) {
+    //                 $transaction->appointments->status = 'completed';
+    //                 $transaction->appointments->save();
+    //             }
+    //         }
             
-            $transaction->save();
+    //         $transaction->save();
             
-            // If status is changing to 'completed', update inventory
-            if ($request->service_status === 'completed' && $oldStatus !== 'completed') {
-                $serviceUsages = ServiceProductUsage::where('service_id', $transaction->service_id)->get();
+    //         // If status is changing to 'completed', update inventory
+    //         if ($request->service_status === 'completed' && $oldStatus !== 'completed') {
+    //             $serviceUsages = ServiceProductUsage::where('service_id', $transaction->service_id)->get();
                 
-                foreach ($serviceUsages as $usage) {
-                    $inventory = Inventory::where('product_id', $usage->product_id)->first();
+    //             foreach ($serviceUsages as $usage) {
+    //                 $inventory = Inventory::where('product_id', $usage->product_id)->first();
                     
-                    if ($inventory) {
-                        // Create inventory transaction
-                        InventoryTransaction::create([
-                            'inventory_id' => $inventory->id,
-                            'transaction_id' => $transaction->id,
-                            'quantity_change' => -$usage->estimated_usage,
-                            'transaction_type' => 'service_completion'
-                        ]);
+    //                 if ($inventory) {
+    //                     // Create inventory transaction
+    //                     InventoryTransaction::create([
+    //                         'inventory_id' => $inventory->id,
+    //                         'transaction_id' => $transaction->id,
+    //                         'quantity_change' => -$usage->estimated_usage,
+    //                         'transaction_type' => 'service_completion'
+    //                     ]);
                         
-                        // Update inventory current_usages
-                        $inventory->current_usages += $usage->estimated_usage;
-                        $inventory->save();
-                    }
-                }
-            }
+    //                     // Update inventory current_usages
+    //                     $inventory->current_usages += $usage->estimated_usage;
+    //                     $inventory->save();
+    //                 }
+    //             }
+    //         }
             
-            DB::commit();
+    //         DB::commit();
             
-            return response()->json([
-                'message' => 'Service status updated successfully',
-                'transaction' => $transaction
-            ]);
+    //         return response()->json([
+    //             'message' => 'Service status updated successfully',
+    //             'transaction' => $transaction
+    //         ]);
             
-        } catch (\Exception $e) {
-            DB::rollBack();
-            return response()->json([
-                'message' => 'Failed to update service status',
-                'error' => $e->getMessage()
-            ], 500);
-        }
-    }
+    //     } catch (\Exception $e) {
+    //         DB::rollBack();
+    //         return response()->json([
+    //             'message' => 'Failed to update service status',
+    //             'error' => $e->getMessage()
+    //         ], 500);
+    //     }
+    // }
 
 
 
     public function completeService(Request $request, $transactionId)
     {
         $request->validate([
-            'service_status' => ['required', 'string', 'in:completed']
+            'status' => ['required', 'string', 'in:completed'] // Changed from service_status to status
         ]);
 
         try {
@@ -720,14 +736,24 @@ class JoinedController extends Controller
 
             $transaction = Transaction::findOrFail($transactionId);
             
-            $transaction->service_status = 'completed';
+            // Remove service_status update since we're deprecating it
+            // $transaction->service_status = 'completed'; // REMOVED
             $transaction->completed_at = now();
             $transaction->save();
 
+            // Update appointment status to completed
             $appointment = $transaction->appointments;
             if ($appointment) {
                 $appointment->status = 'completed';
                 $appointment->save();
+            }
+
+            // Update all transactions for this appointment to completed
+            // This ensures all services in the appointment are marked as completed
+            $allTransactions = Transaction::where('appointment_id', $appointment->id)->get();
+            foreach ($allTransactions as $trans) {
+                $trans->completed_at = now();
+                $trans->save();
             }
 
             $serviceUsages = ServiceProductUsage::where('service_id', $transaction->service_id)->get();
@@ -790,7 +816,8 @@ class JoinedController extends Controller
 
             return response()->json([
                 'message' => 'Service completed successfully',
-                'transaction' => $transaction
+                'transaction' => $transaction,
+                'appointment' => $appointment
             ], 200);
 
         } catch (\Exception $e) {
@@ -807,7 +834,6 @@ class JoinedController extends Controller
     {
         $request->validate([
             'status' => ['nullable', 'string', 'in:pending,confirmed,completed,cancelled'],
-            'service_status' => ['nullable', 'string', 'in:pending,in_progress,completed,cancelled'],
             'product_usages' => ['nullable', 'array'],
             'notes' => ['nullable', 'string'],
             'product_usages.*.inventory_id' => ['required', 'numeric', 'exists:inventories,id'],
@@ -852,14 +878,10 @@ class JoinedController extends Controller
                     $transaction->notes = $request->notes;
                 }
                 
-                // Update transaction service status
-                if ($request->has('service_status')) {
-                    $transaction->service_status = $request->service_status;
-                    if ($request->service_status === 'completed') {
-                        $transaction->completed_at = now();
-                    }
-                    $transaction->save();
-                }
+                // REMOVED: Update transaction service_status since we're deprecating it
+                // The transaction's service_status is no longer being updated
+                
+                $transaction->save();
 
                 // Update inventory based on quantity changes
                 if ($request->has('product_usages')) {
@@ -1074,17 +1096,21 @@ class JoinedController extends Controller
             'service_id' => ['required', 'numeric'],
             'specialty_id' => ['nullable', 'numeric'],
             'product_id' => ['nullable', 'numeric'],
-            'estimated_usage' => ['nullable', 'numeric']
+            'estimated_usage' => ['nullable', 'numeric'],
+            'hair_color_ids' => ['nullable', 'array'], // New field for hair colors
+            'hair_color_ids.*' => ['numeric', 'exists:hair_colors,id'] // Validate each hair color ID
         ]);
 
         $serviceId = $request->service_id;
         $specialtyId = $request->specialty_id;
         $productId = $request->product_id;
         $estimatedUsage = $request->estimated_usage;
+        $hairColorIds = $request->hair_color_ids; // Array of hair color IDs
 
         $results = [
             'specialty_added' => false,
             'product_usage_added' => false,
+            'hair_colors_updated' => false,
             'messages' => []
         ];
 
@@ -1135,8 +1161,39 @@ class JoinedController extends Controller
             }
         }
 
+        // 3. Update Hair Colors if provided
+        if ($hairColorIds !== null) {
+            try {
+                // First, get the service to check if reqHairColor is true
+                $service = Services::find($serviceId);
+                
+                if (!$service) {
+                    $results['messages'][] = 'Service not found.';
+                } else if (!$service->reqHairColor) {
+                    $results['messages'][] = 'This service does not require hair colors. Please enable "Requires Hair Color" first.';
+                } else {
+                    // Sync the hair colors for this service
+                    // Delete existing associations
+                    ServiceHairColors::where('service_id', $serviceId)->delete();
+                    
+                    // Add new associations
+                    foreach ($hairColorIds as $colorId) {
+                        ServiceHairColors::create([
+                            'service_id' => $serviceId,
+                            'hair_color_id' => $colorId
+                        ]);
+                    }
+                    
+                    $results['hair_colors_updated'] = true;
+                    $results['messages'][] = 'Hair colors updated successfully. (' . count($hairColorIds) . ' colors selected)';
+                }
+            } catch (\Exception $e) {
+                $results['messages'][] = 'Error updating hair colors: ' . $e->getMessage();
+            }
+        }
+
         // Return response
-        $success = $results['specialty_added'] || $results['product_usage_added'];
+        $success = $results['specialty_added'] || $results['product_usage_added'] || $results['hair_colors_updated'];
         $statusCode = $success ? 200 : 400;
         $statusMessage = $success ? 'Changes saved successfully' : 'No changes were saved';
 
@@ -1261,4 +1318,150 @@ class JoinedController extends Controller
             'results' => $results
         ], $statusCode);
     }
+
+
+    public function getPaymentDetails($appointmentId)
+    {
+        $payment = Payments::with('billing')
+            ->whereHas('billing', function($query) use ($appointmentId) {
+                $query->where('appointment_id', $appointmentId);
+            })
+            ->first();
+        
+        if (!$payment) {
+            return response()->json(['message' => 'No payment found for this appointment'], 404);
+        }
+        
+        return response()->json($payment);
+    }
+
+    
+    public function cancelWithRefund(Request $request)
+    {
+        $request->validate([
+            'appointment_id' => ['required', 'numeric'],
+            'payment_id' => ['required', 'numeric'],
+            'cancellation_reason' => ['required', 'string'],
+            'refund_method' => ['required', 'string', 'in:cash,gcash'],
+            'refund_amount' => ['required', 'numeric']
+        ]);
+
+        // Update appointment status
+        $appointment = Appointments::find($request->appointment_id);
+        if (!$appointment) {
+            return response()->json(['message' => 'Appointment not found'], 404);
+        }
+
+        $appointment->update([
+            'status' => 'cancelled',
+            'cancellation_reason' => $request->cancellation_reason,
+            'cancelled_by' => auth()->id(),
+            'cancelled_at' => now()
+        ]);
+
+        // Create refund record
+        Refunds::create([
+            'payment_id' => $request->payment_id,
+            'appointment_id' => $request->appointment_id,
+            'refund_amount' => $request->refund_amount,
+            'refund_method' => $request->refund_method,
+            'refund_reason' => $request->cancellation_reason,
+            'status' => 'pending',
+            'processed_at' => now()
+        ]);
+
+        return response()->json([
+            'message' => 'Appointment cancelled and refund processed successfully',
+            'appointment' => $appointment
+        ], 200);
+    }
+
+    public function getAppointmentDetails($id)
+    {
+        try {
+            // Find the appointment by ID
+            $appointment = Appointments::with(['transaction', 'user'])->find($id);
+            
+            if (!$appointment) {
+                return response()->json([
+                    'message' => 'Appointment not found'
+                ], 404);
+            }
+            
+            // Get the transactions for this appointment
+            $transactions = Transaction::where('appointment_id', $id)->get();
+            
+            // Get the customer/user details
+            $customer = User::find($appointment->customer_id);
+            
+            // Get the staff name from the first transaction
+            $staffName = 'Unassigned';
+            if ($transactions->isNotEmpty()) {
+                $firstTransaction = $transactions->first();
+                if ($firstTransaction->assigned_employee_id) {
+                    $staff = User::find($firstTransaction->assigned_employee_id);
+                    if ($staff) {
+                        $staffName = $staff->first_name . ' ' . $staff->last_name;
+                    }
+                }
+            }
+            
+            // Format services data
+            $services = [];
+            $totalPrice = 0;
+            $totalDuration = 0;
+            
+            foreach ($transactions as $transaction) {
+                $service = Services::find($transaction->service_id);
+                if ($service) {
+                    $price = floatval($service->price);
+                    $duration = intval($service->duration_minutes);
+                    $totalPrice += $price;
+                    $totalDuration += $duration;
+                    
+                    $services[] = [
+                        'id' => $transaction->id,
+                        'service_id' => $service->id,
+                        'service_name' => $service->service_name,
+                        'duration_minutes' => $duration,
+                        'price' => $price,
+                        'service_status' => $transaction->service_status ?? 'pending'
+                    ];
+                }
+            }
+            
+            // Build the response
+            $response = [
+                'id' => $appointment->id,
+                'appointment_id' => $appointment->id,
+                'customer_name' => $customer ? $customer->first_name . ' ' . $customer->last_name : 'Walk-in Customer',
+                'customer_phone' => $customer ? $customer->phone_number : 'N/A',
+                'customer_email' => $customer ? $customer->email : 'N/A',
+                'appointment_date' => $appointment->appointment_date,
+                'appointment_time' => $appointment->appointment_time,
+                'status' => $appointment->status,
+                'staff_name' => $staffName,
+                'services' => $services,
+                'service_names' => array_column($services, 'service_name'),
+                'total_price' => $totalPrice,
+                'total_duration' => $totalDuration,
+                'service_name' => implode(' + ', array_column($services, 'service_name')),
+                'duration_minutes' => $totalDuration,
+                'price' => number_format($totalPrice, 2),
+                'created_at' => $appointment->created_at,
+                'updated_at' => $appointment->updated_at
+            ];
+            
+            return response()->json($response);
+            
+        } catch (\Exception $e) {
+            \Log::error('Error fetching appointment details: ' . $e->getMessage());
+            return response()->json([
+                'message' => 'Failed to fetch appointment details',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+
 }
