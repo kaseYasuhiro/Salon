@@ -25,9 +25,11 @@ function Inventory() {
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [showProductDropdown, setShowProductDropdown] = useState(false);
   const [restockQuantity, setRestockQuantity] = useState('');
+  const [restockPrice, setRestockPrice] = useState('');
   const [transactions, setTransactions] = useState([]);
   const [selectedInventoryItem, setSelectedInventoryItem] = useState(null);
   const [isLoadingTransactions, setIsLoadingTransactions] = useState(false);
+  const [user, setUser] = useState(null);
 
   const [formData, setFormData] = useState({
     product_id: '',
@@ -35,7 +37,8 @@ function Inventory() {
     product_quantity: '',
     current_usages: '',
     reorder_level: '',
-    expiration_date: ''
+    expiration_date: '',
+    unit_price: ''
   });
 
   const categories = [
@@ -48,7 +51,7 @@ function Inventory() {
   const stats = [
     { label: 'Total Products', value: '0', icon: Package, color: 'bg-pink-100', textColor: 'text-pink-600' },
     { label: 'Low Stock', value: '0', icon: AlertCircle, color: 'bg-yellow-100', textColor: 'text-yellow-600' },
-    { label: 'Total Value', value: 'P0', icon: DollarSign, color: 'bg-green-100', textColor: 'text-green-600' },
+    { label: 'Total Value', value: '₱0', icon: () => <span className="text-green-600 text-lg font-bold">₱</span>, color: 'bg-green-100', textColor: 'text-green-600' },
   ];
 
   // Toast notification component
@@ -57,6 +60,20 @@ function Inventory() {
     setTimeout(() => {
       setToast({ show: false, message: '', type: 'success' });
     }, 3000);
+  };
+
+  // Get current user from localStorage
+  const getCurrentUser = () => {
+    try {
+      const userData = localStorage.getItem('user');
+      if (userData) {
+        return JSON.parse(userData);
+      }
+      return null;
+    } catch (error) {
+      console.error('Error getting user:', error);
+      return null;
+    }
   };
 
   // Check if product is expired
@@ -72,11 +89,9 @@ function Inventory() {
   // Sort inventory by created_at (most recent first) or by id
   const sortInventoryByRecent = (inventoryArray) => {
     return [...inventoryArray].sort((a, b) => {
-      // If created_at exists, sort by it
       if (a.created_at && b.created_at) {
         return new Date(b.created_at) - new Date(a.created_at);
       }
-      // If created_at doesn't exist, fallback to id (assuming higher id = more recent)
       if (a.id && b.id) {
         return b.id - a.id;
       }
@@ -115,7 +130,6 @@ function Inventory() {
           estimated_usages_per_unit: item.products?.estimated_usages_per_unit || 0
         }));
         
-        // Sort inventory by most recent first
         const sortedData = sortInventoryByRecent(transformedData);
         setInventory(sortedData);
         
@@ -128,7 +142,7 @@ function Inventory() {
         
         stats[0].value = sortedData.length.toString();
         stats[1].value = lowStockItems.toString();
-        stats[2].value = `$${totalValue.toLocaleString()}`;
+        stats[2].value = `₱${totalValue.toLocaleString()}`;
       }
     } catch (error) {
       console.error('Error fetching inventory:', error);
@@ -159,6 +173,7 @@ function Inventory() {
     fetchInventory();
     fetchProducts();
     fetchInventoryTransactions();
+    setUser(getCurrentUser());
   }, []);
 
   // Filter products for dropdown
@@ -195,13 +210,14 @@ function Inventory() {
       product_quantity: '',
       current_usages: '',
       reorder_level: '',
-      expiration_date: ''
+      expiration_date: '',
+      unit_price: ''
     }));
     setProductSearch(product.product_name);
     setShowProductDropdown(false);
   };
 
-  // Add stock to inventory
+  // Add stock to inventory with expense tracking
   const handleAddStock = async (e) => {
     e.preventDefault();
     
@@ -230,6 +246,11 @@ function Inventory() {
       return;
     }
 
+    if (!formData.unit_price || parseFloat(formData.unit_price) <= 0) {
+      setFormError('Please enter a valid unit price');
+      return;
+    }
+
     // Check if product already exists in inventory
     const existingItem = inventory.find(item => item.product_id === parseInt(formData.product_id));
     if (existingItem) {
@@ -239,16 +260,50 @@ function Inventory() {
 
     setIsLoading(true);
     try {
+      // Add to inventory
       const response = await api.post('/inventory/add', {
         product_id: parseInt(formData.product_id),
         product_quantity: parseInt(formData.product_quantity),
         current_usages: parseInt(formData.current_usages),
         reorder_level: parseInt(formData.reorder_level),
-        expiration_date: formData.expiration_date
+        expiration_date: formData.expiration_date,
+        unit_price: parseFloat(formData.unit_price)
       });
       
       console.log('Stock added:', response.data);
-      showToast(response.data.message || 'Stock added successfully!', 'success');
+
+      // Now, create an expense entry for the new stock
+      const totalAmount = parseFloat(formData.unit_price) * parseInt(formData.product_quantity);
+      const currentUser = getCurrentUser();
+      const recordedBy = currentUser?.id || 1;
+
+      const expenseData = {
+        expense_name: `New Stock: ${selectedProduct?.product_name || formData.product_name}`,
+        amount: totalAmount,
+        expense_date: new Date().toISOString().split('T')[0],
+        description: `restock`,
+        recorded_by: recordedBy
+      };
+
+      console.log('Creating expense entry:', expenseData);
+
+      try {
+        const expenseResponse = await api.post('/expenses/add', expenseData);
+        console.log('Expense created:', expenseResponse.data);
+        showToast(`Stock added and expense recorded! (₱${totalAmount.toFixed(2)})`, 'success');
+      } catch (expenseError) {
+        console.error('Error creating expense:', expenseError);
+        console.error('Error response data:', expenseError.response?.data);
+        console.error('Error response status:', expenseError.response?.status);
+        
+        if (expenseError.response?.data?.errors) {
+          const errors = Object.values(expenseError.response.data.errors).flat();
+          showToast(`Stock added but expense recording failed: ${errors.join(', ')}`, 'warning');
+        } else {
+          showToast(`Stock added but expense recording failed: ${expenseError.response?.data?.message || 'Unknown error'}`, 'warning');
+        }
+      }
+      
       setShowAddStockModal(false);
       resetForm();
       fetchInventory();
@@ -271,7 +326,7 @@ function Inventory() {
     }
   };
 
-  // Update stock (restock existing product)
+  // Update stock (restock existing product) with expense tracking
   const handleRestock = async (e) => {
     e.preventDefault();
     
@@ -280,19 +335,59 @@ function Inventory() {
       return;
     }
 
+    if (!restockPrice || parseFloat(restockPrice) <= 0) {
+      setFormError('Please enter a valid price per unit');
+      return;
+    }
+
     setIsLoading(true);
     try {
-      const response = await api.post(`/inventory/update/${editingItem.id}`, {
+      // First, update the inventory
+      const restockResponse = await api.post(`/inventory/update/${editingItem.id}`, {
         product_id: parseInt(editingItem.product_id),
         product_quantity: parseInt(restockQuantity)
       });
       
-      console.log('Stock restocked:', response.data);
-      showToast(response.data.message || 'Stock restocked successfully!', 'success');
+      console.log('Stock restocked:', restockResponse.data);
+
+      // Now, create an expense entry for the restock
+      const totalAmount = parseFloat(restockPrice) * parseInt(restockQuantity);
+      const currentUser = getCurrentUser();
+      const recordedBy = currentUser?.id || 1;
+
+      const expenseData = {
+        expense_name: `Restock: ${editingItem.product_name}`,
+        amount: totalAmount,
+        expense_date: new Date().toISOString().split('T')[0],
+        description: 'restock',
+        recorded_by: recordedBy
+      };
+
+      console.log('Creating expense entry:', expenseData);
+
+      try {
+        const expenseResponse = await api.post('/expenses/add', expenseData);
+        console.log('Expense created:', expenseResponse.data);
+        showToast(`Stock restocked and expense recorded! (₱${totalAmount.toFixed(2)})`, 'success');
+      } catch (expenseError) {
+        console.error('Error creating expense:', expenseError);
+        console.error('Error response data:', expenseError.response?.data);
+        console.error('Error response status:', expenseError.response?.status);
+        
+        if (expenseError.response?.data?.errors) {
+          const errors = Object.values(expenseError.response.data.errors).flat();
+          showToast(`Stock restocked but expense recording failed: ${errors.join(', ')}`, 'warning');
+        } else {
+          showToast(`Stock restocked but expense recording failed: ${expenseError.response?.data?.message || 'Unknown error'}`, 'warning');
+        }
+      }
+      
       setShowRestockModal(false);
       setEditingItem(null);
       setRestockQuantity('');
+      setRestockPrice('');
       fetchInventory();
+      fetchInventoryTransactions();
     } catch (error) {
       console.error('Error restocking:', error);
       setFormError(error.response?.data?.message || 'Error restocking');
@@ -324,7 +419,8 @@ function Inventory() {
       product_quantity: '',
       current_usages: '',
       reorder_level: '',
-      expiration_date: ''
+      expiration_date: '',
+      unit_price: ''
     });
     setSelectedProduct(null);
     setProductSearch('');
@@ -332,11 +428,13 @@ function Inventory() {
     setFormError('');
     setShowProductDropdown(false);
     setRestockQuantity('');
+    setRestockPrice('');
   };
 
   const handleOpenRestockModal = (item) => {
     setEditingItem(item);
     setRestockQuantity('');
+    setRestockPrice('');
     setFormError('');
     setShowRestockModal(true);
   };
@@ -428,10 +526,14 @@ function Inventory() {
       {toast.show && (
         <div className="fixed top-4 right-4 z-50 animate-slide-in">
           <div className={`rounded-lg shadow-lg p-4 flex items-center gap-3 ${
-            toast.type === 'success' ? 'bg-green-500' : 'bg-red-500'
+            toast.type === 'success' ? 'bg-green-500' : 
+            toast.type === 'warning' ? 'bg-yellow-500' :
+            'bg-red-500'
           } text-white min-w-[300px]`}>
             {toast.type === 'success' ? (
               <CheckCircle size={20} />
+            ) : toast.type === 'warning' ? (
+              <AlertTriangle size={20} />
             ) : (
               <AlertCircle size={20} />
             )}
@@ -440,12 +542,12 @@ function Inventory() {
         </div>
       )}
 
-      {/* Stats Grid - 3 cards instead of 4 */}
+      {/* Stats Grid - 3 cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {stats.map((stat, index) => (
           <div key={index} className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 p-4 border border-gray-100">
             <div className={`${stat.color} w-10 h-10 rounded-xl flex items-center justify-center mb-2`}>
-              <stat.icon className={stat.textColor} size={18} />
+              {typeof stat.icon === 'function' ? stat.icon() : <stat.icon className={stat.textColor} size={18} />}
             </div>
             <p className="text-gray-500 text-xs mb-0.5">{stat.label}</p>
             <p className="text-xl font-bold text-gray-800">{stat.value}</p>
@@ -663,11 +765,11 @@ function Inventory() {
         </div>
       )}
 
-      {/* Add Stock Modal - WITH HIDDEN SCROLLBAR */}
+      {/* Add Stock Modal - WIDER AND UNSCROLLABLE */}
       {showAddStockModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden max-h-[85vh]">
-            <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-5 py-3 flex items-center justify-between sticky top-0 z-10">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl mx-4 overflow-hidden">
+            <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-6 py-4 flex items-center justify-between">
               <h2 className="text-lg font-bold text-white">Add New Stock</h2>
               <button 
                 onClick={() => {
@@ -680,162 +782,226 @@ function Inventory() {
               </button>
             </div>
 
-            <form onSubmit={handleAddStock} className="p-5 space-y-3 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden" style={{ maxHeight: 'calc(85vh - 60px)' }}>
+            <form onSubmit={handleAddStock} className="p-6 space-y-4">
               {formError && (
-                <div className="bg-red-50 border border-red-200 rounded-lg p-2 flex items-center gap-1.5">
-                  <AlertCircle size={12} className="text-red-500" />
-                  <p className="text-red-600 text-xs">{formError}</p>
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center gap-2">
+                  <AlertCircle size={16} className="text-red-500" />
+                  <p className="text-red-600 text-sm">{formError}</p>
                 </div>
               )}
               
-              {/* Product Search */}
-              <div>
-                <label className="block text-gray-700 text-xs font-semibold mb-1">
-                  Search Product *
-                </label>
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={productSearch}
-                    onChange={(e) => {
-                      setProductSearch(e.target.value);
-                      setShowProductDropdown(true);
-                      if (!e.target.value) {
-                        setSelectedProduct(null);
-                        setFormData(prev => ({
-                          ...prev,
-                          product_id: '',
-                          product_name: '',
-                          product_quantity: '',
-                          current_usages: '',
-                          reorder_level: '',
-                          expiration_date: ''
-                        }));
-                      }
-                    }}
-                    onFocus={() => setShowProductDropdown(true)}
-                    className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
-                    placeholder="Search for a product..."
-                    required
-                  />
-                  {showProductDropdown && (
-                    <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
-                      {getAvailableProducts().length === 0 ? (
-                        <div className="px-3 py-2 text-sm text-gray-500">
-                          {filteredProducts.length === 0 ? 'No products found' : 'All products already have stock'}
-                        </div>
-                      ) : (
-                        getAvailableProducts().map((product) => (
-                          <button
-                            key={product.id}
-                            type="button"
-                            onClick={() => handleProductSelect(product)}
-                            className="w-full px-3 py-2 text-sm text-left hover:bg-pink-50 transition-colors border-b border-gray-100 last:border-b-0"
-                          >
-                            <div className="font-medium text-gray-800">{product.product_name}</div>
-                            <div className="text-xs text-gray-500">
-                              {product.unit} ({product.unit_size}) - {product.estimated_usages_per_unit} usages
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Left Column */}
+                <div className="space-y-4">
+                  {/* Product Search */}
+                  <div>
+                    <label className="block text-gray-700 text-sm font-semibold mb-1">
+                      Search Product *
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={productSearch}
+                        onChange={(e) => {
+                          setProductSearch(e.target.value);
+                          setShowProductDropdown(true);
+                          if (!e.target.value) {
+                            setSelectedProduct(null);
+                            setFormData(prev => ({
+                              ...prev,
+                              product_id: '',
+                              product_name: '',
+                              product_quantity: '',
+                              current_usages: '',
+                              reorder_level: '',
+                              expiration_date: '',
+                              unit_price: ''
+                            }));
+                          }
+                        }}
+                        onFocus={() => setShowProductDropdown(true)}
+                        className="w-full px-4 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                        placeholder="Search for a product..."
+                        required
+                      />
+                      {showProductDropdown && (
+                        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+                          {getAvailableProducts().length === 0 ? (
+                            <div className="px-4 py-3 text-sm text-gray-500">
+                              {filteredProducts.length === 0 ? 'No products found' : 'All products already have stock'}
                             </div>
-                          </button>
-                        ))
+                          ) : (
+                            getAvailableProducts().map((product) => (
+                              <button
+                                key={product.id}
+                                type="button"
+                                onClick={() => handleProductSelect(product)}
+                                className="w-full px-4 py-2.5 text-sm text-left hover:bg-pink-50 transition-colors border-b border-gray-100 last:border-b-0"
+                              >
+                                <div className="font-medium text-gray-800">{product.product_name}</div>
+                                <div className="text-xs text-gray-500">
+                                  {product.unit} ({product.unit_size}) - {product.estimated_usages_per_unit} usages
+                                </div>
+                              </button>
+                            ))
+                          )}
+                        </div>
                       )}
+                    </div>
+                  </div>
+
+                  {/* Selected Product Info */}
+                  {selectedProduct && (
+                    <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <p className="text-xs text-gray-500">Selected Product</p>
+                          <p className="text-sm font-semibold text-gray-800">{selectedProduct.product_name}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-gray-500">Unit</p>
+                          <p className="text-sm font-semibold text-gray-800">{selectedProduct.unit} ({selectedProduct.unit_size})</p>
+                        </div>
+                      </div>
                     </div>
                   )}
                 </div>
+
+                {/* Right Column */}
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-gray-700 text-sm font-semibold mb-1">
+                      Quantity *
+                    </label>
+                    <input
+                      type="number"
+                      name="product_quantity"
+                      value={formData.product_quantity}
+                      onChange={handleInputChange}
+                      className="w-full px-4 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                      placeholder="Enter quantity"
+                      min="1"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-gray-700 text-sm font-semibold mb-1">
+                      Current Usages *
+                    </label>
+                    <input
+                      type="number"
+                      name="current_usages"
+                      value={formData.current_usages}
+                      onChange={handleInputChange}
+                      className="w-full px-4 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                      placeholder="Current usages"
+                      min="0"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-gray-700 text-sm font-semibold mb-1">
+                      Reorder Level *
+                    </label>
+                    <input
+                      type="number"
+                      name="reorder_level"
+                      value={formData.reorder_level}
+                      onChange={handleInputChange}
+                      className="w-full px-4 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                      placeholder="Reorder level"
+                      min="0"
+                      required
+                    />
+                  </div>
+                </div>
               </div>
 
-              {/* Selected Product Info */}
-              {selectedProduct && (
-                <div className="bg-gray-50 rounded-lg p-3">
-                  <p className="text-xs text-gray-500">Selected Product</p>
-                  <p className="text-sm font-semibold text-gray-800">{selectedProduct.product_name}</p>
+              {/* Bottom Section - Full Width */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-gray-700 text-sm font-semibold mb-1">
+                    Unit Price (₱) *
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 font-semibold text-sm">₱</span>
+                    <input
+                      type="number"
+                      name="unit_price"
+                      value={formData.unit_price}
+                      onChange={handleInputChange}
+                      className="w-full pl-8 pr-4 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                      placeholder="0.00"
+                      min="0.01"
+                      step="0.01"
+                      required
+                    />
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">Price per unit of this product</p>
+                </div>
+
+                <div>
+                  <label className="block text-gray-700 text-sm font-semibold mb-1">
+                    Expiration Date *
+                  </label>
+                  <input
+                    type="date"
+                    name="expiration_date"
+                    value={formData.expiration_date}
+                    onChange={handleInputChange}
+                    className="w-full px-4 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                    required
+                  />
+                </div>
+              </div>
+
+              {formData.product_quantity && formData.unit_price && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-600">Total Value:</span>
+                    <span className="text-xl font-bold text-blue-700">
+                      ₱{(parseFloat(formData.unit_price) * parseInt(formData.product_quantity)).toFixed(2)}
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    This will be recorded as an expense
+                  </p>
                 </div>
               )}
 
-              {/* Stock Information Section */}
-              <div className="border-b border-gray-200 pb-2 mb-2 mt-3">
-                <h3 className="text-sm font-semibold text-gray-700">Stock Information</h3>
+              {/* Note Box */}
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle size={18} className="text-yellow-600 mt-0.5 flex-shrink-0" />
+                  <div>
+                    <p className="text-sm text-yellow-700 font-semibold">Note:</p>
+                    <p className="text-sm text-yellow-600">
+                      Adding new stock will automatically create an expense entry with the total value.
+                      The expense will be recorded under "{selectedProduct?.product_name || 'New Product'}".
+                    </p>
+                  </div>
+                </div>
               </div>
 
-              <div>
-                <label className="block text-gray-700 text-xs font-semibold mb-1">
-                  Quantity *
-                </label>
-                <input
-                  type="number"
-                  name="product_quantity"
-                  value={formData.product_quantity}
-                  onChange={handleInputChange}
-                  className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
-                  placeholder="Enter quantity"
-                  min="1"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-gray-700 text-xs font-semibold mb-1">
-                  Current Usages *
-                </label>
-                <input
-                  type="number"
-                  name="current_usages"
-                  value={formData.current_usages}
-                  onChange={handleInputChange}
-                  className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
-                  placeholder="Current usages"
-                  min="0"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-gray-700 text-xs font-semibold mb-1">
-                  Reorder Level *
-                </label>
-                <input
-                  type="number"
-                  name="reorder_level"
-                  value={formData.reorder_level}
-                  onChange={handleInputChange}
-                  className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
-                  placeholder="Reorder level"
-                  min="0"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-gray-700 text-xs font-semibold mb-1">
-                  Expiration Date *
-                </label>
-                <input
-                  type="date"
-                  name="expiration_date"
-                  value={formData.expiration_date}
-                  onChange={handleInputChange}
-                  className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
-                  required
-                />
-              </div>
-
-              <div className="flex gap-2 pt-3">
+              <div className="flex gap-3 pt-2">
                 <button
                   type="button"
                   onClick={() => {
                     setShowAddStockModal(false);
                     resetForm();
                   }}
-                  className="flex-1 px-3 py-1.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium"
+                  className="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isLoading}
-                  className="flex-1 px-3 py-1.5 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 text-sm font-medium disabled:opacity-50"
+                  className="flex-1 px-4 py-2.5 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 text-sm font-medium disabled:opacity-50"
                 >
-                  {isLoading ? 'Adding...' : 'Add Stock'}
+                  {isLoading ? 'Adding...' : 'Add Stock & Record Expense'}
                 </button>
               </div>
             </form>
@@ -843,17 +1009,18 @@ function Inventory() {
         </div>
       )}
 
-      {/* Restock Modal */}
+      {/* Restock Modal - PINK COLOR */}
       {showRestockModal && editingItem && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
-            <div className="bg-gradient-to-r from-green-500 to-green-600 px-5 py-3 flex items-center justify-between sticky top-0">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl mx-4 overflow-hidden">
+            <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-6 py-4 flex items-center justify-between">
               <h2 className="text-lg font-bold text-white">Restock Product</h2>
               <button 
                 onClick={() => {
                   setShowRestockModal(false);
                   setEditingItem(null);
                   setRestockQuantity('');
+                  setRestockPrice('');
                   setFormError('');
                 }}
                 className="text-white hover:bg-white/20 rounded-lg p-1 transition-colors"
@@ -862,31 +1029,45 @@ function Inventory() {
               </button>
             </div>
 
-            <form onSubmit={handleRestock} className="p-5 space-y-3">
+            <form onSubmit={handleRestock} className="p-6 space-y-4">
               {formError && (
-                <div className="bg-red-50 border border-red-200 rounded-lg p-2 flex items-center gap-1.5">
-                  <AlertCircle size={12} className="text-red-500" />
-                  <p className="text-red-600 text-xs">{formError}</p>
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center gap-2">
+                  <AlertCircle size={16} className="text-red-500" />
+                  <p className="text-red-600 text-sm">{formError}</p>
                 </div>
               )}
               
               {/* Product Info */}
-              <div className="bg-gray-50 rounded-lg p-3">
-                <p className="text-xs text-gray-500">Product</p>
-                <p className="text-sm font-semibold text-gray-800">{editingItem.product_name}</p>
-                <p className="text-xs text-gray-500 mt-1">Current Quantity: {editingItem.product_quantity}</p>
-                <p className="text-xs text-gray-500">Unit: {editingItem.unit} ({editingItem.unit_size})</p>
+              <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <p className="text-xs text-gray-500">Product</p>
+                    <p className="text-sm font-semibold text-gray-800">{editingItem.product_name}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500">Unit</p>
+                    <p className="text-sm font-semibold text-gray-800">{editingItem.unit} ({editingItem.unit_size})</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500">Current Quantity</p>
+                    <p className="text-sm font-semibold text-gray-800">{editingItem.product_quantity}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500">Reorder Level</p>
+                    <p className="text-sm font-semibold text-gray-800">{editingItem.reorder_level}</p>
+                  </div>
+                </div>
               </div>
 
               <div>
-                <label className="block text-gray-700 text-xs font-semibold mb-1">
+                <label className="block text-gray-700 text-sm font-semibold mb-1">
                   Quantity to Add *
                 </label>
                 <input
                   type="number"
                   value={restockQuantity}
                   onChange={(e) => setRestockQuantity(e.target.value)}
-                  className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+                  className="w-full px-4 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
                   placeholder="Enter quantity to add"
                   min="1"
                   required
@@ -894,25 +1075,75 @@ function Inventory() {
                 <p className="text-xs text-gray-500 mt-1">This will be added to the current stock</p>
               </div>
 
-              <div className="flex gap-2 pt-3">
+              <div>
+                <label className="block text-gray-700 text-sm font-semibold mb-1">
+                  Price per Unit (₱) *
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 font-semibold text-sm">₱</span>
+                  <input
+                    type="number"
+                    value={restockPrice}
+                    onChange={(e) => setRestockPrice(e.target.value)}
+                    className="w-full pl-8 pr-4 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                    placeholder="0.00"
+                    min="0.01"
+                    step="0.01"
+                    required
+                  />
+                </div>
+                <p className="text-xs text-gray-500 mt-1">This will be recorded as an expense</p>
+              </div>
+
+              {/* Total Cost Preview */}
+              {restockQuantity && restockPrice && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-600">Total Cost:</span>
+                    <span className="text-xl font-bold text-blue-700">
+                      ₱{(parseFloat(restockPrice) * parseInt(restockQuantity)).toFixed(2)}
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    This will be added to expenses as "Restock: {editingItem.product_name}"
+                  </p>
+                </div>
+              )}
+
+              {/* Note Box */}
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle size={18} className="text-yellow-600 mt-0.5 flex-shrink-0" />
+                  <div>
+                    <p className="text-sm text-yellow-700 font-semibold">Note:</p>
+                    <p className="text-sm text-yellow-600">
+                      Restocking this product will automatically create an expense entry with the total amount.
+                      The expense will be recorded under "{editingItem.product_name}" with description "restock".
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex gap-3 pt-2">
                 <button
                   type="button"
                   onClick={() => {
                     setShowRestockModal(false);
                     setEditingItem(null);
                     setRestockQuantity('');
+                    setRestockPrice('');
                     setFormError('');
                   }}
-                  className="flex-1 px-3 py-1.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium"
+                  className="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isLoading}
-                  className="flex-1 px-3 py-1.5 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 text-sm font-medium disabled:opacity-50"
+                  className="flex-1 px-4 py-2.5 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 text-sm font-medium disabled:opacity-50"
                 >
-                  {isLoading ? 'Restocking...' : 'Restock'}
+                  {isLoading ? 'Processing...' : 'Restock & Record Expense'}
                 </button>
               </div>
             </form>
@@ -920,14 +1151,14 @@ function Inventory() {
         </div>
       )}
 
-      {/* Transactions Modal - WITH HIDDEN SCROLLBAR */}
+      {/* Transactions Modal - PINK COLOR */}
       {showTransactionsModal && selectedInventoryItem && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl mx-4 overflow-hidden max-h-[85vh]">
-            <div className="bg-gradient-to-r from-blue-500 to-blue-600 px-5 py-3 flex items-center justify-between sticky top-0 z-10">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl mx-4 overflow-hidden max-h-[85vh]">
+            <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-6 py-4 flex items-center justify-between sticky top-0 z-10">
               <div>
                 <h2 className="text-lg font-bold text-white">Transaction History</h2>
-                <p className="text-blue-100 text-xs mt-0.5">{selectedInventoryItem.product_name}</p>
+                <p className="text-pink-100 text-sm mt-0.5">{selectedInventoryItem.product_name}</p>
               </div>
               <button 
                 onClick={() => {
@@ -940,22 +1171,22 @@ function Inventory() {
               </button>
             </div>
 
-            <div className="p-5 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden" style={{ maxHeight: 'calc(85vh - 60px)' }}>
+            <div className="p-6 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden" style={{ maxHeight: 'calc(85vh - 72px)' }}>
               {/* Product Info Summary */}
               <div className="grid grid-cols-4 gap-3 mb-4">
-                <div className="bg-gray-50 rounded-lg p-2 text-center">
+                <div className="bg-gray-50 rounded-lg p-3 text-center border border-gray-200">
                   <p className="text-[10px] text-gray-400">Current Quantity</p>
                   <p className="text-sm font-semibold text-gray-800">{selectedInventoryItem.product_quantity}</p>
                 </div>
-                <div className="bg-gray-50 rounded-lg p-2 text-center">
+                <div className="bg-gray-50 rounded-lg p-3 text-center border border-gray-200">
                   <p className="text-[10px] text-gray-400">Usage Left</p>
                   <p className="text-sm font-semibold text-gray-800">{selectedInventoryItem.current_usages}</p>
                 </div>
-                <div className="bg-gray-50 rounded-lg p-2 text-center">
+                <div className="bg-gray-50 rounded-lg p-3 text-center border border-gray-200">
                   <p className="text-[10px] text-gray-400">Reorder Level</p>
                   <p className="text-sm font-semibold text-gray-800">{selectedInventoryItem.reorder_level}</p>
                 </div>
-                <div className="bg-gray-50 rounded-lg p-2 text-center">
+                <div className="bg-gray-50 rounded-lg p-3 text-center border border-gray-200">
                   <p className="text-[10px] text-gray-400">Unit</p>
                   <p className="text-sm font-semibold text-gray-800">{selectedInventoryItem.unit}</p>
                 </div>
@@ -964,7 +1195,7 @@ function Inventory() {
               {/* Transactions Table */}
               {isLoadingTransactions ? (
                 <div className="flex items-center justify-center h-32">
-                  <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                  <div className="w-8 h-8 border-4 border-pink-500 border-t-transparent rounded-full animate-spin"></div>
                 </div>
               ) : (
                 <div className="overflow-x-auto">

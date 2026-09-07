@@ -844,7 +844,7 @@ function Dashboard() {
               }`}
             >
               <BarChart3 size={18} />
-              <span>Sales</span>
+              <span>Transactions</span>
             </Link>
           </nav>
 

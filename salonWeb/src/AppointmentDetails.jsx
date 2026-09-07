@@ -37,6 +37,365 @@ const Toast = ({ message, type, onClose }) => {
   );
 };
 
+// Cancel/Refund Modal - Extracted outside to prevent re-renders
+const CancelModal = ({ 
+  showCancelModal, 
+  cancelFormData, 
+  setCancelFormData, 
+  isProcessingCancel, 
+  handleCancelWithRefund, 
+  resetCancelForm,
+  setShowCancelModal 
+}) => {
+  if (!showCancelModal) return null;
+  
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
+        <div className="bg-gradient-to-r from-red-500 to-red-600 px-6 py-3 flex items-center justify-between">
+          <h2 className="text-lg font-bold text-white">Cancel Appointment & Refund</h2>
+          <button 
+            onClick={() => { 
+              setShowCancelModal(false); 
+              resetCancelForm(); 
+            }} 
+            className="text-white hover:bg-white/20 rounded-lg p-1"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        <form onSubmit={handleCancelWithRefund} className="p-6 space-y-4">
+          <div>
+            <label className="block text-gray-700 text-xs font-semibold mb-1">
+              Refund Amount *
+            </label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 font-semibold">₱</span>
+              <input
+                type="number"
+                value={cancelFormData.refund_amount}
+                onChange={(e) => setCancelFormData(prev => ({ ...prev, refund_amount: parseFloat(e.target.value) || 0 }))}
+                className="w-full pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+                step="0.01"
+                min="0"
+                required
+              />
+            </div>
+            <p className="text-xs text-gray-500 mt-1">Enter the amount to refund to the customer</p>
+          </div>
+
+          <div>
+            <label className="block text-gray-700 text-xs font-semibold mb-1">
+              Refund Method *
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setCancelFormData(prev => ({ ...prev, refund_method: 'cash' }))}
+                className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border-2 transition-all ${
+                  cancelFormData.refund_method === 'cash'
+                    ? 'border-green-500 bg-green-50 text-green-700'
+                    : 'border-gray-200 hover:border-green-300'
+                }`}
+              >
+                <CreditCard size={18} />
+                <span className="font-medium text-sm">Cash</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setCancelFormData(prev => ({ ...prev, refund_method: 'gcash' }))}
+                className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border-2 transition-all ${
+                  cancelFormData.refund_method === 'gcash'
+                    ? 'border-blue-500 bg-blue-50 text-blue-700'
+                    : 'border-gray-200 hover:border-blue-300'
+                }`}
+              >
+                <Phone size={18} />
+                <span className="font-medium text-sm">GCash</span>
+              </button>
+            </div>
+            <p className="text-xs text-gray-500 mt-1">Select how the refund will be processed</p>
+          </div>
+
+          <div>
+            <label className="block text-gray-700 text-xs font-semibold mb-1">
+              Cancellation Reason *
+            </label>
+            <textarea
+              value={cancelFormData.cancellation_reason}
+              onChange={(e) => setCancelFormData(prev => ({ ...prev, cancellation_reason: e.target.value }))}
+              rows="3"
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 resize-none"
+              placeholder="Provide a reason for cancelling this appointment..."
+              required
+            />
+            <p className="text-xs text-gray-500 mt-1">This reason will be visible to the customer</p>
+          </div>
+
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+            <div className="flex items-start gap-2">
+              <AlertCircle size={16} className="text-yellow-600 mt-0.5 flex-shrink-0" />
+              <p className="text-xs text-yellow-700">
+                <span className="font-semibold">Note:</span> This action will cancel the appointment and process a refund to the customer. This cannot be undone.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex gap-2 pt-2">
+            <button
+              type="button"
+              onClick={() => { 
+                setShowCancelModal(false); 
+                resetCancelForm(); 
+              }}
+              className="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isProcessingCancel}
+              className="flex-1 px-4 py-2.5 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 text-sm font-medium disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {isProcessingCancel ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  Processing...
+                </>
+              ) : (
+                <>
+                  <RefreshCw size={16} />
+                  Process Cancellation & Refund
+                </>
+              )}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+// Payment Proof Modal - Extracted outside to prevent re-renders
+const PaymentProofModal = ({ selectedPaymentData, setSelectedPaymentData, setShowPaymentProofModal }) => {
+  if (!selectedPaymentData) return null;
+  
+  const { payment_method, payment_proof, billing } = selectedPaymentData;
+  const appointment_id = billing?.appointment_id || 'N/A';
+  const total_amount = billing?.total_amount || '0.00';
+  const payment_type = billing?.payment_type || 'N/A';
+  
+  const proofUrl = payment_proof ? `http://192.168.100.73:8000${payment_proof}` : null;
+  
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl mx-4 overflow-hidden">
+        <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-6 py-3 flex items-center justify-between">
+          <h2 className="text-lg font-bold text-white">Payment Proof</h2>
+          <button 
+            onClick={() => { 
+              setShowPaymentProofModal(false); 
+              setSelectedPaymentData(null); 
+            }} 
+            className="text-white hover:bg-white/20 rounded-lg p-1"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="p-6">
+          <div className="bg-gray-50 rounded-lg p-4 mb-4">
+            <div className="grid grid-cols-4 gap-4">
+              <div>
+                <p className="text-xs text-gray-500">Appointment ID</p>
+                <p className="text-sm font-semibold text-gray-800">#{appointment_id}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">Payment Type</p>
+                <p className="text-sm font-semibold text-gray-800 capitalize">{payment_type}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">Total Amount</p>
+                <p className="text-sm font-bold text-pink-600">
+                  ₱{parseFloat(total_amount).toLocaleString()}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">Payment Method</p>
+                <p className="text-sm font-semibold text-gray-800">{payment_method || 'N/A'}</p>
+              </div>
+            </div>
+          </div>
+
+          {proofUrl ? (
+            <div className="mb-4">
+              <p className="text-xs text-gray-500 mb-2">Payment Proof Screenshot</p>
+              <div className="bg-gray-100 rounded-lg overflow-hidden border border-gray-200 h-80 flex items-center justify-center">
+                <img 
+                  src={proofUrl} 
+                  alt="Payment Proof" 
+                  className="w-full h-full object-contain"
+                  onError={(e) => {
+                    console.error('Image failed to load:', proofUrl);
+                    e.target.style.display = 'none';
+                    const parent = e.target.parentElement;
+                    if (parent) {
+                      parent.innerHTML = `
+                        <div class="flex flex-col items-center justify-center p-8">
+                          <FileText size={48} class="text-gray-400 mb-2" />
+                          <p class="text-gray-500 text-sm">Failed to load image</p>
+                          <p class="text-gray-400 text-xs mt-1 break-all">${proofUrl}</p>
+                        </div>
+                      `;
+                    }
+                  }}
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="bg-gray-100 rounded-lg p-8 text-center mb-4 h-64 flex flex-col items-center justify-center">
+              <FileText size={48} className="text-gray-400 mx-auto mb-2" />
+              <p className="text-gray-500 text-sm">No payment proof uploaded</p>
+            </div>
+          )}
+
+          <button
+            onClick={() => { 
+              setShowPaymentProofModal(false); 
+              setSelectedPaymentData(null); 
+            }}
+            className="w-full py-2.5 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 text-sm font-medium"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Reschedule Modal - Extracted outside to prevent re-renders
+const RescheduleModal = ({ 
+  showRescheduleModal, 
+  rescheduleFormData, 
+  setRescheduleFormData, 
+  isRescheduling, 
+  isLoadingDates, 
+  openScheduleDates, 
+  handleReschedule, 
+  resetRescheduleForm,
+  setShowRescheduleModal,
+  formatDate 
+}) => {
+  if (!showRescheduleModal) return null;
+  
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
+        <div className="bg-gradient-to-r from-blue-500 to-blue-600 px-6 py-3 flex items-center justify-between">
+          <h2 className="text-lg font-bold text-white">Reschedule Appointment</h2>
+          <button 
+            onClick={() => { 
+              setShowRescheduleModal(false); 
+              resetRescheduleForm(); 
+            }} 
+            className="text-white hover:bg-white/20 rounded-lg p-1"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        <form onSubmit={handleReschedule} className="p-6 space-y-4">
+          <div>
+            <label className="block text-gray-700 text-xs font-semibold mb-1">
+              New Date *
+            </label>
+            {isLoadingDates ? (
+              <div className="w-full px-3 py-2 text-sm text-gray-400 bg-gray-50 rounded-lg border border-gray-200">
+                Loading available dates...
+              </div>
+            ) : openScheduleDates.length === 0 ? (
+              <div className="w-full px-3 py-2 text-sm text-yellow-600 bg-yellow-50 rounded-lg border border-yellow-200">
+                No future open dates available. Please check business schedule.
+              </div>
+            ) : (
+              <select
+                value={rescheduleFormData.appointment_date}
+                onChange={(e) => setRescheduleFormData(prev => ({ ...prev, appointment_date: e.target.value }))}
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                required
+              >
+                <option value="">Select an available date...</option>
+                {openScheduleDates.map((date) => (
+                  <option key={date} value={date}>
+                    {formatDate(date)}
+                  </option>
+                ))}
+              </select>
+            )}
+            <p className="text-xs text-gray-500 mt-1">Select a date when the salon is open</p>
+          </div>
+
+          <div>
+            <label className="block text-gray-700 text-xs font-semibold mb-1">
+              New Time *
+            </label>
+            <input
+              type="time"
+              value={rescheduleFormData.appointment_time}
+              onChange={(e) => setRescheduleFormData(prev => ({ ...prev, appointment_time: e.target.value }))}
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              step="900"
+              required
+            />
+            <p className="text-xs text-gray-500 mt-1">Select the new time for this appointment</p>
+          </div>
+
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+            <div className="flex items-start gap-2">
+              <AlertCircle size={16} className="text-yellow-600 mt-0.5 flex-shrink-0" />
+              <p className="text-xs text-yellow-700">
+                <span className="font-semibold">Note:</span> Rescheduling will update the appointment date and time. The customer will be notified of the change.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex gap-2 pt-2">
+            <button
+              type="button"
+              onClick={() => { 
+                setShowRescheduleModal(false); 
+                resetRescheduleForm(); 
+              }}
+              className="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isRescheduling || isLoadingDates || openScheduleDates.length === 0}
+              className="flex-1 px-4 py-2.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 text-sm font-medium disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {isRescheduling ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  Processing...
+                </>
+              ) : (
+                <>
+                  <CalendarIcon size={16} />
+                  Reschedule Appointment
+                </>
+              )}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
 const AppointmentDetails = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -550,346 +909,6 @@ const AppointmentDetails = () => {
     fetchAllAppointments();
   }, [location.search]);
 
-  // Payment Proof Modal
-  const PaymentProofModal = () => {
-    if (!selectedPaymentData) return null;
-    
-    const { payment_method, payment_proof, billing } = selectedPaymentData;
-    const appointment_id = billing?.appointment_id || 'N/A';
-    const total_amount = billing?.total_amount || '0.00';
-    const payment_type = billing?.payment_type || 'N/A';
-    
-    const proofUrl = payment_proof ? `http://192.168.100.73:8000${payment_proof}` : null;
-    
-    return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-        <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl mx-4 overflow-hidden">
-          <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-6 py-3 flex items-center justify-between">
-            <h2 className="text-lg font-bold text-white">Payment Proof</h2>
-            <button 
-              onClick={() => { 
-                setShowPaymentProofModal(false); 
-                setSelectedPaymentData(null); 
-              }} 
-              className="text-white hover:bg-white/20 rounded-lg p-1"
-            >
-              <X size={20} />
-            </button>
-          </div>
-
-          <div className="p-6">
-            <div className="bg-gray-50 rounded-lg p-4 mb-4">
-              <div className="grid grid-cols-4 gap-4">
-                <div>
-                  <p className="text-xs text-gray-500">Appointment ID</p>
-                  <p className="text-sm font-semibold text-gray-800">#{appointment_id}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-500">Payment Type</p>
-                  <p className="text-sm font-semibold text-gray-800 capitalize">{payment_type}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-500">Total Amount</p>
-                  <p className="text-sm font-bold text-pink-600">
-                    ₱{parseFloat(total_amount).toLocaleString()}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-500">Payment Method</p>
-                  <p className="text-sm font-semibold text-gray-800">{payment_method || 'N/A'}</p>
-                </div>
-              </div>
-            </div>
-
-            {proofUrl ? (
-              <div className="mb-4">
-                <p className="text-xs text-gray-500 mb-2">Payment Proof Screenshot</p>
-                <div className="bg-gray-100 rounded-lg overflow-hidden border border-gray-200 h-80 flex items-center justify-center">
-                  <img 
-                    src={proofUrl} 
-                    alt="Payment Proof" 
-                    className="w-full h-full object-contain"
-                    onError={(e) => {
-                      console.error('Image failed to load:', proofUrl);
-                      e.target.style.display = 'none';
-                      const parent = e.target.parentElement;
-                      if (parent) {
-                        parent.innerHTML = `
-                          <div class="flex flex-col items-center justify-center p-8">
-                            <FileText size={48} class="text-gray-400 mb-2" />
-                            <p class="text-gray-500 text-sm">Failed to load image</p>
-                            <p class="text-gray-400 text-xs mt-1 break-all">${proofUrl}</p>
-                          </div>
-                        `;
-                      }
-                    }}
-                  />
-                </div>
-              </div>
-            ) : (
-              <div className="bg-gray-100 rounded-lg p-8 text-center mb-4 h-64 flex flex-col items-center justify-center">
-                <FileText size={48} className="text-gray-400 mx-auto mb-2" />
-                <p className="text-gray-500 text-sm">No payment proof uploaded</p>
-              </div>
-            )}
-
-            <button
-              onClick={() => { 
-                setShowPaymentProofModal(false); 
-                setSelectedPaymentData(null); 
-              }}
-              className="w-full py-2.5 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 text-sm font-medium"
-            >
-              Close
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  // Cancel/Refund Modal
-  const CancelModal = () => {
-    if (!showCancelModal) return null;
-    
-    return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-        <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
-          <div className="bg-gradient-to-r from-red-500 to-red-600 px-6 py-3 flex items-center justify-between">
-            <h2 className="text-lg font-bold text-white">Cancel Appointment & Refund</h2>
-            <button 
-              onClick={() => { 
-                setShowCancelModal(false); 
-                resetCancelForm(); 
-              }} 
-              className="text-white hover:bg-white/20 rounded-lg p-1"
-            >
-              <X size={20} />
-            </button>
-          </div>
-
-          <form onSubmit={handleCancelWithRefund} className="p-6 space-y-4">
-            <div>
-              <label className="block text-gray-700 text-xs font-semibold mb-1">
-                Refund Amount *
-              </label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 font-semibold">₱</span>
-                <input
-                  type="number"
-                  value={cancelFormData.refund_amount}
-                  onChange={(e) => setCancelFormData(prev => ({ ...prev, refund_amount: parseFloat(e.target.value) || 0 }))}
-                  className="w-full pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-                  step="0.01"
-                  min="0"
-                  required
-                />
-              </div>
-              <p className="text-xs text-gray-500 mt-1">Enter the amount to refund to the customer</p>
-            </div>
-
-            <div>
-              <label className="block text-gray-700 text-xs font-semibold mb-1">
-                Refund Method *
-              </label>
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  type="button"
-                  onClick={() => setCancelFormData(prev => ({ ...prev, refund_method: 'cash' }))}
-                  className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border-2 transition-all ${
-                    cancelFormData.refund_method === 'cash'
-                      ? 'border-green-500 bg-green-50 text-green-700'
-                      : 'border-gray-200 hover:border-green-300'
-                  }`}
-                >
-                  <CreditCard size={18} />
-                  <span className="font-medium text-sm">Cash</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCancelFormData(prev => ({ ...prev, refund_method: 'gcash' }))}
-                  className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border-2 transition-all ${
-                    cancelFormData.refund_method === 'gcash'
-                      ? 'border-blue-500 bg-blue-50 text-blue-700'
-                      : 'border-gray-200 hover:border-blue-300'
-                  }`}
-                >
-                  <Phone size={18} />
-                  <span className="font-medium text-sm">GCash</span>
-                </button>
-              </div>
-              <p className="text-xs text-gray-500 mt-1">Select how the refund will be processed</p>
-            </div>
-
-            <div>
-              <label className="block text-gray-700 text-xs font-semibold mb-1">
-                Cancellation Reason *
-              </label>
-              <textarea
-                value={cancelFormData.cancellation_reason}
-                onChange={(e) => setCancelFormData(prev => ({ ...prev, cancellation_reason: e.target.value }))}
-                rows="3"
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 resize-none"
-                placeholder="Provide a reason for cancelling this appointment..."
-                required
-              />
-              <p className="text-xs text-gray-500 mt-1">This reason will be visible to the customer</p>
-            </div>
-
-            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
-              <div className="flex items-start gap-2">
-                <AlertCircle size={16} className="text-yellow-600 mt-0.5 flex-shrink-0" />
-                <p className="text-xs text-yellow-700">
-                  <span className="font-semibold">Note:</span> This action will cancel the appointment and process a refund to the customer. This cannot be undone.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => { 
-                  setShowCancelModal(false); 
-                  resetCancelForm(); 
-                }}
-                className="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={isProcessingCancel}
-                className="flex-1 px-4 py-2.5 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 text-sm font-medium disabled:opacity-50 flex items-center justify-center gap-2"
-              >
-                {isProcessingCancel ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                    Processing...
-                  </>
-                ) : (
-                  <>
-                    <RefreshCw size={16} />
-                    Process Cancellation & Refund
-                  </>
-                )}
-              </button>
-            </div>
-          </form>
-        </div>
-      </div>
-    );
-  };
-
-  // Reschedule Modal with Combobox for dates
-  const RescheduleModal = () => {
-    if (!showRescheduleModal) return null;
-    
-    return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-        <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
-          <div className="bg-gradient-to-r from-blue-500 to-blue-600 px-6 py-3 flex items-center justify-between">
-            <h2 className="text-lg font-bold text-white">Reschedule Appointment</h2>
-            <button 
-              onClick={() => { 
-                setShowRescheduleModal(false); 
-                resetRescheduleForm(); 
-              }} 
-              className="text-white hover:bg-white/20 rounded-lg p-1"
-            >
-              <X size={20} />
-            </button>
-          </div>
-
-          <form onSubmit={handleReschedule} className="p-6 space-y-4">
-            <div>
-              <label className="block text-gray-700 text-xs font-semibold mb-1">
-                New Date *
-              </label>
-              {isLoadingDates ? (
-                <div className="w-full px-3 py-2 text-sm text-gray-400 bg-gray-50 rounded-lg border border-gray-200">
-                  Loading available dates...
-                </div>
-              ) : openScheduleDates.length === 0 ? (
-                <div className="w-full px-3 py-2 text-sm text-yellow-600 bg-yellow-50 rounded-lg border border-yellow-200">
-                  No future open dates available. Please check business schedule.
-                </div>
-              ) : (
-                <select
-                  value={rescheduleFormData.appointment_date}
-                  onChange={(e) => setRescheduleFormData(prev => ({ ...prev, appointment_date: e.target.value }))}
-                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  required
-                >
-                  <option value="">Select an available date...</option>
-                  {openScheduleDates.map((date) => (
-                    <option key={date} value={date}>
-                      {formatDate(date)}
-                    </option>
-                  ))}
-                </select>
-              )}
-              <p className="text-xs text-gray-500 mt-1">Select a date when the salon is open</p>
-            </div>
-
-            <div>
-              <label className="block text-gray-700 text-xs font-semibold mb-1">
-                New Time *
-              </label>
-              <input
-                type="time"
-                value={rescheduleFormData.appointment_time}
-                onChange={(e) => setRescheduleFormData(prev => ({ ...prev, appointment_time: e.target.value }))}
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                step="900"
-                required
-              />
-              <p className="text-xs text-gray-500 mt-1">Select the new time for this appointment</p>
-            </div>
-
-            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
-              <div className="flex items-start gap-2">
-                <AlertCircle size={16} className="text-yellow-600 mt-0.5 flex-shrink-0" />
-                <p className="text-xs text-yellow-700">
-                  <span className="font-semibold">Note:</span> Rescheduling will update the appointment date and time. The customer will be notified of the change.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => { 
-                  setShowRescheduleModal(false); 
-                  resetRescheduleForm(); 
-                }}
-                className="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={isRescheduling || isLoadingDates || openScheduleDates.length === 0}
-                className="flex-1 px-4 py-2.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 text-sm font-medium disabled:opacity-50 flex items-center justify-center gap-2"
-              >
-                {isRescheduling ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                    Processing...
-                  </>
-                ) : (
-                  <>
-                    <CalendarIcon size={16} />
-                    Reschedule Appointment
-                  </>
-                )}
-              </button>
-            </div>
-          </form>
-        </div>
-      </div>
-    );
-  };
-
   // Loading State
   if (isLoading) {
     return (
@@ -1171,15 +1190,38 @@ const AppointmentDetails = () => {
           </div>
         </div>
 
-        {/* Modals */}
-        <PaymentProofModal />
-        <CancelModal />
-        <RescheduleModal />
+        {/* Modals - Using extracted components */}
+        <PaymentProofModal 
+          selectedPaymentData={selectedPaymentData}
+          setSelectedPaymentData={setSelectedPaymentData}
+          setShowPaymentProofModal={setShowPaymentProofModal}
+        />
+        <CancelModal 
+          showCancelModal={showCancelModal}
+          cancelFormData={cancelFormData}
+          setCancelFormData={setCancelFormData}
+          isProcessingCancel={isProcessingCancel}
+          handleCancelWithRefund={handleCancelWithRefund}
+          resetCancelForm={resetCancelForm}
+          setShowCancelModal={setShowCancelModal}
+        />
+        <RescheduleModal 
+          showRescheduleModal={showRescheduleModal}
+          rescheduleFormData={rescheduleFormData}
+          setRescheduleFormData={setRescheduleFormData}
+          isRescheduling={isRescheduling}
+          isLoadingDates={isLoadingDates}
+          openScheduleDates={openScheduleDates}
+          handleReschedule={handleReschedule}
+          resetRescheduleForm={resetRescheduleForm}
+          setShowRescheduleModal={setShowRescheduleModal}
+          formatDate={formatDate}
+        />
       </div>
     );
   }
 
-  // Show list view
+  // Show list view as cards
   return (
     <div className="space-y-6">
       {toast && (
@@ -1270,88 +1312,135 @@ const AppointmentDetails = () => {
         </div>
       </div>
 
-      {/* Appointments List */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-100">
-              <tr>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Customer</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Services</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Date</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Time</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Status</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Amount</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {filteredAppointments.length === 0 ? (
-                <tr>
-                  <td colSpan="7" className="px-4 py-8 text-center text-gray-500 text-sm">
-                    {isDateFiltered ? 'No appointments found for this date' : 'No appointments found'}
-                  </td>
-                </tr>
-              ) : (
-                filteredAppointments.map((appointment) => (
-                  <tr 
-                    key={appointment.id} 
-                    className="hover:bg-pink-50/30 transition-colors duration-200 cursor-pointer"
-                    onClick={() => fetchAppointmentDetail(appointment.id)}
-                  >
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <div className="flex items-center gap-2">
-                        <div className="w-7 h-7 bg-gradient-to-br from-pink-100 to-pink-200 rounded-full flex items-center justify-center">
-                          <User size={12} className="text-pink-600" />
-                        </div>
-                        <span className="text-sm font-medium text-gray-900">{appointment.customer_name}</span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-col gap-0.5">
-                        <span className="text-sm font-medium text-gray-800">{appointment.service_name}</span>
-                        {appointment.services && appointment.services.length > 1 && (
-                          <span className="text-[10px] text-pink-600 font-semibold bg-pink-50 px-2 py-0.5 rounded-full inline-block w-fit">
-                            {appointment.services.length} services
-                          </span>
+      {/* Appointments as Cards */}
+      {filteredAppointments.length === 0 ? (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 text-center">
+          <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
+            <CalendarIcon size={28} className="text-gray-400" />
+          </div>
+          <h3 className="text-base font-semibold text-gray-800 mb-1">
+            {isDateFiltered ? 'No appointments for this date' : 'No appointments found'}
+          </h3>
+          <p className="text-sm text-gray-500">
+            {isDateFiltered ? 'Try selecting a different date' : 'There are no appointments to display'}
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {filteredAppointments.map((appointment) => {
+            const isMultipleServices = appointment.services && appointment.services.length > 1;
+            const statusBadge = getStatusBadge(appointment.status);
+            
+            return (
+              <div 
+                key={appointment.id}
+                className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 border border-gray-100 overflow-hidden"
+              >
+                {/* Card Header */}
+                <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 bg-gradient-to-br from-pink-100 to-pink-200 rounded-full flex items-center justify-center">
+                      <User size={14} className="text-pink-600" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-gray-800 truncate max-w-[120px]">
+                        {appointment.customer_name}
+                      </p>
+                      <p className="text-xs text-gray-500">{appointment.customer_phone || 'N/A'}</p>
+                    </div>
+                  </div>
+                  <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${statusBadge.color}`}>
+                    {statusBadge.label}
+                  </span>
+                </div>
+
+                {/* Card Body */}
+                <div className="px-4 py-3 space-y-2">
+                  {/* Services */}
+                  <div>
+                    <p className="text-xs text-gray-500">Services</p>
+                    {isMultipleServices ? (
+                      <div className="mt-1 space-y-0.5">
+                        {appointment.services.slice(0, 2).map((service, idx) => (
+                          <p key={idx} className="text-sm text-gray-700 truncate">
+                            • {service.service_name}
+                          </p>
+                        ))}
+                        {appointment.services.length > 2 && (
+                          <p className="text-xs text-pink-600 font-semibold">
+                            +{appointment.services.length - 2} more services
+                          </p>
                         )}
                       </div>
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">{formatShortDate(appointment.appointment_date)}</td>
-                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">{formatTime(appointment.appointment_time)}</td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full ${getStatusColor(appointment.status)}`}>
-                        {appointment.status?.charAt(0).toUpperCase() + appointment.status?.slice(1) || 'Unknown'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <span className="text-sm font-semibold text-pink-600">
-                        ₱{appointment.total_price.toLocaleString()}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <button 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          fetchAppointmentDetail(appointment.id);
-                        }}
-                        className="p-1 hover:bg-pink-100 rounded-lg transition-colors text-pink-600"
-                        title="View Details"
-                      >
-                        <Eye size={16} />
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+                    ) : (
+                      <p className="text-sm text-gray-700">{appointment.service_name}</p>
+                    )}
+                  </div>
 
-      <PaymentProofModal />
-      <CancelModal />
-      <RescheduleModal />
+                  {/* Date & Time */}
+                  <div className="flex items-center gap-4 text-sm">
+                    <div className="flex items-center gap-1 text-gray-600">
+                      <CalendarIcon size={14} className="text-gray-400" />
+                      <span>{formatShortDate(appointment.appointment_date)}</span>
+                    </div>
+                    <div className="flex items-center gap-1 text-gray-600">
+                      <Clock size={14} className="text-gray-400" />
+                      <span>{formatTime(appointment.appointment_time)}</span>
+                    </div>
+                  </div>
+
+                  {/* Amount */}
+                  <div className="flex items-center justify-between pt-1">
+                    <span className="text-xs text-gray-500">Total Amount</span>
+                    <span className="text-sm font-bold text-pink-600">
+                      ₱{appointment.total_price.toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Card Footer - View Details Button */}
+                <div className="px-4 py-3 bg-gray-50 border-t border-gray-100">
+                  <button
+                    onClick={() => fetchAppointmentDetail(appointment.id)}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-pink-500 hover:bg-pink-600 text-white rounded-lg transition-colors text-sm font-medium"
+                  >
+                    <Eye size={16} />
+                    View Details
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Modals */}
+      <PaymentProofModal 
+        selectedPaymentData={selectedPaymentData}
+        setSelectedPaymentData={setSelectedPaymentData}
+        setShowPaymentProofModal={setShowPaymentProofModal}
+      />
+      <CancelModal 
+        showCancelModal={showCancelModal}
+        cancelFormData={cancelFormData}
+        setCancelFormData={setCancelFormData}
+        isProcessingCancel={isProcessingCancel}
+        handleCancelWithRefund={handleCancelWithRefund}
+        resetCancelForm={resetCancelForm}
+        setShowCancelModal={setShowCancelModal}
+      />
+      <RescheduleModal 
+        showRescheduleModal={showRescheduleModal}
+        rescheduleFormData={rescheduleFormData}
+        setRescheduleFormData={setRescheduleFormData}
+        isRescheduling={isRescheduling}
+        isLoadingDates={isLoadingDates}
+        openScheduleDates={openScheduleDates}
+        handleReschedule={handleReschedule}
+        resetRescheduleForm={resetRescheduleForm}
+        setShowRescheduleModal={setShowRescheduleModal}
+        formatDate={formatDate}
+      />
     </div>
   );
 };

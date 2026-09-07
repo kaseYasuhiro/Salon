@@ -1054,11 +1054,11 @@ function Employees() {
         </div>
       )}
 
-      {/* Employee Management Modal - Combined - WITH HIDDEN SCROLLBAR (TOP SAVE BUTTON REMOVED) */}
+      {/* Employee Management Modal - WIDER AND UNSCROLLABLE */}
       {showEmployeeModal && selectedEmployee && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden max-h-[85vh]">
-            <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-5 py-3 flex items-center justify-between sticky top-0 z-10">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl mx-4 overflow-hidden">
+            <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-6 py-4 flex items-center justify-between">
               <h2 className="text-lg font-bold text-white">
                 Manage {selectedEmployee.first_name}
               </h2>
@@ -1074,177 +1074,190 @@ function Employees() {
               </button>
             </div>
 
-            <div 
-              className="p-5 space-y-4 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
-              style={{ maxHeight: 'calc(85vh - 60px)' }}
-            >
+            <div className="p-6 space-y-4">
               {/* Employee Info */}
-              <div className="bg-gray-50 rounded-lg p-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 bg-gradient-to-r from-pink-500 to-pink-600 rounded-xl flex items-center justify-center shadow-lg">
-                    <span className="text-white text-lg font-bold">
+              <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                <div className="flex items-center gap-4">
+                  <div className="w-14 h-14 bg-gradient-to-r from-pink-500 to-pink-600 rounded-xl flex items-center justify-center shadow-lg flex-shrink-0">
+                    <span className="text-white text-xl font-bold">
                       {getInitials(selectedEmployee.first_name, selectedEmployee.last_name)}
                     </span>
                   </div>
                   <div>
-                    <h3 className="font-semibold text-gray-800">
+                    <h3 className="font-semibold text-gray-800 text-base">
                       {selectedEmployee.first_name} {selectedEmployee.last_name}
                     </h3>
-                    <p className="text-xs text-gray-500">{selectedEmployee.email}</p>
-                    <p className="text-xs text-gray-500">{selectedEmployee.phone_number}</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Current Commission Display */}
-              {employeeCommissions[selectedEmployee.id] > 0 && (
-                <div className="bg-green-50 rounded-lg p-3 border border-green-200">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-xs text-gray-500">Current Commission</p>
-                      <p className="text-sm font-semibold text-green-700">
-                        {employeeCommissions[selectedEmployee.id] * 100}%
+                    <div className="flex items-center gap-3 mt-1">
+                      <p className="text-sm text-gray-500 flex items-center gap-1">
+                        <Mail size={14} />
+                        {selectedEmployee.email}
+                      </p>
+                      <p className="text-sm text-gray-500 flex items-center gap-1">
+                        <Phone size={14} />
+                        {selectedEmployee.phone_number}
                       </p>
                     </div>
                   </div>
                 </div>
-              )}
-
-              {/* Current Walk-in Status */}
-              <div className={`rounded-lg p-3 border ${
-                walkInAuthorizations[selectedEmployee.id] 
-                  ? 'bg-blue-50 border-blue-200' 
-                  : 'bg-gray-50 border-gray-200'
-              }`}>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs text-gray-500">Walk-in Authorization</p>
-                    <p className={`text-sm font-semibold ${
-                      walkInAuthorizations[selectedEmployee.id] 
-                        ? 'text-green-700' 
-                        : 'text-gray-600'
-                    }`}>
-                      {walkInAuthorizations[selectedEmployee.id] ? '✅ Authorized' : '❌ Not Authorized'}
-                    </p>
-                  </div>
-                </div>
               </div>
 
-              {/* Add Specialty Section */}
-              <div className="border-t border-gray-200 pt-4">
-                <h3 className="text-sm font-semibold text-gray-800 mb-3">Add Specialty</h3>
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-gray-700 text-xs font-semibold mb-1">
-                      Select Specialty
-                    </label>
-                    <select
-                      name="specialty_id"
-                      value={employeeFormData.specialty_id}
-                      onChange={handleEmployeeFormChange}
-                      className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
-                    >
-                      <option value="">Select a specialty...</option>
-                      {specialtiesList.map((specialty) => (
-                        <option key={specialty.id} value={specialty.id}>
-                          {formatSpecialtyName(specialty.specialty_name)}
-                        </option>
-                      ))}
-                    </select>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Left Column */}
+                <div className="space-y-4">
+                  {/* Current Commission Display */}
+                  {employeeCommissions[selectedEmployee.id] > 0 && (
+                    <div className="bg-green-50 rounded-lg p-4 border border-green-200">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-xs text-gray-500">Current Commission</p>
+                          <p className="text-sm font-semibold text-green-700">
+                            {employeeCommissions[selectedEmployee.id] * 100}%
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Current Walk-in Status */}
+                  <div className={`rounded-lg p-4 border ${
+                    walkInAuthorizations[selectedEmployee.id] 
+                      ? 'bg-blue-50 border-blue-200' 
+                      : 'bg-gray-50 border-gray-200'
+                  }`}>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-xs text-gray-500">Walk-in Authorization</p>
+                        <p className={`text-sm font-semibold ${
+                          walkInAuthorizations[selectedEmployee.id] 
+                            ? 'text-green-700' 
+                            : 'text-gray-600'
+                        }`}>
+                          {walkInAuthorizations[selectedEmployee.id] ? '✅ Authorized' : '❌ Not Authorized'}
+                        </p>
+                      </div>
+                    </div>
                   </div>
 
-                  <div>
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        name="specialty_active"
-                        checked={employeeFormData.specialty_active}
-                        onChange={handleEmployeeFormChange}
-                        className="w-3.5 h-3.5 text-pink-500 border-gray-300 rounded focus:ring-pink-500"
-                      />
-                      <span className="text-gray-700 text-xs font-semibold">
-                        Active Status
-                      </span>
-                    </label>
+                  {/* Add Specialty Section */}
+                  <div className="border-t border-gray-200 pt-4">
+                    <h3 className="text-sm font-semibold text-gray-800 mb-3">Add Specialty</h3>
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-gray-700 text-xs font-semibold mb-1">
+                          Select Specialty
+                        </label>
+                        <select
+                          name="specialty_id"
+                          value={employeeFormData.specialty_id}
+                          onChange={handleEmployeeFormChange}
+                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                        >
+                          <option value="">Select a specialty...</option>
+                          {specialtiesList.map((specialty) => (
+                            <option key={specialty.id} value={specialty.id}>
+                              {formatSpecialtyName(specialty.specialty_name)}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            name="specialty_active"
+                            checked={employeeFormData.specialty_active}
+                            onChange={handleEmployeeFormChange}
+                            className="w-4 h-4 text-pink-500 border-gray-300 rounded focus:ring-pink-500"
+                          />
+                          <span className="text-gray-700 text-xs font-semibold">
+                            Active Status
+                          </span>
+                        </label>
+                      </div>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              {/* Current Specialties Display */}
-              {selectedEmployee.staff_specialties && selectedEmployee.staff_specialties.length > 0 && (
-                <div className="border-t border-gray-200 pt-3">
-                  <label className="block text-gray-700 text-xs font-semibold mb-2">
-                    Current Specialties
-                  </label>
-                  <div className="flex flex-wrap gap-1.5">
-                    {selectedEmployee.staff_specialties.map((specialty, idx) => (
-                      <span 
-                        key={idx} 
-                        className="inline-flex items-center gap-0.5 px-2 py-1 bg-pink-50 text-pink-600 rounded-md text-xs"
-                      >
-                        {getSpecialtyIcon(specialty.specialties?.specialty_name)}
-                        <span>{formatSpecialtyName(specialty.specialties?.specialty_name)}</span>
-                        {specialty.is_active === 1 ? (
-                          <CheckCircle size={10} className="text-green-500 ml-0.5" />
-                        ) : (
-                          <XCircle size={10} className="text-red-400 ml-0.5" />
-                        )}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
+                {/* Right Column */}
+                <div className="space-y-4">
+                  {/* Current Specialties Display */}
+                  {selectedEmployee.staff_specialties && selectedEmployee.staff_specialties.length > 0 && (
+                    <div className="border-t border-gray-200 pt-4 md:border-t-0">
+                      <label className="block text-gray-700 text-xs font-semibold mb-2">
+                        Current Specialties
+                      </label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {selectedEmployee.staff_specialties.map((specialty, idx) => (
+                          <span 
+                            key={idx} 
+                            className="inline-flex items-center gap-0.5 px-2 py-1 bg-pink-50 text-pink-600 rounded-md text-xs"
+                          >
+                            {getSpecialtyIcon(specialty.specialties?.specialty_name)}
+                            <span>{formatSpecialtyName(specialty.specialties?.specialty_name)}</span>
+                            {specialty.is_active === 1 ? (
+                              <CheckCircle size={10} className="text-green-500 ml-0.5" />
+                            ) : (
+                              <XCircle size={10} className="text-red-400 ml-0.5" />
+                            )}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
-              {/* Add/Update Commission Section */}
-              <div className="border-t border-gray-200 pt-4">
-                <h3 className="text-sm font-semibold text-gray-800 mb-3">Commission</h3>
-                <div>
-                  <label className="block text-gray-700 text-xs font-semibold mb-1">
-                    Commission Amount (%)
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="number"
-                      name="commission_amount"
-                      value={employeeFormData.commission_amount}
-                      onChange={handleEmployeeFormChange}
-                      step="0.01"
-                      min="0"
-                      max="100"
-                      placeholder="e.g., 10 for 10%"
-                      className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
-                    />
-                    <span className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 text-sm">%</span>
-                  </div>
-                  <p className="text-[10px] text-gray-500 mt-1">
-                    Enter the commission percentage for this staff member (e.g., 10 = 10%)
-                  </p>
-                </div>
-              </div>
-
-              {/* Walk-in Authorization Toggle */}
-              <div className="border-t border-gray-200 pt-4">
-                <h3 className="text-sm font-semibold text-gray-800 mb-3">Walk-in Authorization</h3>
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <label className="flex items-center gap-3 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      name="walk_in_authorized"
-                      checked={employeeFormData.walk_in_authorized}
-                      onChange={handleEmployeeFormChange}
-                      className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500"
-                    />
+                  {/* Add/Update Commission Section */}
+                  <div className="border-t border-gray-200 pt-4">
+                    <h3 className="text-sm font-semibold text-gray-800 mb-3">Commission</h3>
                     <div>
-                      <span className="text-gray-700 font-semibold text-sm">
-                        {employeeFormData.walk_in_authorized ? 'Revoke Authorization' : 'Authorize for Walk-in'}
-                      </span>
-                      <p className="text-xs text-gray-400">
-                        {employeeFormData.walk_in_authorized 
-                          ? 'Remove walk-in access for this staff member' 
-                          : 'Allow this staff member to accept walk-in customers'}
+                      <label className="block text-gray-700 text-xs font-semibold mb-1">
+                        Commission Amount (%)
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          name="commission_amount"
+                          value={employeeFormData.commission_amount}
+                          onChange={handleEmployeeFormChange}
+                          step="0.01"
+                          min="0"
+                          max="100"
+                          placeholder="e.g., 10 for 10%"
+                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                        />
+                        <span className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 text-sm">%</span>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">
+                        Enter the commission percentage for this staff member (e.g., 10 = 10%)
                       </p>
                     </div>
-                  </label>
+                  </div>
+
+                  {/* Walk-in Authorization Toggle */}
+                  <div className="border-t border-gray-200 pt-4">
+                    <h3 className="text-sm font-semibold text-gray-800 mb-3">Walk-in Authorization</h3>
+                    <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                      <label className="flex items-center gap-3 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          name="walk_in_authorized"
+                          checked={employeeFormData.walk_in_authorized}
+                          onChange={handleEmployeeFormChange}
+                          className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500"
+                        />
+                        <div>
+                          <span className="text-gray-700 font-semibold text-sm">
+                            {employeeFormData.walk_in_authorized ? 'Revoke Authorization' : 'Authorize for Walk-in'}
+                          </span>
+                          <p className="text-xs text-gray-400">
+                            {employeeFormData.walk_in_authorized 
+                              ? 'Remove walk-in access for this staff member' 
+                              : 'Allow this staff member to accept walk-in customers'}
+                          </p>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -1253,7 +1266,7 @@ function Employees() {
                 <button
                   onClick={handleSaveAllChanges}
                   disabled={isSavingAll}
-                  className="w-full px-3 py-2 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 text-sm font-medium disabled:opacity-50 flex items-center justify-center gap-2"
+                  className="w-full px-4 py-2.5 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 text-sm font-medium disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {isSavingAll ? (
                     <>

@@ -26,6 +26,7 @@ use App\Http\Controllers\PaymentsController;
 use App\Http\Controllers\HairColorsController;
 use App\Http\Controllers\RefundsController;
 use App\Http\Controllers\ServiceHairColorsController;
+use App\Http\Controllers\ExpensesController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -152,5 +153,8 @@ Route::get('/appointment/payment-details/{appointmentId}', [JoinedController::cl
 Route::post('/appointment/cancel-with-refund', [JoinedController::class, 'cancelWithRefund']);
 
 Route::get('/appointment/{id}', [JoinedController::class, 'getAppointmentDetails']);
+
+Route::get('/expenses', [JoinedController::class, 'displayExpenses']);
+Route::post('/expenses/add', [ExpensesController::class, 'addExpense']);
 
 

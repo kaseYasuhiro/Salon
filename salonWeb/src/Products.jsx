@@ -549,11 +549,11 @@ function Products() {
         </div>
       )}
 
-      {/* Add/Edit Product Modal - WITH HIDDEN SCROLLBAR */}
+      {/* Add/Edit Product Modal - WIDER AND UNSCROLLABLE */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden max-h-[85vh]">
-            <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-5 py-3 flex items-center justify-between sticky top-0 z-10">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl mx-4 overflow-hidden">
+            <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-6 py-4 flex items-center justify-between">
               <h2 className="text-lg font-bold text-white">
                 {editingProduct ? 'Edit Product' : 'Add New Product'}
               </h2>
@@ -570,25 +570,111 @@ function Products() {
 
             <form 
               onSubmit={editingProduct ? handleUpdateProduct : handleAddProduct} 
-              className="p-5 space-y-3 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
-              style={{ maxHeight: 'calc(85vh - 60px)' }}
+              className="p-6 space-y-4"
             >
-              <div>
-                <label className="block text-gray-700 text-xs font-semibold mb-1">
-                  Product Name *
-                </label>
-                <input
-                  type="text"
-                  name="product_name"
-                  value={formData.product_name}
-                  onChange={handleInputChange}
-                  className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
-                  required
-                />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Left Column */}
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-gray-700 text-sm font-semibold mb-1">
+                      Product Name *
+                    </label>
+                    <input
+                      type="text"
+                      name="product_name"
+                      value={formData.product_name}
+                      onChange={handleInputChange}
+                      className="w-full px-4 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-gray-700 text-sm font-semibold mb-1">
+                      Unit *
+                    </label>
+                    <input
+                      type="text"
+                      name="unit"
+                      value={formData.unit}
+                      onChange={handleInputChange}
+                      className="w-full px-4 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                      placeholder="e.g., bottle, box, piece"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-gray-700 text-sm font-semibold mb-1">
+                      Unit Size *
+                    </label>
+                    <input
+                      type="number"
+                      name="unit_size"
+                      value={formData.unit_size}
+                      onChange={handleInputChange}
+                      className="w-full px-4 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                      placeholder="e.g., 500, 1000"
+                      step="0.01"
+                      required
+                    />
+                  </div>
+                </div>
+
+                {/* Right Column */}
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-gray-700 text-sm font-semibold mb-1">
+                      Estimated Usages per Unit *
+                    </label>
+                    <input
+                      type="number"
+                      name="estimated_usages_per_unit"
+                      value={formData.estimated_usages_per_unit}
+                      onChange={handleInputChange}
+                      className="w-full px-4 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                      placeholder="e.g., 10, 50"
+                      step="1"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-gray-700 text-sm font-semibold mb-1">
+                      Status
+                    </label>
+                    <div className="flex items-center gap-3 pt-1">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="is_active"
+                          value="true"
+                          checked={formData.is_active === true}
+                          onChange={() => setFormData(prev => ({ ...prev, is_active: true }))}
+                          className="w-4 h-4 text-pink-500 border-gray-300 focus:ring-pink-500"
+                        />
+                        <span className="text-sm text-gray-700">Active</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="is_active"
+                          value="false"
+                          checked={formData.is_active === false}
+                          onChange={() => setFormData(prev => ({ ...prev, is_active: false }))}
+                          className="w-4 h-4 text-pink-500 border-gray-300 focus:ring-pink-500"
+                        />
+                        <span className="text-sm text-gray-700">Inactive</span>
+                      </label>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">Inactive products will not appear in the inventory</p>
+                  </div>
+                </div>
               </div>
 
+              {/* Description - Full Width */}
               <div>
-                <label className="block text-gray-700 text-xs font-semibold mb-1">
+                <label className="block text-gray-700 text-sm font-semibold mb-1">
                   Description
                 </label>
                 <textarea
@@ -596,61 +682,14 @@ function Products() {
                   value={formData.description}
                   onChange={handleInputChange}
                   rows="2"
-                  className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 resize-none"
+                  className="w-full px-4 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 resize-none"
                   placeholder="Optional description"
                 />
               </div>
 
+              {/* Product Image Upload - Full Width */}
               <div>
-                <label className="block text-gray-700 text-xs font-semibold mb-1">
-                  Unit *
-                </label>
-                <input
-                  type="text"
-                  name="unit"
-                  value={formData.unit}
-                  onChange={handleInputChange}
-                  className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
-                  placeholder="e.g., bottle, box, piece"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-gray-700 text-xs font-semibold mb-1">
-                  Unit Size *
-                </label>
-                <input
-                  type="number"
-                  name="unit_size"
-                  value={formData.unit_size}
-                  onChange={handleInputChange}
-                  className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
-                  placeholder="e.g., 500, 1000"
-                  step="0.01"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-gray-700 text-xs font-semibold mb-1">
-                  Estimated Usages per Unit *
-                </label>
-                <input
-                  type="number"
-                  name="estimated_usages_per_unit"
-                  value={formData.estimated_usages_per_unit}
-                  onChange={handleInputChange}
-                  className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
-                  placeholder="e.g., 10, 50"
-                  step="1"
-                  required
-                />
-              </div>
-
-              {/* Product Image Upload */}
-              <div>
-                <label className="block text-gray-700 text-xs font-semibold mb-1">
+                <label className="block text-gray-700 text-sm font-semibold mb-1">
                   Product Image
                 </label>
                 <div className="flex items-center gap-3">
@@ -660,16 +699,16 @@ function Products() {
                     name="product_image"
                     onChange={handleImageChange}
                     accept="image/jpeg,image/png,image/jpg,image/gif"
-                    className="flex-1 px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 file:mr-2 file:py-1 file:px-3 file:border-0 file:bg-pink-50 file:text-pink-600 file:text-xs file:font-medium hover:file:bg-pink-100"
+                    className="flex-1 px-4 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 file:mr-3 file:py-1.5 file:px-3 file:border-0 file:bg-pink-50 file:text-pink-600 file:text-sm file:font-medium hover:file:bg-pink-100"
                   />
                   {imagePreview && (
                     <button
                       type="button"
                       onClick={handleRemoveImage}
-                      className="p-1.5 text-red-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                      className="p-2 text-red-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                       title="Remove image"
                     >
-                      <X size={16} />
+                      <X size={18} />
                     </button>
                   )}
                 </div>
@@ -688,53 +727,34 @@ function Products() {
                     <p className="text-[10px] text-gray-400 mt-1">Image preview</p>
                   </div>
                 )}
-                <p className="text-[10px] text-gray-500 mt-1">
+                <p className="text-xs text-gray-500 mt-1">
                   Supported formats: JPEG, PNG, JPG, GIF (Max 2MB)
                 </p>
               </div>
 
-              {/* Active Status */}
-              <div>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    name="is_active"
-                    checked={formData.is_active}
-                    onChange={handleInputChange}
-                    className="w-3.5 h-3.5 text-pink-500 border-gray-300 rounded focus:ring-pink-500"
-                  />
-                  <span className="text-gray-700 text-sm font-semibold">
-                    Active Product
-                  </span>
-                </label>
-                <p className="text-[10px] text-gray-500 mt-1 ml-5">
-                  Inactive products will not appear in the inventory
-                </p>
-              </div>
-
-              <div className="flex gap-2 pt-3">
+              <div className="flex gap-3 pt-2">
                 <button
                   type="button"
                   onClick={() => {
                     setShowModal(false);
                     resetForm();
                   }}
-                  className="flex-1 px-3 py-1.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium"
+                  className="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="flex-1 px-3 py-1.5 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 text-sm font-medium disabled:opacity-50 flex items-center justify-center gap-1.5"
+                  className="flex-1 px-4 py-2.5 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 text-sm font-medium disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {isSubmitting ? (
                     <>
-                      <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
                       {editingProduct ? 'Updating...' : 'Adding...'}
                     </>
                   ) : (
-                    <>{editingProduct ? 'Update' : 'Add'}</>
+                    <>{editingProduct ? 'Update Product' : 'Add Product'}</>
                   )}
                 </button>
               </div>

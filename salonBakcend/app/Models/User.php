@@ -13,6 +13,7 @@ use App\Models\StaffFeedback;
 use App\Models\IncidentReports;
 use App\Models\WalkIn;
 use App\Models\WalkinAuthorization;
+use App\Models\Expenses;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -116,6 +117,11 @@ class User extends Authenticatable
     public function cancelledBy()
     {
         return $this->hasMany(Appointments::class, 'cancelled_by', 'id');
+    }
+
+    public function expenses()
+    {
+        return $this->hasMany(Expenses::class, 'recorded_by', 'id');
     }
 
 }

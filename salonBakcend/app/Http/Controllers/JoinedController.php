@@ -28,6 +28,7 @@ use App\Models\ServicePriceAdjustments;
 use App\Models\Refunds;
 use App\Models\HairColors;
 use App\Models\ServiceHairColors;
+use App\Models\Expenses;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Http\Request;
 
@@ -143,6 +144,11 @@ class JoinedController extends Controller
     public function transactionWithAppointments()
     {
         return Appointments::with(['transaction', 'user'])->get();
+    }
+
+    public function displayExpenses()
+    {
+        return Expenses::With('user')->get();
     }
 
     public function getServicePriceAdjustments($serviceId)
