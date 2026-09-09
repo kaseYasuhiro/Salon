@@ -1212,6 +1212,11 @@ export default function StaffAppointments({
     // Get hair details from the services
     const hairDetails = renderHairDetails(services);
     
+    // Format the appointment date
+    const displayDate = item.appointment_date 
+      ? formatDate(item.appointment_date) 
+      : (item.walk_in_data?.created_at ? formatDate(item.walk_in_data.created_at) : 'N/A');
+    
     return (
       <View key={`${item.id}`} className="bg-white rounded-2xl p-4 mb-4 shadow-sm border border-gray-100">
         <View className="flex-row justify-between items-start mb-3">
@@ -1238,13 +1243,12 @@ export default function StaffAppointments({
                     </View>
                   )}
                 </View>
+                {/* Appointment Date */}
+                <Text className="text-gray-500 text-xs">
+                  {isWalkIn ? `Walk-in • ${displayDate}` : `📅 ${displayDate}`}
+                </Text>
                 {stylistName && (
                   <Text className="text-gray-500 text-xs">Stylist: {stylistName}</Text>
-                )}
-                {isWalkIn && item.walk_in_data?.created_at && (
-                  <Text className="text-gray-400 text-xs">
-                    Created: {formatDate(item.walk_in_data.created_at)}
-                  </Text>
                 )}
                 {isWalkIn && item.walk_in_data?.amount_paid !== undefined && item.walk_in_data?.amount_paid !== null && (
                   <Text className="text-green-600 text-xs">

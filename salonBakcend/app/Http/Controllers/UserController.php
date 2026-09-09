@@ -171,4 +171,49 @@ class UserController extends Controller
             'message' => 'Profile Image Added Successfully'
         ], 200);
     }
+
+    public function updateImage(Request $request, $id)
+    {
+        $user_id = $request->user()->id;
+
+        $request->validate([
+            'profile_image' => ['required', 'image', 'mimes:jpg, jpeg, png']
+        ]);
+
+        $image_url = $request->file('profile_image')->store('users', 'public');
+
+
+        User::update([
+            'profile_image' => $image_url
+        ]);
+
+        return response()->json([
+            'message' => 'Profile Image Updated Successfully'
+        ], 200);
+    }
+
+    public function updateNumber(Request $request, $id)
+    {
+        $user_id = $request->user()->id;
+
+        $request->validate([
+            'phone_number' => ['required', 'numeric']
+        ]);
+
+        // Fix: Find the user and update using the instance
+        $user = User::find($id);
+        if (!$user) {
+            return response()->json([
+                'message' => 'User not found'
+            ], 404);
+        }
+
+        $user->update([
+            'phone_number' => $request->phone_number
+        ]);
+
+        return response()->json([
+            'message' => 'Phone Number Updated Successfully'
+        ], 200);
+    }
 }

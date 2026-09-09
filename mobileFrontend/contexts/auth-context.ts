@@ -9,6 +9,7 @@ interface User {
   email: string;
   phone_number: string;
   role: string;
+  profile_image: string;
   created_at?: string;
 }
 

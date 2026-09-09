@@ -98,6 +98,24 @@ function Sales() {
     }
   };
 
+  // Get written-off amount for a specific date
+  const getWrittenOffAmountForDate = (dateStr) => {
+    const writtenOffReports = reports.filter(r => 
+      r.status === 'written-off' && r.date === dateStr
+    );
+    return writtenOffReports.reduce((sum, r) => sum + (parseFloat(r.amount) || 0), 0);
+  };
+
+  // Get written-off amount for a date range (week or month)
+  const getWrittenOffAmountForRange = (startDate, endDate) => {
+    const writtenOffReports = reports.filter(r => {
+      if (r.status !== 'written-off') return false;
+      const reportDate = r.date;
+      return reportDate >= startDate && reportDate <= endDate;
+    });
+    return writtenOffReports.reduce((sum, r) => sum + (parseFloat(r.amount) || 0), 0);
+  };
+
   // Fetch staff list
   const fetchStaffList = async () => {
     try {
@@ -279,7 +297,7 @@ function Sales() {
         const totalAppointments = filteredAppointments.length;
         const averageRevenue = totalAppointments > 0 ? totalRevenue / totalAppointments : 0;
         
-        // Calculate written off for filtered data
+        // Calculate written off from reports
         const writtenOffReports = reports.filter(r => r.status === 'written-off');
         const totalWrittenOff = writtenOffReports.reduce((sum, r) => sum + (parseFloat(r.amount) || 0), 0);
         
@@ -333,11 +351,11 @@ function Sales() {
           }
         });
         
-        // Calculate daily profits with proper commissions
+        // Calculate daily profits with proper commissions and written-off
         Object.keys(dailyMap).forEach(key => {
           const dayAppointments = dailyMap[key].appointments || [];
           const dayRevenue = dailyMap[key].revenue;
-          const dayWrittenOff = totalWrittenOff * (dayRevenue / totalRevenue || 0);
+          const dayWrittenOff = getWrittenOffAmountForDate(key);
           const dayExpenses = totalExpenses * (dayRevenue / totalRevenue || 0);
           const dayCommissions = calculateCommissionsForAppointments(dayAppointments);
           dailyMap[key].writtenOff = dayWrittenOff;
@@ -358,6 +376,10 @@ function Sales() {
           const weekStart = new Date(date);
           weekStart.setDate(weekStart.getDate() - weekStart.getDay());
           const weekKey = getLocalDateString(weekStart);
+          const weekEnd = new Date(weekStart);
+          weekEnd.setDate(weekEnd.getDate() + 6);
+          const weekEndStr = getLocalDateString(weekEnd);
+          
           weeklyMap[weekKey] = { 
             week: `Week ${7 - i}`,
             weekRange: getWeekRange(weekKey),
@@ -391,7 +413,11 @@ function Sales() {
         Object.keys(weeklyMap).forEach(key => {
           const weekAppointments = weeklyMap[key].appointments || [];
           const weekRevenue = weeklyMap[key].revenue;
-          const weekWrittenOff = totalWrittenOff * (weekRevenue / totalRevenue || 0);
+          const weekStart = new Date(key);
+          const weekEnd = new Date(weekStart);
+          weekEnd.setDate(weekEnd.getDate() + 6);
+          const weekEndStr = getLocalDateString(weekEnd);
+          const weekWrittenOff = getWrittenOffAmountForRange(key, weekEndStr);
           const weekExpenses = totalExpenses * (weekRevenue / totalRevenue || 0);
           const weekCommissions = calculateCommissionsForAppointments(weekAppointments);
           weeklyMap[key].writtenOff = weekWrittenOff;
@@ -409,6 +435,11 @@ function Sales() {
           const date = new Date(today);
           date.setMonth(date.getMonth() - i);
           const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+          const monthStart = new Date(date.getFullYear(), date.getMonth(), 1);
+          const monthEnd = new Date(date.getFullYear(), date.getMonth() + 1, 0);
+          const monthStartStr = getLocalDateString(monthStart);
+          const monthEndStr = getLocalDateString(monthEnd);
+          
           monthlyMap[monthKey] = { 
             month: date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
             revenue: 0, 
@@ -438,7 +469,12 @@ function Sales() {
         Object.keys(monthlyMap).forEach(key => {
           const monthAppointments = monthlyMap[key].appointments || [];
           const monthRevenue = monthlyMap[key].revenue;
-          const monthWrittenOff = totalWrittenOff * (monthRevenue / totalRevenue || 0);
+          const [year, month] = key.split('-').map(Number);
+          const monthStart = new Date(year, month - 1, 1);
+          const monthEnd = new Date(year, month, 0);
+          const monthStartStr = getLocalDateString(monthStart);
+          const monthEndStr = getLocalDateString(monthEnd);
+          const monthWrittenOff = getWrittenOffAmountForRange(monthStartStr, monthEndStr);
           const monthExpenses = totalExpenses * (monthRevenue / totalRevenue || 0);
           const monthCommissions = calculateCommissionsForAppointments(monthAppointments);
           monthlyMap[key].writtenOff = monthWrittenOff;
@@ -513,6 +549,7 @@ function Sales() {
               date: dateStr, 
               revenue: 0, 
               count: 0,
+              writtenOff: 0,
               grossProfit: 0,
               expenses: 0,
               commissions: 0,
@@ -533,9 +570,10 @@ function Sales() {
           Object.keys(dailyMap).forEach(key => {
             const dayAppointments = dailyMap[key].appointments || [];
             const dayRevenue = dailyMap[key].revenue;
-            const dayWrittenOff = totalWrittenOff * (dayRevenue / totalRevenue || 0);
+            const dayWrittenOff = getWrittenOffAmountForDate(key);
             const dayExpenses = totalExpenses * (dayRevenue / totalRevenue || 0);
             const dayCommissions = calculateCommissionsForAppointments(dayAppointments);
+            dailyMap[key].writtenOff = dayWrittenOff;
             dailyMap[key].grossProfit = dayRevenue - dayWrittenOff;
             dailyMap[key].expenses = dayExpenses;
             dailyMap[key].commissions = dayCommissions;
@@ -551,11 +589,16 @@ function Sales() {
             const weekStart = new Date(date);
             weekStart.setDate(weekStart.getDate() - weekStart.getDay());
             const weekKey = getLocalDateString(weekStart);
+            const weekEnd = new Date(weekStart);
+            weekEnd.setDate(weekEnd.getDate() + 6);
+            const weekEndStr = getLocalDateString(weekEnd);
+            
             weeklyMap[weekKey] = { 
               week: `Week ${7 - i}`,
               weekRange: getWeekRange(weekKey),
               revenue: 0, 
               count: 0,
+              writtenOff: 0,
               grossProfit: 0,
               expenses: 0,
               commissions: 0,
@@ -582,9 +625,14 @@ function Sales() {
           Object.keys(weeklyMap).forEach(key => {
             const weekAppointments = weeklyMap[key].appointments || [];
             const weekRevenue = weeklyMap[key].revenue;
-            const weekWrittenOff = totalWrittenOff * (weekRevenue / totalRevenue || 0);
+            const weekStart = new Date(key);
+            const weekEnd = new Date(weekStart);
+            weekEnd.setDate(weekEnd.getDate() + 6);
+            const weekEndStr = getLocalDateString(weekEnd);
+            const weekWrittenOff = getWrittenOffAmountForRange(key, weekEndStr);
             const weekExpenses = totalExpenses * (weekRevenue / totalRevenue || 0);
             const weekCommissions = calculateCommissionsForAppointments(weekAppointments);
+            weeklyMap[key].writtenOff = weekWrittenOff;
             weeklyMap[key].grossProfit = weekRevenue - weekWrittenOff;
             weeklyMap[key].expenses = weekExpenses;
             weeklyMap[key].commissions = weekCommissions;
@@ -602,6 +650,7 @@ function Sales() {
               month: date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
               revenue: 0, 
               count: 0,
+              writtenOff: 0,
               grossProfit: 0,
               expenses: 0,
               commissions: 0,
@@ -626,9 +675,15 @@ function Sales() {
           Object.keys(monthlyMap).forEach(key => {
             const monthAppointments = monthlyMap[key].appointments || [];
             const monthRevenue = monthlyMap[key].revenue;
-            const monthWrittenOff = totalWrittenOff * (monthRevenue / totalRevenue || 0);
+            const [year, month] = key.split('-').map(Number);
+            const monthStart = new Date(year, month - 1, 1);
+            const monthEnd = new Date(year, month, 0);
+            const monthStartStr = getLocalDateString(monthStart);
+            const monthEndStr = getLocalDateString(monthEnd);
+            const monthWrittenOff = getWrittenOffAmountForRange(monthStartStr, monthEndStr);
             const monthExpenses = totalExpenses * (monthRevenue / totalRevenue || 0);
             const monthCommissions = calculateCommissionsForAppointments(monthAppointments);
+            monthlyMap[key].writtenOff = monthWrittenOff;
             monthlyMap[key].grossProfit = monthRevenue - monthWrittenOff;
             monthlyMap[key].expenses = monthExpenses;
             monthlyMap[key].commissions = monthCommissions;
@@ -911,6 +966,7 @@ function Sales() {
         .revenue { color: #2563eb; }
         .expense { color: #dc2626; }
         .commission { color: #f59e0b; }
+        .written-off { color: #dc2626; }
         .summary-box { 
           display: flex; 
           justify-content: space-around; 
@@ -944,6 +1000,7 @@ function Sales() {
           <td>${label}</td>
           <td class="currency revenue">${formatCurrency(item.revenue)}</td>
           <td class="currency">${item.count}</td>
+          <td class="currency written-off">${formatCurrency(item.writtenOff || 0)}</td>
           <td class="currency profit">${formatCurrency(item.grossProfit || 0)}</td>
           <td class="currency expense">${formatCurrency(item.expenses || 0)}</td>
           <td class="currency commission">${formatCurrency(item.commissions || 0)}</td>
@@ -1016,7 +1073,7 @@ function Sales() {
               </div>
               <div class="summary-item">
                 <div class="label">Written Off</div>
-                <div class="value expense">${formatCurrency(salesData.totalWrittenOff)}</div>
+                <div class="value written-off">${formatCurrency(salesData.totalWrittenOff)}</div>
               </div>
               <div class="summary-item">
                 <div class="label">Gross Profit</div>
@@ -1045,6 +1102,7 @@ function Sales() {
                     <th>Period</th>
                     <th>Revenue</th>
                     <th>Appointments</th>
+                    <th>Written Off</th>
                     <th>Gross Profit</th>
                     <th>Expenses</th>
                     <th>Commissions</th>
@@ -1052,13 +1110,14 @@ function Sales() {
                   </tr>
                 </thead>
                 <tbody>
-                  ${profitRows || '<tr><td colspan="7" style="text-align:center;color:#999;">No data available</td></tr>'}
+                  ${profitRows || '<tr><td colspan="8" style="text-align:center;color:#999;">No data available</td></tr>'}
                 </tbody>
                 <tfoot>
                   <tr class="total-row">
                     <td>Total</td>
                     <td class="currency revenue">${formatCurrency(salesData.totalRevenue)}</td>
                     <td class="currency">${formatNumber(salesData.totalAppointments)}</td>
+                    <td class="currency written-off">${formatCurrency(salesData.totalWrittenOff)}</td>
                     <td class="currency profit">${formatCurrency(salesData.grossProfit)}</td>
                     <td class="currency expense">${formatCurrency(salesData.totalExpenses)}</td>
                     <td class="currency commission">${formatCurrency(salesData.totalCommissions)}</td>
@@ -1185,13 +1244,13 @@ function Sales() {
     
     // ===== PROFIT REPORT =====
     csv += `"=== PROFIT REPORT (${profitFilter.charAt(0).toUpperCase() + profitFilter.slice(1)}) ===\n"`;
-    csv += `"Period","Revenue","Appointments","Gross Profit","Expenses","Commissions","Net Profit"\n`;
+    csv += `"Period","Revenue","Appointments","Written Off","Gross Profit","Expenses","Commissions","Net Profit"\n`;
     profitData.forEach(item => {
       const label = item.weekRange || item.month || item.date || item.week;
-      csv += `"${label}","${item.revenue}","${item.count}","${item.grossProfit || 0}","${item.expenses || 0}","${item.commissions || 0}","${item.netProfit || 0}"\n`;
+      csv += `"${label}","${item.revenue}","${item.count}","${item.writtenOff || 0}","${item.grossProfit || 0}","${item.expenses || 0}","${item.commissions || 0}","${item.netProfit || 0}"\n`;
     });
     // Profit totals
-    csv += `"TOTAL","${salesData.totalRevenue}","${formatNumber(salesData.totalAppointments)}","${salesData.grossProfit}","${salesData.totalExpenses}","${salesData.totalCommissions}","${salesData.netProfit}"\n`;
+    csv += `"TOTAL","${salesData.totalRevenue}","${formatNumber(salesData.totalAppointments)}","${salesData.totalWrittenOff}","${salesData.grossProfit}","${salesData.totalExpenses}","${salesData.totalCommissions}","${salesData.netProfit}"\n`;
     csv += `\n`;
     
     // ===== STAFF PERFORMANCE =====
@@ -1468,6 +1527,7 @@ function Sales() {
                     <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Period</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Revenue</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Appointments</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Written Off</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Gross Profit</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Expenses</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Commissions</th>
@@ -1482,6 +1542,7 @@ function Sales() {
                         <td className="px-4 py-3 text-sm font-medium text-gray-700">{label}</td>
                         <td className="px-4 py-3 text-sm text-blue-600 font-semibold">{formatCurrency(item.revenue)}</td>
                         <td className="px-4 py-3 text-sm text-gray-600">{item.count}</td>
+                        <td className="px-4 py-3 text-sm text-red-600 font-semibold">{formatCurrency(item.writtenOff || 0)}</td>
                         <td className="px-4 py-3 text-sm text-purple-600 font-semibold">{formatCurrency(item.grossProfit || 0)}</td>
                         <td className="px-4 py-3 text-sm text-red-600">{formatCurrency(item.expenses || 0)}</td>
                         <td className="px-4 py-3 text-sm text-yellow-600">{formatCurrency(item.commissions || 0)}</td>
@@ -1495,6 +1556,7 @@ function Sales() {
                     <td className="px-4 py-3 text-sm font-bold text-gray-800">Total</td>
                     <td className="px-4 py-3 text-sm font-bold text-blue-600">{formatCurrency(salesData.totalRevenue)}</td>
                     <td className="px-4 py-3 text-sm font-bold text-gray-800">{formatNumber(salesData.totalAppointments)}</td>
+                    <td className="px-4 py-3 text-sm font-bold text-red-600">{formatCurrency(salesData.totalWrittenOff)}</td>
                     <td className="px-4 py-3 text-sm font-bold text-purple-600">{formatCurrency(salesData.grossProfit)}</td>
                     <td className="px-4 py-3 text-sm font-bold text-red-600">{formatCurrency(salesData.totalExpenses)}</td>
                     <td className="px-4 py-3 text-sm font-bold text-yellow-600">{formatCurrency(salesData.totalCommissions)}</td>
@@ -1754,11 +1816,7 @@ function Sales() {
                       <p className="text-[10px] text-gray-400">
                         Last visit: {formatDate(customer.lastVisit)}
                       </p>
-                      <span className={`mt-1 inline-block px-2 py-0.5 text-[10px] font-medium rounded-full ${
-                        customer.type === 'Walk-in' 
-                          ? 'bg-green-100 text-green-700' 
-                          : 'bg-blue-100 text-blue-700'
-                      }`}>
+                      <span className={`mt-1 inline-block px-2 py-0.5 text-[10px] font-medium rounded-full ${customer.type === 'Walk-in' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>
                         {customer.type}
                       </span>
                     </div>

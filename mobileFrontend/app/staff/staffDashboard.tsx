@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { View, Text, TouchableOpacity, ScrollView, Alert, RefreshControl, Modal, TextInput, ActivityIndicator } from "react-native";
+import { View, Text, TouchableOpacity, ScrollView, Alert, RefreshControl, Modal, TextInput, ActivityIndicator, Image } from "react-native";
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "@/contexts/auth-context";
 import { router } from "expo-router";
+import * as DocumentPicker from 'expo-document-picker';
 import api from '@/api/axios';
 import StaffAppointments from "../staff/staffAppointments";
 import StaffSchedule from "../staff/staffSchedule";
@@ -57,7 +58,13 @@ interface InventoryItem {
     id: number;
     product_name: string;
     description: string;
-    price: number;
+    unit: string;
+    unit_size: number;
+    estimated_usages_per_unit: number;
+    product_image: string | null;
+    is_active: number;
+    created_at: string;
+    updated_at: string;
   };
 }
 
@@ -135,13 +142,17 @@ interface LossDamage {
 const IncidentReportPage = ({ onBack, userId, onSuccess }: { onBack: () => void, userId: number, onSuccess?: () => void }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [staffList, setStaffList] = useState<any[]>([]);
+  const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
   const [isLoadingStaff, setIsLoadingStaff] = useState(true);
+  const [isLoadingInventory, setIsLoadingInventory] = useState(true);
   const [formData, setFormData] = useState({
     date: '',
     incident_type: '',
     category: '',
+    amount: '',
     description: '',
     staff_id: userId,
+    inventory_id: '',
     status: 'reported'
   });
 
@@ -174,12 +185,30 @@ const IncidentReportPage = ({ onBack, userId, onSuccess }: { onBack: () => void,
     }
   };
 
+  // Fetch inventory items
+  const fetchInventoryItems = async () => {
+    setIsLoadingInventory(true);
+    try {
+      const response = await api.get('/inventory');
+      console.log('Fetched inventory items:', response.data);
+      if (Array.isArray(response.data)) {
+        setInventoryItems(response.data);
+      }
+    } catch (error) {
+      console.error('Error fetching inventory items:', error);
+      Alert.alert('Error', 'Failed to load inventory items');
+    } finally {
+      setIsLoadingInventory(false);
+    }
+  };
+
   // Set default date to today
   useEffect(() => {
     const today = new Date();
     const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
     setFormData(prev => ({ ...prev, date: dateStr, staff_id: userId }));
     fetchStaffList();
+    fetchInventoryItems();
   }, [userId]);
 
   const handleInputChange = (field: string, value: string) => {
@@ -200,6 +229,10 @@ const IncidentReportPage = ({ onBack, userId, onSuccess }: { onBack: () => void,
       Alert.alert('Validation Error', 'Please select a category');
       return;
     }
+    if (!formData.amount || parseFloat(formData.amount) <= 0) {
+      Alert.alert('Validation Error', 'Please enter a valid amount');
+      return;
+    }
     if (!formData.staff_id) {
       Alert.alert('Validation Error', 'Please select a staff member');
       return;
@@ -215,8 +248,10 @@ const IncidentReportPage = ({ onBack, userId, onSuccess }: { onBack: () => void,
         date: formData.date,
         incident_type: formData.incident_type,
         category: formData.category,
+        amount: parseFloat(formData.amount),
         description: formData.description.trim(),
         staff_id: parseInt(formData.staff_id.toString()),
+        inventory_id: formData.inventory_id ? parseInt(formData.inventory_id) : null,
         status: 'reported'
       };
 
@@ -338,6 +373,109 @@ const IncidentReportPage = ({ onBack, userId, onSuccess }: { onBack: () => void,
     );
   };
 
+  // Inventory Dropdown component
+  const InventoryDropdown = ({ label, value, onSelect, placeholder }: any) => {
+    const [showDropdown, setShowDropdown] = useState(false);
+    const [searchText, setSearchText] = useState('');
+
+    const getInventoryName = (inventoryId: number) => {
+      const item = inventoryItems.find(i => i.id === inventoryId);
+      if (!item) return '';
+      return `${item.products?.product_name || 'Unknown'} (Qty: ${item.product_quantity})`;
+    };
+
+    const filteredItems = searchText 
+      ? inventoryItems.filter(item => 
+          item.products?.product_name?.toLowerCase().includes(searchText.toLowerCase()) ||
+          item.id.toString().includes(searchText)
+        )
+      : inventoryItems;
+
+    return (
+      <View className="mb-4">
+        <Text className="text-gray-700 font-semibold text-sm mb-2">{label} (Optional)</Text>
+        <TouchableOpacity
+          onPress={() => setShowDropdown(!showDropdown)}
+          className="flex-row items-center justify-between bg-gray-50 rounded-xl px-4 py-3 border border-gray-200"
+        >
+          <Text className={value ? 'text-gray-800' : 'text-gray-400'}>
+            {value ? getInventoryName(value) : placeholder || 'Select inventory item...'}
+          </Text>
+          <Ionicons name={showDropdown ? "chevron-up" : "chevron-down"} size={20} color="#9ca3af" />
+        </TouchableOpacity>
+        
+        {showDropdown && (
+          <View className="mt-2 bg-white rounded-xl border border-gray-200 shadow-lg overflow-hidden max-h-64">
+            {/* Search Input */}
+            <View className="px-4 py-2 border-b border-gray-100">
+              <View className="flex-row items-center bg-gray-50 rounded-lg px-3 py-2">
+                <Ionicons name="search" size={18} color="#9ca3af" />
+                <TextInput
+                  value={searchText}
+                  onChangeText={setSearchText}
+                  placeholder="Search inventory..."
+                  className="flex-1 ml-2 text-gray-700 text-sm"
+                />
+                {searchText ? (
+                  <TouchableOpacity onPress={() => setSearchText('')}>
+                    <Ionicons name="close-circle" size={18} color="#9ca3af" />
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+            </View>
+            
+            {/* Inventory List */}
+            {isLoadingInventory ? (
+              <View className="px-4 py-4">
+                <ActivityIndicator size="small" color="#ec4899" />
+                <Text className="text-gray-500 text-xs text-center mt-1">Loading inventory...</Text>
+              </View>
+            ) : filteredItems.length === 0 ? (
+              <View className="px-4 py-4">
+                <Text className="text-gray-500 text-xs text-center">No inventory items found</Text>
+              </View>
+            ) : (
+              <ScrollView showsVerticalScrollIndicator={false} className="max-h-48">
+                {filteredItems.map((item) => (
+                  <TouchableOpacity
+                    key={item.id}
+                    onPress={() => {
+                      onSelect(item.id.toString());
+                      setShowDropdown(false);
+                      setSearchText('');
+                    }}
+                    className={`px-4 py-3 ${
+                      value === item.id.toString() ? 'bg-pink-50' : ''
+                    } ${item !== filteredItems[filteredItems.length - 1] ? 'border-b border-gray-100' : ''}`}
+                  >
+                    <View>
+                      <Text className={value === item.id.toString() ? 'text-pink-600 font-semibold' : 'text-gray-700'}>
+                        {item.products?.product_name || 'Unknown Product'}
+                      </Text>
+                      <View className="flex-row items-center mt-1">
+                        <Text className="text-xs text-gray-500">
+                          #{item.id} • Qty: {item.product_quantity} • Unit: {item.products?.unit || 'N/A'}
+                        </Text>
+                      </View>
+                      <View className="flex-row items-center mt-0.5">
+                        <Text className="text-xs text-gray-400">
+                          Uses: {item.current_usages} / {item.products?.estimated_usages_per_unit || 0}
+                        </Text>
+                        <Text className="text-xs text-gray-400 ml-2">
+                          Exp: {item.expiration_date}
+                        </Text>
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            )}
+          </View>
+        )}
+      </View>
+    );
+  };
+
   return (
     <View className="flex-1 bg-gray-50">
       <View className="bg-gradient-to-r from-red-500 to-red-600 px-5 pt-12 pb-4">
@@ -394,6 +532,30 @@ const IncidentReportPage = ({ onBack, userId, onSuccess }: { onBack: () => void,
             value={formData.category}
             onSelect={(value: string) => handleInputChange('category', value)}
             placeholder="Select category..."
+          />
+
+          {/* Amount Input */}
+          <View className="mb-4">
+            <Text className="text-gray-700 font-semibold text-sm mb-2">Amount (₱) *</Text>
+            <View className="flex-row items-center bg-gray-50 rounded-xl px-4 py-3 border border-gray-200">
+              <Text className="text-gray-800 font-bold text-lg mr-2">₱</Text>
+              <TextInput
+                value={formData.amount}
+                onChangeText={(text) => handleInputChange('amount', text)}
+                placeholder="0.00"
+                keyboardType="numeric"
+                className="flex-1 text-lg text-gray-800"
+              />
+            </View>
+            <Text className="text-gray-400 text-xs mt-1">Enter the estimated amount of loss or damage</Text>
+          </View>
+
+          {/* Inventory Dropdown */}
+          <InventoryDropdown
+            label="Inventory Item"
+            value={formData.inventory_id}
+            onSelect={(value: string) => handleInputChange('inventory_id', value)}
+            placeholder="Select inventory item (optional)..."
           />
 
           {/* Staff Dropdown */}
@@ -464,8 +626,378 @@ const IncidentReportPage = ({ onBack, userId, onSuccess }: { onBack: () => void,
   );
 };
 
+// Profile Component
+const ProfilePage = ({ onBack, userId, userData, onUpdate }: { onBack: () => void, userId: number, userData: any, onUpdate?: () => void }) => {
+  const [isLoading, setIsLoading] = useState(false);
+  const [profileImage, setProfileImage] = useState<string | null>(userData?.profile_image || null);
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const [isUpdatingPhone, setIsUpdatingPhone] = useState(false);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [showPhoneModal, setShowPhoneModal] = useState(false);
+  const [phoneNumber, setPhoneNumber] = useState(userData?.phone_number || '');
+  const [passwordForm, setPasswordForm] = useState({
+    password: '',
+    password_confirmation: ''
+  });
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+
+  const getImageUrl = (imagePath: string | null) => {
+    if (!imagePath) return null;
+    if (imagePath.startsWith('http')) return imagePath;
+    return `http://192.168.100.73:8000/storage/${imagePath}`;
+  };
+
+  const pickDocument = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['image/jpeg', 'image/png', 'image/jpg', 'image/gif'],
+        copyToCacheDirectory: true,
+      });
+
+      if (result.canceled) {
+        return;
+      }
+
+      const asset = result.assets[0];
+      if (asset) {
+        uploadProfileImage(asset.uri, asset.name || 'profile.jpg', asset.mimeType || 'image/jpeg');
+      }
+    } catch (error) {
+      console.error('Error picking document:', error);
+      Alert.alert('Error', 'Failed to select image. Please try again.');
+    }
+  };
+
+  const uploadProfileImage = async (uri: string, fileName: string, mimeType: string) => {
+    setIsUploadingImage(true);
+    try {
+      const formData = new FormData();
+      formData.append('profile_image', {
+        uri: uri,
+        name: fileName,
+        type: mimeType,
+      } as any);
+
+      console.log('Uploading profile image...');
+      const response = await api.post(`/profile/add`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
+      console.log('Profile image uploaded:', response.data);
+      
+      // Get the user data again to refresh the profile image
+      const userResponse = await api.get('/user');
+      if (userResponse.data) {
+        setProfileImage(userResponse.data.profile_image);
+        if (onUpdate) onUpdate();
+      }
+
+      Alert.alert('Success', 'Profile picture updated successfully!');
+    } catch (error: any) {
+      console.error('Error uploading profile image:', error);
+      Alert.alert('Error', error.response?.data?.message || 'Failed to upload profile picture.');
+    } finally {
+      setIsUploadingImage(false);
+    }
+  };
+
+  const handleChangePassword = async () => {
+    if (!passwordForm.password || passwordForm.password.length < 6) {
+      Alert.alert('Validation Error', 'Password must be at least 6 characters.');
+      return;
+    }
+
+    if (passwordForm.password !== passwordForm.password_confirmation) {
+      Alert.alert('Validation Error', 'Passwords do not match.');
+      return;
+    }
+
+    setIsChangingPassword(true);
+    try {
+      const response = await api.post(`/user/${userId}/password`, {
+        password: passwordForm.password,
+        password_confirmation: passwordForm.password_confirmation
+      });
+
+      console.log('Password updated:', response.data);
+      Alert.alert('Success', 'Password updated successfully!');
+      setShowPasswordModal(false);
+      setPasswordForm({ password: '', password_confirmation: '' });
+    } catch (error: any) {
+      console.error('Error updating password:', error);
+      Alert.alert('Error', error.response?.data?.message || 'Failed to update password.');
+    } finally {
+      setIsChangingPassword(false);
+    }
+  };
+
+  const handleUpdatePhoneNumber = async () => {
+    if (!phoneNumber.trim()) {
+      Alert.alert('Validation Error', 'Please enter a phone number.');
+      return;
+    }
+
+    if (!/^[0-9]{10,11}$/.test(phoneNumber.trim())) {
+      Alert.alert('Validation Error', 'Please enter a valid phone number (10-11 digits).');
+      return;
+    }
+
+    setIsUpdatingPhone(true);
+    try {
+      const response = await api.post(`/user/${userId}/phone`, {
+        phone_number: phoneNumber.trim()
+      });
+
+      console.log('Phone number updated:', response.data);
+      Alert.alert('Success', 'Phone number updated successfully!');
+      setShowPhoneModal(false);
+      if (onUpdate) onUpdate();
+    } catch (error: any) {
+      console.error('Error updating phone number:', error);
+      Alert.alert('Error', error.response?.data?.message || 'Failed to update phone number.');
+    } finally {
+      setIsUpdatingPhone(false);
+    }
+  };
+
+  const displayImage = getImageUrl(profileImage);
+
+  return (
+    <ScrollView className="flex-1 bg-gray-50">
+      <View className="bg-pink-500 px-5 pt-12 pb-4" style={{ borderBottomLeftRadius: 30, borderBottomRightRadius: 30 }}>
+        <View className="flex-row items-center">
+          <TouchableOpacity onPress={onBack} className="p-1 mr-3">
+            <Ionicons name="arrow-back" size={24} color="white" />
+          </TouchableOpacity>
+          <Text className="text-white text-xl font-semibold">Profile</Text>
+        </View>
+      </View>
+
+      <View className="px-5 pt-6">
+        {/* Profile Card */}
+        <View className="bg-white rounded-2xl p-6 items-center shadow-sm mb-6">
+          {/* Profile Image */}
+          <TouchableOpacity
+            onPress={pickDocument}
+            className="mb-4"
+          >
+            {displayImage ? (
+              <Image 
+                source={{ uri: displayImage }} 
+                className="w-24 h-24 rounded-full border-4 border-pink-200"
+                resizeMode="cover"
+              />
+            ) : (
+              <View className="w-24 h-24 bg-pink-100 rounded-full items-center justify-center border-4 border-pink-200">
+                <Ionicons name="person" size={50} color="#ec4899" />
+              </View>
+            )}
+            {isUploadingImage && (
+              <View className="absolute inset-0 bg-black/50 rounded-full items-center justify-center">
+                <ActivityIndicator size="large" color="white" />
+              </View>
+            )}
+            <View className="absolute bottom-0 right-0 bg-pink-500 rounded-full p-2 border-2 border-white">
+              <Ionicons name="camera" size={16} color="white" />
+            </View>
+          </TouchableOpacity>
+
+          <Text className="text-xl font-bold text-gray-800">
+            {userData?.first_name} {userData?.last_name}
+          </Text>
+          <Text className="text-gray-500 text-sm">Salon Staff</Text>
+          <Text className="text-gray-400 text-sm mt-2">{userData?.email}</Text>
+          <Text className="text-gray-400 text-sm">{userData?.phone_number}</Text>
+        </View>
+
+        {/* Options */}
+        <View className="bg-white rounded-2xl overflow-hidden shadow-sm mb-4">
+          <TouchableOpacity 
+            className="flex-row items-center px-5 py-4 border-b border-gray-100"
+            onPress={pickDocument}
+          >
+            <Ionicons name="image-outline" size={22} color="#ec4899" />
+            <Text className="ml-3 flex-1 text-gray-700">Change Profile Picture</Text>
+            <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            className="flex-row items-center px-5 py-4 border-b border-gray-100"
+            onPress={() => {
+              setPhoneNumber(userData?.phone_number || '');
+              setShowPhoneModal(true);
+            }}
+          >
+            <Ionicons name="call-outline" size={22} color="#ec4899" />
+            <Text className="ml-3 flex-1 text-gray-700">Update Phone Number</Text>
+            <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            className="flex-row items-center px-5 py-4"
+            onPress={() => setShowPasswordModal(true)}
+          >
+            <Ionicons name="lock-closed-outline" size={22} color="#ec4899" />
+            <Text className="ml-3 flex-1 text-gray-700">Change Password</Text>
+            <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
+          </TouchableOpacity>
+        </View>
+
+        {/* Update Phone Number Modal */}
+        <Modal
+          animationType="slide"
+          transparent={true}
+          visible={showPhoneModal}
+          onRequestClose={() => {
+            setShowPhoneModal(false);
+            setPhoneNumber(userData?.phone_number || '');
+          }}
+        >
+          <View className="flex-1 justify-center items-center bg-black/50">
+            <View className="bg-white rounded-2xl w-full max-w-md mx-4 overflow-hidden">
+              <View className="bg-pink-500 px-6 py-4 flex-row justify-between items-center">
+                <Text className="text-xl font-bold text-white">Update Phone Number</Text>
+                <TouchableOpacity onPress={() => {
+                  setShowPhoneModal(false);
+                  setPhoneNumber(userData?.phone_number || '');
+                }}>
+                  <Ionicons name="close" size={24} color="white" />
+                </TouchableOpacity>
+              </View>
+
+              <View className="p-6">
+                <Text className="text-gray-500 text-sm mb-4">
+                  Enter your new phone number below.
+                </Text>
+
+                <View className="mb-6">
+                  <Text className="text-gray-700 font-semibold text-sm mb-2">Phone Number *</Text>
+                  <View className="flex-row items-center bg-gray-50 rounded-xl px-4 py-3 border border-gray-200">
+                    <Ionicons name="call-outline" size={20} color="#9ca3af" />
+                    <TextInput
+                      value={phoneNumber}
+                      onChangeText={setPhoneNumber}
+                      placeholder="Enter phone number"
+                      keyboardType="phone-pad"
+                      className="flex-1 ml-2 text-gray-800"
+                    />
+                  </View>
+                  <Text className="text-gray-400 text-xs mt-1">Enter 10-11 digit phone number</Text>
+                </View>
+
+                <View className="flex-row gap-3">
+                  <TouchableOpacity
+                    onPress={() => {
+                      setShowPhoneModal(false);
+                      setPhoneNumber(userData?.phone_number || '');
+                    }}
+                    className="flex-1 py-3 rounded-xl border border-gray-300"
+                  >
+                    <Text className="text-gray-600 text-center font-semibold">Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={handleUpdatePhoneNumber}
+                    disabled={isUpdatingPhone}
+                    className="flex-1 py-3 rounded-xl bg-pink-500"
+                  >
+                    <Text className="text-white text-center font-semibold">
+                      {isUpdatingPhone ? 'Updating...' : 'Update Phone Number'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Change Password Modal */}
+        <Modal
+          animationType="slide"
+          transparent={true}
+          visible={showPasswordModal}
+          onRequestClose={() => {
+            setShowPasswordModal(false);
+            setPasswordForm({ password: '', password_confirmation: '' });
+          }}
+        >
+          <View className="flex-1 justify-center items-center bg-black/50">
+            <View className="bg-white rounded-2xl w-full max-w-md mx-4 overflow-hidden">
+              <View className="bg-pink-500 px-6 py-4 flex-row justify-between items-center">
+                <Text className="text-xl font-bold text-white">Change Password</Text>
+                <TouchableOpacity onPress={() => {
+                  setShowPasswordModal(false);
+                  setPasswordForm({ password: '', password_confirmation: '' });
+                }}>
+                  <Ionicons name="close" size={24} color="white" />
+                </TouchableOpacity>
+              </View>
+
+              <View className="p-6">
+                <Text className="text-gray-500 text-sm mb-4">
+                  Enter your new password below.
+                </Text>
+
+                <View className="mb-4">
+                  <Text className="text-gray-700 font-semibold text-sm mb-2">New Password *</Text>
+                  <View className="flex-row items-center bg-gray-50 rounded-xl px-4 py-3 border border-gray-200">
+                    <Ionicons name="lock-closed-outline" size={20} color="#9ca3af" />
+                    <TextInput
+                      value={passwordForm.password}
+                      onChangeText={(text) => setPasswordForm(prev => ({ ...prev, password: text }))}
+                      placeholder="Enter new password"
+                      secureTextEntry
+                      className="flex-1 ml-2 text-gray-800"
+                    />
+                  </View>
+                </View>
+
+                <View className="mb-6">
+                  <Text className="text-gray-700 font-semibold text-sm mb-2">Confirm Password *</Text>
+                  <View className="flex-row items-center bg-gray-50 rounded-xl px-4 py-3 border border-gray-200">
+                    <Ionicons name="lock-closed-outline" size={20} color="#9ca3af" />
+                    <TextInput
+                      value={passwordForm.password_confirmation}
+                      onChangeText={(text) => setPasswordForm(prev => ({ ...prev, password_confirmation: text }))}
+                      placeholder="Confirm new password"
+                      secureTextEntry
+                      className="flex-1 ml-2 text-gray-800"
+                    />
+                  </View>
+                </View>
+
+                <View className="flex-row gap-3">
+                  <TouchableOpacity
+                    onPress={() => {
+                      setShowPasswordModal(false);
+                      setPasswordForm({ password: '', password_confirmation: '' });
+                    }}
+                    className="flex-1 py-3 rounded-xl border border-gray-300"
+                  >
+                    <Text className="text-gray-600 text-center font-semibold">Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={handleChangePassword}
+                    disabled={isChangingPassword}
+                    className="flex-1 py-3 rounded-xl bg-pink-500"
+                  >
+                    <Text className="text-white text-center font-semibold">
+                      {isChangingPassword ? 'Updating...' : 'Update Password'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      </View>
+    </ScrollView>
+  );
+};
+
 export default function StaffDashboard() {
-  const [activeTab, setActiveTab] = useState<'home' | 'appointments' | 'schedule' | 'walkin' | 'settings'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'appointments' | 'schedule' | 'walkin' | 'settings' | 'profile'>('home');
   const [refreshing, setRefreshing] = useState(false);
   
   // Remittance states
@@ -499,11 +1031,25 @@ export default function StaffDashboard() {
   const [walkIns, setWalkIns] = useState<WalkIn[]>([]);
   const [lossDamages, setLossDamages] = useState<LossDamage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [userData, setUserData] = useState<any>(null);
   
   const { 
     user,
     logout,
   } = useAuth();
+
+  // Fetch user data
+  const fetchUserData = async () => {
+    try {
+      const response = await api.get('/user');
+      console.log('Fetched user data:', response.data);
+      setUserData(response.data);
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching user data:', error);
+      return null;
+    }
+  };
 
   // Fetch staff appointments
   const fetchStaffAppointments = async () => {
@@ -1003,6 +1549,7 @@ export default function StaffDashboard() {
   useEffect(() => {
     if (user?.id) {
       console.log("Fetching data for user:", user.id);
+      fetchUserData();
       fetchStaffAppointments();
       fetchBusinessSchedules();
       fetchStaffAssignments();
@@ -1017,6 +1564,7 @@ export default function StaffDashboard() {
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await Promise.all([
+      fetchUserData(),
       fetchStaffAppointments(),
       fetchBusinessSchedules(),
       fetchStaffAssignments(),
@@ -1496,6 +2044,21 @@ export default function StaffDashboard() {
       );
     }
 
+    // If showing profile page
+    if (activeTab === 'profile') {
+      return (
+        <ProfilePage 
+          onBack={() => setActiveTab('settings')}
+          userId={user?.id || 0}
+          userData={userData || user}
+          onUpdate={() => {
+            fetchUserData();
+            onRefresh();
+          }}
+        />
+      );
+    }
+
     switch(activeTab) {
       case 'home':
         return (
@@ -1619,17 +2182,9 @@ export default function StaffDashboard() {
                         </View>
                       </View>
                       
-                      <View className={`px-3 py-1.5 rounded-full ${
-                        app.service_status === 'completed' ? 'bg-green-100' :
-                        app.service_status === 'in_progress' ? 'bg-blue-100' : 'bg-pink-100'
-                      }`}>
-                        <Text className={`text-xs font-semibold ${
-                          app.service_status === 'in_progress' ? 'text-blue-700' :
-                          app.service_status === 'completed' ? 'text-green-700' : 'text-pink-700'
-                        }`}>
-                          {app.service_status === 'in_progress' ? 'IN PROGRESS' : 
-                           app.service_status === 'completed' ? 'COMPLETED' : 
-                           app.service_status?.toUpperCase() || 'PENDING'}
+                      <View className={`px-3 py-1.5 rounded-full ${app.service_status === 'completed' ? 'bg-green-100' : app.service_status === 'in_progress' ? 'bg-blue-100' : 'bg-pink-100'}`}>
+                        <Text className={`text-xs font-semibold ${app.service_status === 'in_progress' ? 'text-blue-700' : app.service_status === 'completed' ? 'text-green-700' : 'text-pink-700'}`}>
+                          {app.service_status === 'in_progress' ? 'IN PROGRESS' : app.service_status === 'completed' ? 'COMPLETED' : app.service_status?.toUpperCase() || 'PENDING'}
                         </Text>
                       </View>
                     </View>
@@ -1710,9 +2265,14 @@ export default function StaffDashboard() {
                   <Text className="ml-3 flex-1 text-gray-700">Notifications</Text>
                   <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
                 </TouchableOpacity>
-                <TouchableOpacity className="flex-row items-center px-5 py-4 border-b border-gray-100">
-                  <Ionicons name="lock-closed-outline" size={22} color="#ec4899" />
-                  <Text className="ml-3 flex-1 text-gray-700">Privacy & Security</Text>
+                
+                {/* Profile Button - Replaced Privacy & Security */}
+                <TouchableOpacity 
+                  className="flex-row items-center px-5 py-4 border-b border-gray-100"
+                  onPress={() => setActiveTab('profile')}
+                >
+                  <Ionicons name="person-outline" size={22} color="#ec4899" />
+                  <Text className="ml-3 flex-1 text-gray-700">Profile</Text>
                   <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
                 </TouchableOpacity>
                 

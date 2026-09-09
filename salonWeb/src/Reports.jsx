@@ -445,7 +445,7 @@ function Reports() {
         </div>
       </div>
 
-      {/* Reports Table - Amount Column Removed */}
+      {/* Reports Table - WITH AMOUNT COLUMN */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -454,6 +454,7 @@ function Reports() {
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">ID</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Incident Type</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Category</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Amount</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Reported By</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Date</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Status</th>
@@ -463,7 +464,7 @@ function Reports() {
             <tbody className="divide-y divide-gray-100">
               {filteredReports.length === 0 ? (
                 <tr>
-                  <td colSpan="7" className="px-4 py-8 text-center text-gray-500 text-sm">
+                  <td colSpan="8" className="px-4 py-8 text-center text-gray-500 text-sm">
                     {reports.length === 0 ? 'No incident reports found' : 'No reports match your filters'}
                   </td>
                 </tr>
@@ -481,6 +482,11 @@ function Reports() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-600 capitalize">{report.category}</td>
+                    <td className="px-4 py-3">
+                      <span className="text-sm font-semibold text-red-600">
+                        {formatCurrency(report.amount)}
+                      </span>
+                    </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         <div className="w-7 h-7 bg-gradient-to-r from-pink-500 to-pink-600 rounded-full flex items-center justify-center">

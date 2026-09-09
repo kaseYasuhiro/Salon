@@ -107,6 +107,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/staff-list', [JoinedController::class, 'staffList']);
     Route::post('/feedbacks/submit', [FeedbackController::class, 'submitFeedback']);
     Route::post('/user/{id}/password', [UserController::class, 'updatePassword']);
+    Route::post('/user/{id}/phone', [UserController::class, 'updateNumber']);
     Route::post('/feedbacks/staff/submit', [StaffFeedbackController::class, 'submitStaffFeedback']);
     Route::post('/payment/remaining', [JoinedController::class, 'remainingBalancePayment']);
     
