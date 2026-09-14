@@ -14,6 +14,7 @@ use App\Models\IncidentReports;
 use App\Models\WalkIn;
 use App\Models\WalkinAuthorization;
 use App\Models\Expenses;
+use App\Models\Otps;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -36,6 +37,7 @@ class User extends Authenticatable
         'password',
         'phone_number',
         'role',
+        'email_verified_at'
 
     ];
 
@@ -122,6 +124,11 @@ class User extends Authenticatable
     public function expenses()
     {
         return $this->hasMany(Expenses::class, 'recorded_by', 'id');
+    }
+
+    public function otps()
+    {
+        return $this->hasMany(Otps::class);
     }
 
 }

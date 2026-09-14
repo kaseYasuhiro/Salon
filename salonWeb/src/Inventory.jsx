@@ -273,7 +273,8 @@ function Inventory() {
       console.log('Stock added:', response.data);
 
       // Now, create an expense entry for the new stock
-      const totalAmount = parseFloat(formData.unit_price) * parseInt(formData.product_quantity);
+      const quantity = parseInt(formData.product_quantity);
+      const totalAmount = parseFloat(formData.unit_price) * quantity;
       const currentUser = getCurrentUser();
       const recordedBy = currentUser?.id || 1;
 
@@ -282,7 +283,8 @@ function Inventory() {
         amount: totalAmount,
         expense_date: new Date().toISOString().split('T')[0],
         description: `restock`,
-        recorded_by: recordedBy
+        recorded_by: recordedBy,
+        stock_amount: quantity
       };
 
       console.log('Creating expense entry:', expenseData);
@@ -351,7 +353,8 @@ function Inventory() {
       console.log('Stock restocked:', restockResponse.data);
 
       // Now, create an expense entry for the restock
-      const totalAmount = parseFloat(restockPrice) * parseInt(restockQuantity);
+      const quantity = parseInt(restockQuantity);
+      const totalAmount = parseFloat(restockPrice) * quantity;
       const currentUser = getCurrentUser();
       const recordedBy = currentUser?.id || 1;
 
@@ -360,7 +363,8 @@ function Inventory() {
         amount: totalAmount,
         expense_date: new Date().toISOString().split('T')[0],
         description: 'restock',
-        recorded_by: recordedBy
+        recorded_by: recordedBy,
+        stock_amount: quantity
       };
 
       console.log('Creating expense entry:', expenseData);

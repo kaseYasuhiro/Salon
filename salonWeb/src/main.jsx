@@ -11,6 +11,8 @@ import Reports from './Reports';
 import Products from './Products';
 import Sales from './Sales';
 import AppointmentDetails from './AppointmentDetails';
+import InventoryReports from './InventoryReports';
+import Remittances from './Remittances';
 import './index.css';
 
 ReactDOM.createRoot(document.getElementById('root')).render(
@@ -29,6 +31,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <Route path="reports" element={<Reports />} />
           <Route path="products" element={<Products />} />
           <Route path="sales" element={<Sales />} />
+          <Route path="inventoryReports" element={<InventoryReports />} />
+          <Route path="remittances" element={<Remittances />} />
         </Route>
       </Routes>
     </BrowserRouter>

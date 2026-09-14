@@ -6,8 +6,8 @@ import {
   Calendar, Scissors, Package, Users, 
   TrendingUp, CheckCircle, Clock, XCircle,
   Eye, LogOut, Menu, X, DollarSign,
-  User, Phone, MapPin, Star, 
-  ChevronRight, Activity, PieChart,
+  User, Phone, MapPin, Star, Award,
+  ChevronRight, ChevronDown, Activity, PieChart,
   AlertCircle, Bell, Search, Crown,
   FileText, // Added for Reports icon
   Box, // Added for Products icon
@@ -21,6 +21,7 @@ function Dashboard() {
   const navigate = useNavigate();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [transactionsOpen, setTransactionsOpen] = useState(false);
   const { user } = useAuth();
   const [token, setToken] = useState(null);
   const [dashboardStats, setDashboardStats] = useState({
@@ -48,6 +49,14 @@ function Dashboard() {
   const [weeklyRemittanceData, setWeeklyRemittanceData] = useState([]);
   const [totalWeeklyRemittance, setTotalWeeklyRemittance] = useState(0);
 
+  // Performance states
+  const [staffPerformance, setStaffPerformance] = useState([]);
+  const [servicePerformance, setServicePerformance] = useState([]);
+  const [frequentCustomers, setFrequentCustomers] = useState([]);
+  const [staffList, setStaffList] = useState([]);
+  const [commissionsData, setCommissionsData] = useState([]);
+  const [isLoadingPerformance, setIsLoadingPerformance] = useState(true);
+
   useEffect(() => {
     const storedToken = getToken();
     setToken(storedToken);
@@ -68,6 +77,18 @@ function Dashboard() {
     }
   }, [user, navigate]);
 
+  // Auto-open transactions dropdown if on a transactions route
+  useEffect(() => {
+    const isTransactionsRoute = 
+      location.pathname === '/dashboard/sales' || 
+      location.pathname === '/dashboard/inventoryReports' || 
+      location.pathname === '/dashboard/remittances';
+    
+    if (isTransactionsRoute) {
+      setTransactionsOpen(true);
+    }
+  }, [location.pathname]);
+
   // Fetch all appointments
   const fetchAllAppointments = async () => {
     try {
@@ -75,7 +96,6 @@ function Dashboard() {
       console.log('All appointments:', response.data);
       
       if (Array.isArray(response.data)) {
-        // Count appointments by status
         const counts = {
           confirmed: 0,
           pending: 0,
@@ -93,25 +113,24 @@ function Dashboard() {
         setAppointmentStatusCounts(counts);
         console.log('Appointment status counts:', counts);
         
-        // Filter completed appointments
         const completed = response.data.filter(app => app.status === 'completed');
-        
-        // Get last 5 completed appointments
         const recentCompleted = completed.slice(0, 5);
         setRecentCompletedAppointments(recentCompleted);
         
-        // Update stats
         setDashboardStats(prev => ({
           ...prev,
           totalAppointments: response.data.length
         }));
+
+        // Return the data for use in other functions
+        return response.data;
       }
     } catch (error) {
       console.error('Error fetching appointments:', error);
+      return [];
     }
   };
 
-  // Fetch services count
   const fetchServices = async () => {
     try {
       const response = await api.get('/services');
@@ -128,7 +147,6 @@ function Dashboard() {
     }
   };
 
-  // Fetch inventory count
   const fetchInventory = async () => {
     try {
       const response = await api.get('/inventory');
@@ -144,7 +162,6 @@ function Dashboard() {
     }
   };
 
-  // Fetch staff count
   const fetchStaff = async () => {
     try {
       const response = await api.get('/employees');
@@ -160,7 +177,6 @@ function Dashboard() {
     }
   };
 
-  // Fetch feedbacks
   const fetchFeedbacks = async () => {
     try {
       const response = await api.get('/feedbacks');
@@ -173,7 +189,6 @@ function Dashboard() {
     }
   };
 
-  // Fetch remittances
   const fetchRemittances = async () => {
     try {
       const response = await api.get('/remittance');
@@ -187,14 +202,197 @@ function Dashboard() {
     }
   };
 
-  // Process remittances for weekly view
+  // Fetch staff list for performance tracking
+  const fetchStaffList = async () => {
+    try {
+      const response = await api.get('/staff-list');
+      console.log('Staff list:', response.data);
+      if (Array.isArray(response.data)) {
+        setStaffList(response.data);
+      }
+    } catch (error) {
+      console.error('Error fetching staff list:', error);
+    }
+  };
+
+  // Fetch commissions data
+  const fetchCommissions = async () => {
+    try {
+      const response = await api.get('/employee/commission');
+      console.log('Commissions:', response.data);
+      if (Array.isArray(response.data)) {
+        setCommissionsData(response.data);
+      } else {
+        setCommissionsData([]);
+      }
+    } catch (error) {
+      console.error('Error fetching commissions:', error);
+      setCommissionsData([]);
+    }
+  };
+
+  // Get commission rate for a specific employee
+  const getEmployeeCommissionRate = (employeeId) => {
+    const commission = commissionsData.find(c => c.employee_id === employeeId);
+    return commission ? parseFloat(commission.commission_amount) : 0;
+  };
+
+  // Calculate staff performance
+  const calculateStaffPerformance = (appointments) => {
+    const staffMap = {};
+    
+    appointments.forEach(app => {
+      const staffId = app.assigned_employee_id;
+      if (staffId) {
+        if (!staffMap[staffId]) {
+          const staff = staffList.find(s => s.id === staffId);
+          const commissionRate = getEmployeeCommissionRate(staffId);
+          staffMap[staffId] = {
+            staff_id: staffId,
+            staff_name: staff?.name || `Staff ${staffId}`,
+            totalRevenue: 0,
+            appointmentCount: 0,
+            totalCommission: 0,
+            commissionRate: commissionRate
+          };
+        }
+        const serviceRevenue = parseFloat(app.price) || 0;
+        staffMap[staffId].totalRevenue += serviceRevenue;
+        staffMap[staffId].appointmentCount += 1;
+        const commissionAmount = serviceRevenue * staffMap[staffId].commissionRate;
+        staffMap[staffId].totalCommission += commissionAmount;
+      }
+    });
+    
+    return Object.values(staffMap)
+      .sort((a, b) => b.totalRevenue - a.totalRevenue);
+  };
+
+  // Calculate service performance
+  const calculateServicePerformance = (appointments) => {
+    const serviceMap = {};
+    
+    appointments.forEach(app => {
+      const serviceName = app.service_name || 'Unknown Service';
+      if (!serviceMap[serviceName]) {
+        serviceMap[serviceName] = {
+          service_name: serviceName,
+          totalRevenue: 0,
+          count: 0
+        };
+      }
+      serviceMap[serviceName].totalRevenue += parseFloat(app.price) || 0;
+      serviceMap[serviceName].count += 1;
+    });
+    
+    return Object.values(serviceMap)
+      .sort((a, b) => b.totalRevenue - a.totalRevenue);
+  };
+
+  // Fetch performance data
+  const fetchPerformanceData = async () => {
+    setIsLoadingPerformance(true);
+    try {
+      const response = await api.get('/all-appointments');
+      
+      if (Array.isArray(response.data)) {
+        const completedAppointments = response.data.filter(app => app.status === 'completed');
+        
+        // Calculate staff performance
+        const staffPerf = calculateStaffPerformance(completedAppointments);
+        setStaffPerformance(staffPerf);
+        
+        // Calculate service performance
+        const servicePerf = calculateServicePerformance(completedAppointments);
+        setServicePerformance(servicePerf);
+      }
+    } catch (error) {
+      console.error('Error fetching performance data:', error);
+    } finally {
+      setIsLoadingPerformance(false);
+    }
+  };
+
+  // Fetch most frequent customers
+  const fetchFrequentCustomers = async () => {
+    try {
+      const appointmentsResponse = await api.get('/all-appointments');
+      const walkInsResponse = await api.get('/walk-in');
+      
+      const customerMap = {};
+      
+      if (Array.isArray(appointmentsResponse.data)) {
+        appointmentsResponse.data.forEach(app => {
+          const customerName = app.customer_name || 'Unknown Customer';
+          const key = customerName;
+          
+          if (!customerMap[key]) {
+            customerMap[key] = {
+              name: customerName,
+              email: app.customer_email || 'N/A',
+              phone: app.customer_phone || 'N/A',
+              totalVisits: 0,
+              totalSpent: 0,
+              lastVisit: app.appointment_date || null,
+              type: 'Appointment'
+            };
+          }
+          
+          customerMap[key].totalVisits += 1;
+          customerMap[key].totalSpent += parseFloat(app.price) || 0;
+          
+          if (app.appointment_date) {
+            if (!customerMap[key].lastVisit || app.appointment_date > customerMap[key].lastVisit) {
+              customerMap[key].lastVisit = app.appointment_date;
+            }
+          }
+        });
+      }
+      
+      if (Array.isArray(walkInsResponse.data)) {
+        walkInsResponse.data.forEach(walkIn => {
+          const customerName = walkIn.customer_name || 'Walk-in Customer';
+          const key = customerName;
+          
+          if (!customerMap[key]) {
+            customerMap[key] = {
+              name: customerName,
+              email: 'N/A',
+              phone: 'N/A',
+              totalVisits: 0,
+              totalSpent: 0,
+              lastVisit: walkIn.created_at ? walkIn.created_at.split('T')[0] : null,
+              type: 'Walk-in'
+            };
+          }
+          
+          customerMap[key].totalVisits += 1;
+          customerMap[key].totalSpent += walkIn.amount_paid || 0;
+          
+          if (walkIn.created_at) {
+            const visitDate = walkIn.created_at.split('T')[0];
+            if (!customerMap[key].lastVisit || visitDate > customerMap[key].lastVisit) {
+              customerMap[key].lastVisit = visitDate;
+            }
+          }
+        });
+      }
+      
+      const customersArray = Object.values(customerMap)
+        .sort((a, b) => b.totalVisits - a.totalVisits || b.totalSpent - a.totalSpent)
+        .slice(0, 5);
+      
+      setFrequentCustomers(customersArray);
+    } catch (error) {
+      console.error('Error fetching frequent customers:', error);
+    }
+  };
+
   const processWeeklyRemittances = (data) => {
-    // Get last 7 days (including today)
     const days = [];
     const today = new Date();
     const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     
-    // Generate last 7 days
     for (let i = 6; i >= 0; i--) {
       const date = new Date(today);
       date.setDate(date.getDate() - i);
@@ -207,7 +405,6 @@ function Dashboard() {
       });
     }
     
-    // Map remittances to days
     data.forEach(remittance => {
       const businessDate = remittance.business_schedules?.business_date;
       if (businessDate) {
@@ -221,17 +418,14 @@ function Dashboard() {
     
     setWeeklyRemittanceData(days);
     
-    // Calculate total weekly remittance
     const total = days.reduce((sum, day) => sum + day.amount, 0);
     setTotalWeeklyRemittance(total);
   };
 
-  // Get feedback for a specific appointment
   const getFeedbackForAppointment = (appointmentId) => {
     return feedbacks.find(f => f.appointment_id === appointmentId);
   };
 
-  // Fetch all data on mount
   useEffect(() => {
     const fetchAllData = async () => {
       setIsLoading(true);
@@ -241,13 +435,23 @@ function Dashboard() {
         fetchInventory(),
         fetchStaff(),
         fetchFeedbacks(),
-        fetchRemittances()
+        fetchRemittances(),
+        fetchStaffList(),
+        fetchCommissions()
       ]);
       setIsLoading(false);
     };
     
     fetchAllData();
   }, []);
+
+  // Fetch performance data after staffList and commissions are loaded
+  useEffect(() => {
+    if (staffList.length > 0 || commissionsData.length > 0) {
+      fetchPerformanceData();
+      fetchFrequentCustomers();
+    }
+  }, [staffList, commissionsData]);
 
   // Check current routes
   const isDashboardRoute = location.pathname === '/dashboard';
@@ -257,9 +461,14 @@ function Dashboard() {
   const isInventoryRoute = location.pathname === '/dashboard/inventory';
   const isReportsRoute = location.pathname === '/dashboard/reports';
   const isProductsRoute = location.pathname === '/dashboard/products';
+  
+  // Transactions routes
   const isSalesRoute = location.pathname === '/dashboard/sales';
+  const isInventoryReportsRoute = location.pathname === '/dashboard/inventoryReports';
+  const isRemittancesRoute = location.pathname === '/dashboard/remittances';
+  const isAnyTransactionsRoute = isSalesRoute || isInventoryReportsRoute || isRemittancesRoute;
 
-  const isNestedRoute = isAppointmentsRoute || isServicesRoute || isEmployeesRoute || isInventoryRoute || isReportsRoute || isProductsRoute || isSalesRoute;
+  const isNestedRoute = isAppointmentsRoute || isServicesRoute || isEmployeesRoute || isInventoryRoute || isReportsRoute || isProductsRoute || isAnyTransactionsRoute;
 
   const stats = [
     { label: 'Total Appointments', value: dashboardStats.totalAppointments.toString(), icon: Calendar, color: 'from-blue-500 to-blue-600', bgColor: 'bg-blue-50', textColor: 'text-blue-600', trend: '+12%' },
@@ -268,9 +477,8 @@ function Dashboard() {
     { label: 'Staff Members', value: dashboardStats.staffMembers.toString(), icon: Users, color: 'from-orange-500 to-orange-600', bgColor: 'bg-orange-50', textColor: 'text-orange-600', trend: '+0%' },
   ];
 
-  // Get appointment status counts from real data
   const getAppointmentStatusCounts = () => {
-    const total = dashboardStats.totalAppointments || 1; // Prevent division by zero
+    const total = dashboardStats.totalAppointments || 1;
     
     return [
       { 
@@ -349,6 +557,10 @@ function Dashboard() {
     return `${displayHour}:${minutes} ${ampm}`;
   };
 
+  const formatCurrency = (amount) => {
+    return `₱${parseFloat(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  };
+
   const handleAppointmentClick = (appointment) => {
     setSelectedAppointment(appointment);
     setShowModal(true);
@@ -359,7 +571,6 @@ function Dashboard() {
     setSelectedAppointment(null);
   };
 
-  // Appointment Details Modal - UPDATED: Removed service_status
   const AppointmentModal = () => {
     if (!selectedAppointment) return null;
     
@@ -376,7 +587,6 @@ function Dashboard() {
           </div>
           
           <div className="p-5">
-            {/* Customer Information */}
             <div className="mb-5">
               <h3 className="text-sm font-semibold text-gray-800 mb-2 flex items-center gap-2">
                 <User size={16} className="text-pink-500" />
@@ -395,7 +605,6 @@ function Dashboard() {
               </div>
             </div>
             
-            {/* Appointment Details */}
             <div className="mb-5">
               <h3 className="text-sm font-semibold text-gray-800 mb-2 flex items-center gap-2">
                 <Calendar size={16} className="text-pink-500" />
@@ -427,7 +636,6 @@ function Dashboard() {
               </div>
             </div>
             
-            {/* Customer Feedback */}
             <div className="mb-5">
               <h3 className="text-sm font-semibold text-gray-800 mb-2 flex items-center gap-2">
                 <Star size={16} className="text-yellow-500" />
@@ -475,10 +683,9 @@ function Dashboard() {
     );
   };
 
-  // Render dashboard content
   const renderDashboardContent = () => (
     <>
-      {/* Stats Grid - Smaller Cards */}
+      {/* Stats Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         {stats.map((stat, index) => (
           <div key={index} className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 p-4 border border-gray-100">
@@ -498,7 +705,7 @@ function Dashboard() {
 
       {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6">
-        {/* Weekly Revenue / Remittance - Compact */}
+        {/* Weekly Remittance */}
         <div className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 p-4 border border-gray-100">
           <div className="flex items-center justify-between mb-4">
             <div>
@@ -552,7 +759,7 @@ function Dashboard() {
           </div>
         </div>
 
-        {/* Appointment Status - Compact */}
+        {/* Appointment Status */}
         <div className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 p-4 border border-gray-100">
           <div className="flex items-center justify-between mb-4">
             <div>
@@ -586,7 +793,266 @@ function Dashboard() {
         </div>
       </div>
 
-      {/* Recent Appointments Table - Without Staff Column */}
+      {/* Performance Row - Service & Staff */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6">
+        {/* Service Performance */}
+        <div className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 border border-gray-100 overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="bg-pink-50 p-1.5 rounded-lg">
+                <Scissors size={14} className="text-pink-500" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-gray-800">Service Performance</h3>
+                <p className="text-[10px] text-gray-500 mt-0.5">Top performing services</p>
+              </div>
+            </div>
+            <Link 
+              to="/dashboard/sales"
+              className="flex items-center gap-0.5 text-[10px] text-pink-600 hover:text-pink-700 font-medium"
+            >
+              <span>View All</span>
+              <ChevronRight size={12} />
+            </Link>
+          </div>
+          <div className="p-4">
+            {isLoadingPerformance ? (
+              <div className="flex items-center justify-center h-48">
+                <div className="w-6 h-6 border-3 border-pink-500 border-t-transparent rounded-full animate-spin"></div>
+              </div>
+            ) : servicePerformance.length === 0 ? (
+              <div className="text-center py-8">
+                <Scissors size={32} className="text-gray-300 mx-auto mb-2" />
+                <p className="text-xs text-gray-400">No service data available</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {servicePerformance.slice(0, 5).map((service, index) => {
+                  const maxRevenue = servicePerformance[0]?.totalRevenue || 1;
+                  const percentage = (service.totalRevenue / maxRevenue) * 100;
+                  
+                  return (
+                    <div key={index} className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <div className={`w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                            index === 0 ? 'bg-yellow-100' :
+                            index === 1 ? 'bg-gray-100' :
+                            index === 2 ? 'bg-orange-100' :
+                            'bg-pink-50'
+                          }`}>
+                            <Scissors size={11} className={
+                              index === 0 ? 'text-yellow-600' :
+                              index === 1 ? 'text-gray-600' :
+                              index === 2 ? 'text-orange-600' :
+                              'text-pink-500'
+                            } />
+                          </div>
+                          <p className="text-xs font-medium text-gray-700 truncate">
+                            {service.service_name}
+                          </p>
+                        </div>
+                        <div className="text-right ml-2 flex-shrink-0">
+                          <p className="text-xs font-bold text-gray-800">
+                            {formatCurrency(service.totalRevenue)}
+                          </p>
+                          <p className="text-[10px] text-gray-500">
+                            {service.count} booking{service.count !== 1 ? 's' : ''}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                        <div 
+                          className={`h-1.5 rounded-full transition-all duration-700 ${
+                            index === 0 ? 'bg-gradient-to-r from-yellow-400 to-yellow-500' :
+                            index === 1 ? 'bg-gradient-to-r from-gray-400 to-gray-500' :
+                            index === 2 ? 'bg-gradient-to-r from-orange-400 to-orange-500' :
+                            'bg-gradient-to-r from-pink-400 to-pink-500'
+                          }`}
+                          style={{ width: `${percentage}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Staff Performance */}
+        <div className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 border border-gray-100 overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="bg-green-50 p-1.5 rounded-lg">
+                <Users size={14} className="text-green-500" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-gray-800">Staff Performance</h3>
+                <p className="text-[10px] text-gray-500 mt-0.5">Top performing staff</p>
+              </div>
+            </div>
+            <Link 
+              to="/dashboard/sales"
+              className="flex items-center gap-0.5 text-[10px] text-green-600 hover:text-green-700 font-medium"
+            >
+              <span>View All</span>
+              <ChevronRight size={12} />
+            </Link>
+          </div>
+          <div className="p-4">
+            {isLoadingPerformance ? (
+              <div className="flex items-center justify-center h-48">
+                <div className="w-6 h-6 border-3 border-green-500 border-t-transparent rounded-full animate-spin"></div>
+              </div>
+            ) : staffPerformance.length === 0 ? (
+              <div className="text-center py-8">
+                <Users size={32} className="text-gray-300 mx-auto mb-2" />
+                <p className="text-xs text-gray-400">No staff data available</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {staffPerformance.slice(0, 5).map((staff, index) => {
+                  const maxRevenue = staffPerformance[0]?.totalRevenue || 1;
+                  const percentage = (staff.totalRevenue / maxRevenue) * 100;
+                  const initials = staff.staff_name.split(' ').map(n => n[0]).join('').slice(0, 2);
+                  
+                  return (
+                    <div key={index} className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 text-white text-[9px] font-bold ${
+                            index === 0 ? 'bg-gradient-to-r from-yellow-400 to-yellow-500' :
+                            index === 1 ? 'bg-gradient-to-r from-gray-400 to-gray-500' :
+                            index === 2 ? 'bg-gradient-to-r from-orange-400 to-orange-500' :
+                            'bg-gradient-to-r from-green-400 to-green-500'
+                          }`}>
+                            {initials}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs font-medium text-gray-700 truncate">
+                              {staff.staff_name}
+                            </p>
+                            <p className="text-[10px] text-gray-500">
+                              {staff.appointmentCount} appointment{staff.appointmentCount !== 1 ? 's' : ''}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="text-right ml-2 flex-shrink-0">
+                          <p className="text-xs font-bold text-gray-800">
+                            {formatCurrency(staff.totalRevenue)}
+                          </p>
+                          <p className="text-[10px] text-yellow-600 font-semibold">
+                            {formatCurrency(staff.totalCommission || 0)} comm.
+                          </p>
+                        </div>
+                      </div>
+                      <div className="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                        <div 
+                          className={`h-1.5 rounded-full transition-all duration-700 ${
+                            index === 0 ? 'bg-gradient-to-r from-yellow-400 to-yellow-500' :
+                            index === 1 ? 'bg-gradient-to-r from-gray-400 to-gray-500' :
+                            index === 2 ? 'bg-gradient-to-r from-orange-400 to-orange-500' :
+                            'bg-gradient-to-r from-green-400 to-green-500'
+                          }`}
+                          style={{ width: `${percentage}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Top Customers */}
+      <div className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 border border-gray-100 overflow-hidden mb-6">
+        <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="bg-yellow-50 p-1.5 rounded-lg">
+              <Users size={14} className="text-yellow-500" />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-gray-800">Top Customers</h3>
+              <p className="text-[10px] text-gray-500 mt-0.5">Most frequent customers</p>
+            </div>
+          </div>
+          <Link 
+            to="/dashboard/sales"
+            className="flex items-center gap-0.5 text-[10px] text-yellow-600 hover:text-yellow-700 font-medium"
+          >
+            <span>View All</span>
+            <ChevronRight size={12} />
+          </Link>
+        </div>
+        <div className="p-4">
+          {isLoadingPerformance ? (
+            <div className="flex items-center justify-center h-48">
+              <div className="w-6 h-6 border-3 border-yellow-500 border-t-transparent rounded-full animate-spin"></div>
+            </div>
+          ) : frequentCustomers.length === 0 ? (
+            <div className="text-center py-8">
+              <User size={32} className="text-gray-300 mx-auto mb-2" />
+              <p className="text-xs text-gray-400">No customer data available</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+              {frequentCustomers.map((customer, index) => (
+                <div 
+                  key={customer.name} 
+                  className={`p-3 rounded-lg border transition-all hover:shadow-md ${
+                    index === 0 ? 'bg-yellow-50 border-yellow-200' : 
+                    index === 1 ? 'bg-gray-50 border-gray-200' : 
+                    index === 2 ? 'bg-amber-50 border-amber-200' : 
+                    'bg-white border-gray-100'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <div className={`flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-sm ${
+                      index === 0 ? 'bg-gradient-to-r from-yellow-400 to-yellow-500' :
+                      index === 1 ? 'bg-gradient-to-r from-gray-400 to-gray-500' :
+                      index === 2 ? 'bg-gradient-to-r from-amber-500 to-amber-600' :
+                      'bg-gradient-to-r from-pink-400 to-pink-500'
+                    }`}>
+                      {customer.name.charAt(0).toUpperCase()}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1">
+                        <p className="text-xs font-semibold text-gray-800 truncate">
+                          {customer.name}
+                        </p>
+                        {index === 0 && <Award size={12} className="text-yellow-500 flex-shrink-0" />}
+                        {index === 1 && <Award size={12} className="text-gray-400 flex-shrink-0" />}
+                        {index === 2 && <Award size={12} className="text-amber-600 flex-shrink-0" />}
+                      </div>
+                      <div className="flex items-center gap-1 text-[10px] text-gray-500">
+                        <span>{customer.totalVisits} visit{customer.totalVisits > 1 ? 's' : ''}</span>
+                      </div>
+                      <p className="text-[10px] text-green-600 font-semibold">
+                        {formatCurrency(customer.totalSpent)}
+                      </p>
+                      <p className="text-[9px] text-gray-400 mt-0.5">
+                        Last: {formatDate(customer.lastVisit)}
+                      </p>
+                      <span className={`mt-1 inline-block px-1.5 py-0.5 text-[9px] font-medium rounded-full ${
+                        customer.type === 'Walk-in' 
+                          ? 'bg-green-100 text-green-700' 
+                          : 'bg-blue-100 text-blue-700'
+                      }`}>
+                        {customer.type}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Recent Appointments Table */}
       <div className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 border border-gray-100 overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
@@ -712,15 +1178,13 @@ function Dashboard() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-      {/* Appointment Details Modal */}
       {showModal && <AppointmentModal />}
       
-      {/* Mobile Sidebar Overlay */}
       {sidebarOpen && (
         <div className="fixed inset-0 z-20 bg-black/50 lg:hidden" onClick={() => setSidebarOpen(false)} />
       )}
 
-      {/* Sidebar - Compact */}
+      {/* Sidebar */}
       <aside className={`fixed top-0 left-0 z-30 h-full w-64 bg-white shadow-xl transform transition-transform duration-300 lg:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="flex flex-col h-full">
           <div className="p-5 border-b border-gray-100">
@@ -748,7 +1212,7 @@ function Dashboard() {
             </div>
           </div>
 
-          <nav className="flex-1 p-3 space-y-0.5">
+          <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
             <Link 
               to="/dashboard"
               onClick={() => setSidebarOpen(false)}
@@ -813,14 +1277,14 @@ function Dashboard() {
               to="/dashboard/employees"
               onClick={() => setSidebarOpen(false)}
               className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg transition-all text-sm ${
-                isEmployeesRoute                  ? 'bg-gradient-to-r from-pink-50 to-pink-100 text-pink-600 font-semibold' 
+                isEmployeesRoute
+                  ? 'bg-gradient-to-r from-pink-50 to-pink-100 text-pink-600 font-semibold' 
                   : 'text-gray-600 hover:bg-gray-50'
               }`}
             >
               <Users size={18} />
               <span>Employees</span>
             </Link>
-            {/* Reports Link */}
             <Link 
               to="/dashboard/reports"
               onClick={() => setSidebarOpen(false)}
@@ -833,19 +1297,70 @@ function Dashboard() {
               <FileText size={18} />
               <span>Reports</span>
             </Link>
-            {/* Sales Link */}
-            <Link 
-              to="/dashboard/sales"
-              onClick={() => setSidebarOpen(false)}
-              className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg transition-all text-sm ${
-                isSalesRoute
-                  ? 'bg-gradient-to-r from-pink-50 to-pink-100 text-pink-600 font-semibold' 
-                  : 'text-gray-600 hover:bg-gray-50'
-              }`}
-            >
-              <BarChart3 size={18} />
-              <span>Transactions</span>
-            </Link>
+
+            {/* Transactions Dropdown */}
+            <div>
+              <button
+                onClick={() => setTransactionsOpen(!transactionsOpen)}
+                className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg transition-all text-sm ${
+                  isAnyTransactionsRoute
+                    ? 'bg-gradient-to-r from-pink-50 to-pink-100 text-pink-600 font-semibold' 
+                    : 'text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                <BarChart3 size={18} />
+                <span className="flex-1 text-left">Transactions</span>
+                <ChevronDown 
+                  size={16} 
+                  className={`transition-transform duration-200 ${transactionsOpen ? 'rotate-180' : ''}`}
+                />
+              </button>
+
+              <div 
+                className={`overflow-hidden transition-all duration-300 ease-in-out ${
+                  transactionsOpen ? 'max-h-40 opacity-100 mt-1' : 'max-h-0 opacity-0'
+                }`}
+              >
+                <div className="ml-4 pl-3 border-l-2 border-pink-200 space-y-0.5">
+                  <Link 
+                    to="/dashboard/sales"
+                    onClick={() => setSidebarOpen(false)}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-all text-xs ${
+                      isSalesRoute
+                        ? 'bg-pink-50 text-pink-600 font-semibold'
+                        : 'text-gray-600 hover:bg-gray-50'
+                    }`}
+                  >
+                    <DollarSign size={14} />
+                    <span>Sales</span>
+                  </Link>
+                  <Link 
+                    to="/dashboard/inventoryReports"
+                    onClick={() => setSidebarOpen(false)}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-all text-xs ${
+                      isInventoryReportsRoute
+                        ? 'bg-pink-50 text-pink-600 font-semibold'
+                        : 'text-gray-600 hover:bg-gray-50'
+                    }`}
+                  >
+                    <Package size={14} />
+                    <span>Inventory Reports</span>
+                  </Link>
+                  <Link 
+                    to="/dashboard/remittances"
+                    onClick={() => setSidebarOpen(false)}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-all text-xs ${
+                      isRemittancesRoute
+                        ? 'bg-pink-50 text-pink-600 font-semibold'
+                        : 'text-gray-600 hover:bg-gray-50'
+                    }`}
+                  >
+                    <DollarSign size={14} />
+                    <span>Remittances</span>
+                  </Link>
+                </div>
+              </div>
+            </div>
           </nav>
 
           <div className="p-3 border-t border-gray-100">
@@ -859,7 +1374,6 @@ function Dashboard() {
 
       {/* Main Content */}
       <div className="lg:pl-64">
-        {/* Header - Compact */}
         <header className="bg-white/80 backdrop-blur-md shadow-sm sticky top-0 z-10 border-b border-gray-100">
           <div className="px-4 sm:px-6 lg:px-8">
             <div className="flex items-center justify-between h-14">
@@ -876,6 +1390,8 @@ function Dashboard() {
                     {isProductsRoute && 'Products'}
                     {isReportsRoute && 'Reports'}
                     {isSalesRoute && 'Sales'}
+                    {isInventoryReportsRoute && 'Inventory Reports'}
+                    {isRemittancesRoute && 'Remittances'}
                     {isDashboardRoute && 'Dashboard'}
                   </h1>
                   <p className="text-xs text-gray-500 hidden sm:block">
@@ -886,6 +1402,8 @@ function Dashboard() {
                     {isProductsRoute && 'Manage salon products'}
                     {isReportsRoute && 'View and manage incident reports'}
                     {isSalesRoute && 'View sales performance and revenue statistics'}
+                    {isInventoryReportsRoute && 'View inventory usage and stock reports'}
+                    {isRemittancesRoute && 'View remittance records and history'}
                     {isDashboardRoute && 'Welcome back! Here\'s your overview'}
                   </p>
                 </div>
@@ -913,7 +1431,6 @@ function Dashboard() {
           </div>
         </header>
 
-        {/* Main Content Area */}
         <main className="p-4 sm:p-5 lg:p-6">
           {isNestedRoute ? (
             <Outlet />

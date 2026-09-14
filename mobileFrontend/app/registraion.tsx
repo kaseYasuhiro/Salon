@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Alert, Text, TextInput, TouchableOpacity, View, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "@/contexts/auth-context";
+import api from '@/api/axios';
 
 export default function Register() {
   const { register } = useAuth();
@@ -19,34 +20,31 @@ export default function Register() {
   const [password, setPassword] = useState("");
   const [password_confirmation, setConfirmPassword] = useState("");
 
-  const handleRegister = () => {
+  // Handle registration form submission
+  const handleRegister = async () => {
     // Validation checks
     if (!first_name || !last_name || !phone_number || !email || !password || !password_confirmation) {
       Alert.alert("Error", "Please fill in all fields");
       return;
     }
 
-    // Email format validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
       Alert.alert("Error", "Please enter a valid email address");
       return;
     }
 
-    // Phone number validation (basic)
     const phoneRegex = /^[0-9]{10,11}$/;
     if (!phoneRegex.test(phone_number.replace(/[^0-9]/g, ''))) {
       Alert.alert("Error", "Please enter a valid phone number (10-11 digits)");
       return;
     }
 
-    // Password validation
     if (password.length < 6) {
       Alert.alert("Error", "Password must be at least 6 characters long");
       return;
     }
 
-    // Password confirmation
     if (password !== password_confirmation) {
       Alert.alert("Error", "Passwords do not match");
       return;
@@ -55,25 +53,50 @@ export default function Register() {
     setIsLoading(true);
 
     try {
-      register({ first_name, last_name, email, password, password_confirmation, phone_number, role: "customer" })
+      // Register the user
+      await register({ 
+        first_name, 
+        last_name, 
+        email, 
+        password, 
+        password_confirmation, 
+        phone_number, 
+        role: "customer" 
+      });
 
-      Alert.alert(
-        "Registration Successful", 
-        "Your account has been created. Please login to continue.",
-        [
-          {
-            text: "Go to Login",
-            onPress: () => router.replace("/")
-          }
-        ]
-      );
+      // Send OTP after successful registration
+      try {
+        await api.post('/otp/send', {
+          email: email,
+          purpose: 'verification'
+        });
+
+        // Navigate to the separate OTP verification screen
+        router.replace({
+          pathname: '/verify-otp',
+          params: { email: email }
+        });
+
+      } catch (otpError: any) {
+        console.error("Error sending OTP:", otpError);
+        Alert.alert(
+          "Registration Successful", 
+          "Your account has been created, but we couldn't send the verification code. Please try again from the login screen.",
+          [
+            {
+              text: "Go to Login",
+              onPress: () => router.replace("/")
+            }
+          ]
+        );
+      }
+
     } catch (error: any) {
       console.log("Registration error:", error);
       let errorMessage = "Registration failed. Please try again.";
       if (error.response?.data?.message) {
         errorMessage = error.response.data.message;
       } else if (error.response?.data?.errors) {
-        // Handle Laravel validation errors
         const errors = Object.values(error.response.data.errors).flat();
         errorMessage = errors.join("\n");
       } else if (error.message) {
@@ -261,6 +284,18 @@ export default function Register() {
                 </View>
               </View>
 
+              {/* Info Box */}
+              <View className="bg-yellow-50 rounded-xl p-4 mb-6 border border-yellow-200">
+                <View className="flex-row items-start">
+                  <Ionicons name="information-circle" size={20} color="#eab308" />
+                  <View className="flex-1 ml-2">
+                    <Text className="text-yellow-700 text-xs leading-5">
+                      <Text className="font-bold">Note:</Text> After registration, you'll need to verify your email address with a 6-digit code before you can log in.
+                    </Text>
+                  </View>
+                </View>
+              </View>
+
               {/* Register Button */}
               <TouchableOpacity 
                 onPress={handleRegister} 
@@ -268,7 +303,10 @@ export default function Register() {
                 className={`bg-pink-500 py-4 rounded-xl items-center shadow-lg ${isLoading ? 'opacity-70' : ''}`}
               >
                 {isLoading ? (
-                  <ActivityIndicator color="white" size="small" />
+                  <View className="flex-row items-center">
+                    <ActivityIndicator color="white" size="small" />
+                    <Text className="text-white text-lg font-bold ml-2">Creating Account...</Text>
+                  </View>
                 ) : (
                   <Text className="text-white text-lg font-bold">Create Account</Text>
                 )}

@@ -27,6 +27,7 @@ use App\Http\Controllers\HairColorsController;
 use App\Http\Controllers\RefundsController;
 use App\Http\Controllers\ServiceHairColorsController;
 use App\Http\Controllers\ExpensesController;
+use App\Http\Controllers\OTPController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -157,5 +158,9 @@ Route::get('/appointment/{id}', [JoinedController::class, 'getAppointmentDetails
 
 Route::get('/expenses', [JoinedController::class, 'displayExpenses']);
 Route::post('/expenses/add', [ExpensesController::class, 'addExpense']);
+
+Route::post('/otp/send', [OTPController::class, 'sendOTP']);
+Route::post('/otp/verify', [OTPController::class, 'verifyOTP']);
+Route::post('/otp/resend', [OTPController::class, 'resendOTP']);
 
 

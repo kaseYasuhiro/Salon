@@ -6,6 +6,7 @@ import { Alert, Text, TextInput, TouchableOpacity, View, ActivityIndicator, Keyb
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "@/contexts/auth-context";
 import { LinearGradient } from 'expo-linear-gradient';
+import api from '@/api/axios';
 
 export default function Login() {
   const { login } = useAuth();
@@ -57,13 +58,56 @@ export default function Login() {
         Alert.alert("Login Failed", "Unable to Fetch User Information");
       }
     } catch (error: any) {
-      let errorMessage = "Invalid Email or Password";
-      if (error.response?.data?.message) {
-        errorMessage = error.response.data.message;
-      } else if (error.message) {
-        errorMessage = error.message;
+      console.log("Login error:", error);
+
+      // Check if email is not verified
+      if (error.isEmailNotVerified) {
+        const verificationEmail = error.email || email;
+        
+        Alert.alert(
+          "Email Not Verified",
+          "Your email hasn't been verified yet. Would you like to verify it now?",
+          [
+            {
+              text: "Cancel",
+              style: "cancel"
+            },
+            {
+              text: "Verify Now",
+              onPress: async () => {
+                try {
+                  // Send a new OTP
+                  await api.post('/otp/send', {
+                    email: verificationEmail,
+                    purpose: 'verification'
+                  });
+                  
+                  // Navigate to OTP verification screen
+                  router.push({
+                    pathname: '/verify-otp',
+                    params: { email: verificationEmail }
+                  });
+                } catch (otpError: any) {
+                  console.error("Error sending OTP:", otpError);
+                  Alert.alert(
+                    "Error",
+                    otpError.response?.data?.message || "Failed to send verification code. Please try again."
+                  );
+                }
+              }
+            }
+          ]
+        );
+      } else {
+        // Handle other login errors
+        let errorMessage = "Invalid Email or Password";
+        if (error.response?.data?.message) {
+          errorMessage = error.response.data.message;
+        } else if (error.message) {
+          errorMessage = error.message;
+        }
+        Alert.alert("Login Failed", errorMessage);
       }
-      Alert.alert("Login Failed", errorMessage);
     } finally {
       setIsLocalLoading(false);
     }

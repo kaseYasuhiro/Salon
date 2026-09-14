@@ -54,17 +54,27 @@ class UserController extends Controller
             return response()->json(['message' => 'Credentials Provided are Incorrect.'], 422);
         }
 
+        // Check if email is verified
+        if (!$user->email_verified_at) {
+            return response()->json([
+                'message' => 'Please verify your email address before logging in.',
+                'error_code' => 'EMAIL_NOT_VERIFIED',
+                'email' => $user->email
+            ], 403);
+        }
+
         $token = $user->createToken('token')->plainTextToken;
 
         return response()->json([
             'token' => $token,
-            $user = [
+            'user' => [
                 'id' => $user->id,
                 'first_name' => $user->first_name,
                 'last_name' => $user->last_name,
                 'email' => $user->email,
                 'phone_number' => $user->phone_number,
-                'role' => $user->role
+                'role' => $user->role,
+                'profile_image' => $user->profile_image,
             ],
             'message' => 'Login Successful.'
         ], 200);

@@ -11,6 +11,7 @@ class ExpensesController extends Controller
     {
         $request->validate([
             'expense_name' => ['required', 'string'],
+            'stock_amount' => ['required', 'numeric'],
             'amount' => ['required', 'numeric'],
             'expense_date' => ['required', 'date', 'date_format:Y-m-d'],
             'description' => ['required', 'string'],
@@ -19,6 +20,7 @@ class ExpensesController extends Controller
 
         Expenses::create([
            'expense_name' => $request->expense_name,
+           'stock_amount' => $request->stock_amount,
            'amount' => $request->amount,
            'expense_date' => $request->expense_date,
            'description' => $request->description,

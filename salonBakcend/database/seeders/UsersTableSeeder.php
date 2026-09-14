@@ -20,7 +20,8 @@ class UsersTableSeeder extends Seeder
             'email' => 'richel@gmail.com',
             'password' => Hash::make('titacramps'),
             'phone_number' => '09123456789',
-            'role' => 'owner'
+            'role' => 'owner',
+            'email_verified_at' => '2026-09-10 07:34:58'
         ]);
 
         User::create([
@@ -29,7 +30,8 @@ class UsersTableSeeder extends Seeder
             'email' => 'jerwin@gmail.com',
             'password' => Hash::make('jerwin123'),
             'phone_number' => '09123456789',
-            'role' => 'staff'
+            'role' => 'staff',
+            'email_verified_at' => '2026-09-10 07:34:58'
         ]);
 
         User::create([
@@ -38,7 +40,8 @@ class UsersTableSeeder extends Seeder
             'email' => 'lorievel@gmail.com',
             'password' => Hash::make('lorievel'),
             'phone_number' => '09123456789',
-            'role' => 'staff'
+            'role' => 'staff',
+            'email_verified_at' => '2026-09-10 07:34:58'
         ]);
 
         User::create([
@@ -47,7 +50,8 @@ class UsersTableSeeder extends Seeder
             'email' => 'nestor@gmail.com',
             'password' => Hash::make('nestor123'),
             'phone_number' => '09123456789',
-            'role' => 'customer'
+            'role' => 'customer',
+            'email_verified_at' => '2026-09-10 07:34:58'
         ]);
     }
 }
