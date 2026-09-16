@@ -11,7 +11,9 @@ import CustomerBooking from "./customerBookTab";
 import CustomerHistoryTab from "./customerHistoryTab";
 import CustomerSettingsTab from "./customerSettingsTab";
 
-// Define types locally
+// ─────────────────────────────────────────────────────────────
+// Types
+// ─────────────────────────────────────────────────────────────
 interface Transaction {
   id: number;
   appointment_id: number;
@@ -20,6 +22,7 @@ interface Transaction {
   duration_minutes: number;
   price: string;
   service_status: string;
+  assigned_employee_id?: number;
 }
 
 interface Appointment {
@@ -41,7 +44,25 @@ interface Appointment {
   duration_minutes?: number;
   price?: string;
   service_status?: string;
+
+  // Billing fields from the backend
+  billing_total_amount?: number | null;
+  billing_paid_amount?: number | null;
+  billing_balance?: number | null;
+  billing_payment_type?: string | null;
+
+  // Stylist
+  stylist_name?: string;
+  stylist_id?: number;
+
   has_remaining_balance?: boolean;
+}
+
+interface StaffMember {
+  id: number;
+  first_name: string;
+  last_name: string;
+  profile_image?: string;
 }
 
 interface Service {
@@ -57,12 +78,18 @@ interface Service {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Formatting helpers (module-level so PaymentModal can use them)
+// Formatting helpers
 // ─────────────────────────────────────────────────────────────
 const formatDate = (date: string) => {
   if (!date) return '';
   const d = new Date(date);
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+};
+
+const formatLongDate = (date: string) => {
+  if (!date) return '';
+  const d = new Date(date);
+  return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
 };
 
 const formatTime = (time: string) => {
@@ -76,13 +103,232 @@ const formatTime = (time: string) => {
   return `${displayHour}:${minutes} ${ampm}`;
 };
 
-const calculateRemainingBalance = (price: string | number) => {
-  const totalPrice = typeof price === 'string' ? parseFloat(price) : price;
-  return totalPrice / 2;
+// ─────────────────────────────────────────────────────────────
+// Receipt Modal
+// ─────────────────────────────────────────────────────────────
+interface ReceiptModalProps {
+  visible: boolean;
+  appointment: Appointment | null;
+  customerName: string;
+  stylistName: string;
+  onClose: () => void;
+}
+
+const ReceiptModal: React.FC<ReceiptModalProps> = ({
+  visible,
+  appointment,
+  customerName,
+  stylistName,
+  onClose,
+}) => {
+  if (!appointment) return null;
+
+  const totalAmount = appointment.billing_total_amount ?? appointment.total_price ?? 0;
+  const paidAmount = appointment.billing_paid_amount ?? 0;
+  const balance = appointment.billing_balance ?? (totalAmount - paidAmount);
+  const services = appointment.services || [];
+  const serviceNames = appointment.service_names || ['No Service'];
+
+  const paymentStatus =
+    balance <= 0 ? 'PAID IN FULL' :
+    paidAmount > 0 ? 'PARTIAL PAYMENT' :
+    'UNPAID';
+
+  const statusColor =
+    balance <= 0 ? '#10b981' :
+    paidAmount > 0 ? '#f59e0b' :
+    '#ef4444';
+
+  const receiptNo = `RCP-${String(appointment.id).padStart(6, '0')}`;
+
+  return (
+    <Modal
+      transparent={true}
+      animationType="slide"
+      visible={visible}
+      onRequestClose={onClose}
+    >
+      <View className="flex-1 justify-center items-center bg-black/50 p-4">
+        <View
+          className="bg-white rounded-2xl overflow-hidden w-full"
+          style={{ minWidth: 320, maxHeight: '90%' }}
+        >
+          {/* Header — solid pink (gradient doesn't render on native) */}
+          <View className="px-6 py-4 items-center" style={{ backgroundColor: '#ec4899' }}>
+            <Text className="text-white text-xl font-bold">Reshel Oco Hair Salon</Text>
+            <Text className="text-white opacity-90 text-sm mt-0.5">Official Appointment Receipt</Text>
+            <View
+              className="mt-2 px-3 py-0.5 rounded-full"
+              style={{ backgroundColor: 'rgba(255,255,255,0.2)' }}
+            >
+              <Text className="text-white text-xs font-mono">{receiptNo}</Text>
+            </View>
+          </View>
+
+          <ScrollView showsVerticalScrollIndicator={false}>
+            <View className="p-5">
+              {/* Payment status badge */}
+              <View
+                className="rounded-xl py-2 items-center mb-4"
+                style={{
+                  backgroundColor: `${statusColor}20`,
+                  borderWidth: 1,
+                  borderColor: `${statusColor}40`,
+                }}
+              >
+                <Text className="text-xs font-bold" style={{ color: statusColor }}>
+                  {paymentStatus}
+                </Text>
+              </View>
+
+              {/* Customer + Appointment info */}
+              <View className="border-b border-gray-100 pb-3 mb-3">
+                <Text className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider mb-2">
+                  Customer
+                </Text>
+                <Text className="text-base font-bold text-gray-800">
+                  {customerName || 'Customer'}
+                </Text>
+
+                <View className="flex-row items-center mt-1">
+                  <Ionicons name="calendar-outline" size={12} color="#9ca3af" />
+                  <Text className="text-xs text-gray-600 ml-1">
+                    {formatLongDate(appointment.appointment_date)}
+                  </Text>
+                </View>
+
+                <View className="flex-row items-center mt-1">
+                  <Ionicons name="time-outline" size={12} color="#9ca3af" />
+                  <Text className="text-xs text-gray-600 ml-1">
+                    {formatTime(appointment.appointment_time)}
+                  </Text>
+                </View>
+
+                <View className="flex-row items-center mt-1">
+                  <Ionicons name="hourglass-outline" size={12} color="#9ca3af" />
+                  <Text className="text-xs text-gray-600 ml-1">
+                    Total duration: {appointment.total_duration} mins
+                  </Text>
+                </View>
+
+                {/* ✅ Assigned Stylist */}
+                <View className="flex-row items-center mt-1">
+                  <Ionicons name="person-outline" size={12} color="#9ca3af" />
+                  <Text className="text-xs text-gray-600 ml-1">
+                    Assigned Stylist:{' '}
+                    <Text className="font-semibold text-gray-800">
+                      {stylistName || 'Not assigned'}
+                    </Text>
+                  </Text>
+                </View>
+
+                <View className="flex-row items-center mt-1">
+                  <Ionicons name="checkmark-circle-outline" size={12} color="#9ca3af" />
+                  <Text className="text-xs text-gray-600 ml-1">
+                    Status: {appointment.status ? appointment.status.toUpperCase() : 'PENDING'}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Services */}
+              <View className="border-b border-gray-100 pb-3 mb-3">
+                <Text className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider mb-2">
+                  Services ({services.length})
+                </Text>
+                {services.length > 0 ? (
+                  services.map((svc, idx) => (
+                    <View
+                      key={idx}
+                      className="flex-row justify-between items-start py-1"
+                    >
+                      <View className="flex-1 mr-2">
+                        <Text className="text-sm text-gray-800">{svc.service_name}</Text>
+                        <Text className="text-[10px] text-gray-500">
+                          {svc.duration_minutes} mins
+                        </Text>
+                      </View>
+                      <Text className="text-sm text-gray-700 font-medium">
+                        ₱{parseFloat(svc.price).toLocaleString()}
+                      </Text>
+                    </View>
+                  ))
+                ) : (
+                  <Text className="text-sm text-gray-500">{serviceNames.join(' + ')}</Text>
+                )}
+              </View>
+
+              {/* Payment breakdown */}
+              <View className="border-b border-gray-100 pb-3 mb-3">
+                <Text className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider mb-2">
+                  Payment Details
+                </Text>
+
+                <View className="flex-row justify-between items-center py-1">
+                  <Text className="text-sm text-gray-600">Total Amount</Text>
+                  <Text className="text-sm font-semibold text-gray-800">
+                    ₱{totalAmount.toLocaleString()}
+                  </Text>
+                </View>
+
+                <View className="flex-row justify-between items-center py-1">
+                  <Text className="text-sm text-gray-600">Amount Paid</Text>
+                  <Text className="text-sm font-semibold text-green-600">
+                    ₱{paidAmount.toLocaleString()}
+                  </Text>
+                </View>
+
+                {balance > 0 && (
+                  <View className="flex-row justify-between items-center py-1">
+                    <Text className="text-sm text-gray-600">Remaining Balance</Text>
+                    <Text className="text-sm font-semibold text-orange-600">
+                      ₱{balance.toLocaleString()}
+                    </Text>
+                  </View>
+                )}
+
+                <View className="flex-row justify-between items-center py-2 mt-1 bg-pink-50 rounded-lg px-3">
+                  <Text className="text-xs font-semibold text-gray-700">
+                    {balance <= 0 ? 'Payment Status' : 'Balance Due at Salon'}
+                  </Text>
+                  <Text
+                    className="text-base font-bold"
+                    style={{ color: balance <= 0 ? '#10b981' : '#ec4899' }}
+                  >
+                    {balance <= 0 ? 'PAID' : `₱${balance.toLocaleString()}`}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Footer note */}
+              <View className="bg-gray-50 rounded-lg p-3 mb-4">
+                <View className="flex-row items-start gap-2">
+                  <Ionicons name="information-circle-outline" size={14} color="#ec4899" />
+                  <Text className="text-gray-500 text-[11px] flex-1 leading-4">
+                    Please present this receipt to the staff upon arrival.
+                    Look for <Text className="font-semibold text-gray-700">{stylistName || 'your stylist'}</Text> at the salon.
+                    {balance > 0 && ' The remaining balance can be paid at the salon on your appointment day.'}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Close */}
+              <TouchableOpacity
+                className="py-3 rounded-xl"
+                style={{ backgroundColor: '#ec4899' }}
+                onPress={onClose}
+              >
+                <Text className="text-white text-center font-semibold">Close</Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
 };
 
 // ─────────────────────────────────────────────────────────────
-// PaymentModal — defined OUTSIDE so it doesn't remount
+// Payment Modal
 // ─────────────────────────────────────────────────────────────
 interface PaymentModalProps {
   visible: boolean;
@@ -109,7 +355,10 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
 }) => {
   if (!appointment) return null;
 
-  const remainingBalance = calculateRemainingBalance(appointment.total_price);
+  const totalAmount = appointment.billing_total_amount ?? appointment.total_price ?? 0;
+  const paidAmount = appointment.billing_paid_amount ?? 0;
+  const remainingBalance = appointment.billing_balance ?? (totalAmount - paidAmount);
+
   const serviceNames = appointment.service_names || ['No Service'];
 
   return (
@@ -121,7 +370,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
     >
       <View className="flex-1 justify-center items-center bg-black/50 p-4">
         <View className="bg-white rounded-2xl overflow-hidden w-full" style={{ minWidth: 320, maxHeight: '90%' }}>
-          <View className="bg-gradient-to-r from-pink-500 to-pink-600 px-6 py-4">
+          <View className="px-6 py-4" style={{ backgroundColor: '#ec4899' }}>
             <View className="flex-row justify-between items-center">
               <Text className="text-white text-xl font-bold">Pay Remaining Balance</Text>
               <TouchableOpacity onPress={onClose}>
@@ -132,7 +381,6 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
 
           <ScrollView showsVerticalScrollIndicator={false}>
             <View className="p-6">
-              {/* Booking Summary */}
               <View className="bg-pink-50 rounded-xl p-4 mb-4">
                 <Text className="text-gray-500 text-sm">Appointment Summary</Text>
                 <Text className="text-lg font-bold text-gray-800">
@@ -152,15 +400,18 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
                 </View>
                 <View className="flex-row justify-between mt-1">
                   <Text className="text-gray-500 text-sm">Total Amount</Text>
-                  <Text className="text-pink-500 font-bold">₱{(appointment.total_price || 0).toLocaleString()}</Text>
+                  <Text className="text-gray-800 font-bold text-sm">₱{totalAmount.toLocaleString()}</Text>
+                </View>
+                <View className="flex-row justify-between mt-1">
+                  <Text className="text-gray-500 text-sm">Already Paid</Text>
+                  <Text className="text-green-600 font-semibold text-sm">₱{paidAmount.toLocaleString()}</Text>
                 </View>
                 <View className="flex-row justify-between mt-1 pt-1 border-t border-pink-200">
-                  <Text className="text-gray-600 font-semibold">Remaining Balance (50%)</Text>
+                  <Text className="text-gray-600 font-semibold">Remaining Balance</Text>
                   <Text className="text-orange-600 font-bold text-lg">₱{remainingBalance.toLocaleString()}</Text>
                 </View>
               </View>
 
-              {/* QR Code */}
               <View className="items-center mb-4">
                 <Text className="text-gray-700 font-semibold text-base mb-2">Pay with GCash</Text>
                 <View className="bg-white rounded-xl p-3 border-2 border-pink-200 shadow-md">
@@ -171,7 +422,6 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
                 </Text>
               </View>
 
-              {/* Instructions */}
               <View className="bg-blue-50 rounded-xl p-3 mb-4">
                 <Text className="text-blue-800 font-semibold text-sm mb-1">📋 How to Pay:</Text>
                 <View className="space-y-1">
@@ -183,7 +433,6 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
                 </View>
               </View>
 
-              {/* Payment Method */}
               <View className="mb-4">
                 <Text className="text-gray-700 font-semibold text-sm mb-2">Payment Method</Text>
                 <TouchableOpacity
@@ -200,7 +449,6 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
                 </TouchableOpacity>
               </View>
 
-              {/* Upload Payment Proof */}
               <View className="mb-4">
                 <Text className="text-gray-700 font-semibold text-sm mb-2">Upload Payment Proof</Text>
                 <Text className="text-gray-500 text-xs mb-2">
@@ -239,7 +487,6 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
                 )}
               </View>
 
-              {/* Info Box */}
               <View className="bg-yellow-50 rounded-xl p-3 mb-4 border border-yellow-200">
                 <View className="flex-row items-start gap-2">
                   <Ionicons name="information-circle-outline" size={16} color="#eab308" />
@@ -250,7 +497,6 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
                 </View>
               </View>
 
-              {/* Confirm Button */}
               <TouchableOpacity
                 className={`py-4 rounded-xl ${!paymentProof ? 'bg-gray-400' : 'bg-pink-500'}`}
                 onPress={onConfirm}
@@ -283,6 +529,7 @@ export default function CustomerDashboard() {
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [services, setServices] = useState<Service[]>([]);
+  const [staff, setStaff] = useState<StaffMember[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [totalSpent, setTotalSpent] = useState(0);
   const [upcomingCount, setUpcomingCount] = useState(0);
@@ -294,19 +541,46 @@ export default function CustomerDashboard() {
   const [paymentProof, setPaymentProof] = useState<any>(null);
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
 
+  // Receipt Modal States
+  const [showReceiptModal, setShowReceiptModal] = useState(false);
+  const [selectedAppointmentForReceipt, setSelectedAppointmentForReceipt] = useState<Appointment | null>(null);
+
   const { user, logout } = useAuth();
 
-  // ✅ Safe area insets — used so the pink header can extend under the status bar
   const insets = useSafeAreaInsets();
 
   const qrCodeImage = require('@/assets/images/qr_code.png');
 
+  // ── Fetch staff (Option B: /employee/specialties) ──
+  const fetchStaff = async () => {
+    try {
+      const response = await api.get("/employee/specialties");
+      let staffData: StaffMember[] = [];
+      if (Array.isArray(response.data)) {
+        staffData = response.data.map((s: any) => ({
+          id: s.id,
+          first_name: s.first_name,
+          last_name: s.last_name,
+          profile_image: s.profile_image,
+        }));
+      }
+      setStaff(staffData);
+      return staffData;
+    } catch (error) {
+      console.log("Error fetching staff:", error);
+      return [];
+    }
+  };
+
   // ── Fetch user appointments ──
-  const fetchUserAppointments = async () => {
+  const fetchUserAppointments = async (staffOverride?: StaffMember[]) => {
     setIsLoading(true);
     try {
       const response = await api.get("/appointments");
       console.log("Raw appointments response:", response.data);
+
+      // Use the override if provided so we don't rely on potentially stale state
+      const activeStaff = staffOverride ?? staff;
 
       let transactions: Transaction[] = [];
       if (Array.isArray(response.data)) {
@@ -318,6 +592,7 @@ export default function CustomerDashboard() {
           duration_minutes: item.duration_minutes,
           price: item.price,
           service_status: item.service_status,
+          assigned_employee_id: item.assigned_employee_id,
         }));
       }
 
@@ -333,7 +608,11 @@ export default function CustomerDashboard() {
           price: string;
           service_status: string;
         }>;
-        has_remaining_balance?: boolean;
+        billing_total_amount?: number | null;
+        billing_paid_amount?: number | null;
+        billing_balance?: number | null;
+        billing_payment_type?: string | null;
+        assigned_employee_id?: number | null;
       }>();
 
       transactions.forEach((transaction) => {
@@ -341,7 +620,6 @@ export default function CustomerDashboard() {
 
         if (!appointmentMap.has(appointmentId)) {
           const originalData = response.data.find((item: any) => item.id === appointmentId);
-          const hasRemainingBalance = originalData?.has_remaining_balance !== false;
 
           appointmentMap.set(appointmentId, {
             id: appointmentId,
@@ -350,7 +628,11 @@ export default function CustomerDashboard() {
             appointment_time: originalData?.appointment_time || '',
             status: originalData?.status || '',
             services: [],
-            has_remaining_balance: hasRemainingBalance
+            billing_total_amount: originalData?.billing_total_amount ?? null,
+            billing_paid_amount: originalData?.billing_paid_amount ?? null,
+            billing_balance: originalData?.billing_balance ?? null,
+            billing_payment_type: originalData?.billing_payment_type ?? null,
+            assigned_employee_id: originalData?.assigned_employee_id ?? null,
           });
         }
 
@@ -365,8 +647,23 @@ export default function CustomerDashboard() {
 
       const groupedAppointments: Appointment[] = Array.from(appointmentMap.values()).map((appointment) => {
         const serviceNames = appointment.services.map(s => s.service_name);
-        const totalPrice = appointment.services.reduce((sum, s) => sum + parseFloat(s.price || '0'), 0);
         const totalDuration = appointment.services.reduce((sum, s) => sum + s.duration_minutes, 0);
+
+        const basePriceSum = appointment.services.reduce((sum, s) => sum + parseFloat(s.price || '0'), 0);
+        const totalPrice = (appointment.billing_total_amount != null && appointment.billing_total_amount > 0)
+          ? appointment.billing_total_amount
+          : basePriceSum;
+
+        const billingBalance = appointment.billing_balance ?? null;
+        const hasRemainingBalance = (billingBalance != null)
+          ? billingBalance > 0
+          : true;
+
+        // ✅ Resolve stylist name from the staff list
+        const stylistMember = activeStaff.find(s => s.id === appointment.assigned_employee_id);
+        const stylistName = stylistMember
+          ? `${stylistMember.first_name} ${stylistMember.last_name}`
+          : 'Not assigned';
 
         const overallStatus = appointment.services.some(s => s.service_status === 'pending')
           ? 'pending'
@@ -388,7 +685,16 @@ export default function CustomerDashboard() {
           duration_minutes: totalDuration,
           price: totalPrice.toString(),
           service_status: overallStatus,
-          has_remaining_balance: appointment.has_remaining_balance !== false
+
+          billing_total_amount: appointment.billing_total_amount ?? totalPrice,
+          billing_paid_amount: appointment.billing_paid_amount ?? 0,
+          billing_balance: appointment.billing_balance ?? (totalPrice / 2),
+          billing_payment_type: appointment.billing_payment_type ?? 'downpayment',
+          has_remaining_balance: hasRemainingBalance,
+
+          // ✅ Stylist fields
+          stylist_name: stylistName,
+          stylist_id: appointment.assigned_employee_id ?? undefined,
         };
       });
 
@@ -402,7 +708,9 @@ export default function CustomerDashboard() {
 
       const total = groupedAppointments
         .filter((item: Appointment) => item.service_status === "completed")
-        .reduce((sum: number, item: Appointment) => sum + item.total_price, 0);
+        .reduce((sum: number, item: Appointment) => {
+          return sum + (item.billing_paid_amount ?? (item.total_price / 2));
+        }, 0);
       setTotalSpent(total);
 
       return groupedAppointments;
@@ -485,6 +793,17 @@ export default function CustomerDashboard() {
     setPaymentProof(null);
   };
 
+  // ── Receipt handlers ──
+  const handleViewReceipt = (appointment: Appointment) => {
+    setSelectedAppointmentForReceipt(appointment);
+    setShowReceiptModal(true);
+  };
+
+  const handleCloseReceiptModal = () => {
+    setShowReceiptModal(false);
+    setSelectedAppointmentForReceipt(null);
+  };
+
   const handleConfirmPayment = async () => {
     if (!selectedAppointmentForPayment) {
       Alert.alert("Error", "No appointment selected for payment.");
@@ -497,7 +816,12 @@ export default function CustomerDashboard() {
 
     setIsProcessingPayment(true);
     try {
-      const remainingBalance = calculateRemainingBalance(selectedAppointmentForPayment.total_price);
+      const totalAmount = selectedAppointmentForPayment.billing_total_amount
+        ?? selectedAppointmentForPayment.total_price
+        ?? 0;
+      const paidAmount = selectedAppointmentForPayment.billing_paid_amount ?? 0;
+      const remainingBalance = selectedAppointmentForPayment.billing_balance
+        ?? (totalAmount - paidAmount);
 
       const formData = new FormData();
       formData.append('appointment_id', selectedAppointmentForPayment.id.toString());
@@ -535,6 +859,7 @@ export default function CustomerDashboard() {
 
       Alert.alert("Payment Successful", "Your remaining balance has been paid. Thank you!");
       handleClosePaymentModal();
+      await fetchStaff();
       await fetchUserAppointments();
     } catch (error: any) {
       console.error("Payment error:", error);
@@ -555,13 +880,22 @@ export default function CustomerDashboard() {
   };
 
   useEffect(() => {
-    fetchUserAppointments();
-    fetchServices();
+    const loadInitial = async () => {
+      // Fetch staff first so stylist names resolve on the first render
+      const staffData = await fetchStaff();
+      await fetchUserAppointments(staffData);
+      await fetchServices();
+    };
+    loadInitial();
   }, []);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await Promise.all([fetchUserAppointments(), fetchServices()]);
+    const staffData = await fetchStaff();
+    await Promise.all([
+      fetchUserAppointments(staffData),
+      fetchServices(),
+    ]);
     setRefreshing(false);
   }, []);
 
@@ -575,9 +909,11 @@ export default function CustomerDashboard() {
     }
   };
 
-  const handleBookingSuccess = () => {
+  const handleBookingSuccess = async () => {
     setRefreshTrigger(prev => prev + 1);
-    fetchUserAppointments();
+    // Refresh staff first in case assignments changed, then appointments
+    const staffData = await fetchStaff();
+    await fetchUserAppointments(staffData);
   };
 
   const getStatusColor = (status: string) => {
@@ -601,7 +937,7 @@ export default function CustomerDashboard() {
               <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#ec4899']} />
             }
           >
-            {/* ✅ Header: pink extends under the status bar via insets.top */}
+            {/* Header */}
             <View
               className="bg-pink-500 px-5 pb-8"
               style={{
@@ -681,8 +1017,10 @@ export default function CustomerDashboard() {
                 </View>
               ) : (
                 getUpcomingAppointments().map((item: Appointment) => {
-                  const remainingBalance = calculateRemainingBalance(item.total_price);
-                  const hasRemainingBalance = remainingBalance > 0 && item.has_remaining_balance !== false;
+                  const remainingBalance = item.billing_balance ?? 0;
+                  const paidAmount = item.billing_paid_amount ?? 0;
+                  const hasRemainingBalance = remainingBalance > 0;
+
                   const isMultipleServices = item.services && item.services.length > 1;
                   const services = item.services || [];
                   const serviceNames = item.service_names || ['No Service'];
@@ -729,11 +1067,27 @@ export default function CustomerDashboard() {
                             </View>
                           )}
 
+                          {/* ✅ Assigned stylist on the card */}
+                          <View className="flex-row items-center mt-1">
+                            <Ionicons name="person-outline" size={14} color="#9ca3af" />
+                            <Text className="text-gray-500 text-xs ml-1">
+                              Stylist: <Text className="font-semibold text-gray-700">{item.stylist_name || 'Not assigned'}</Text>
+                            </Text>
+                          </View>
+
                           <View className="flex-row items-center mt-1">
                             <Ionicons name="hourglass-outline" size={14} color="#9ca3af" />
                             <Text className="text-gray-500 text-xs ml-1">Total: {item.total_duration} mins</Text>
                           </View>
 
+                          {paidAmount > 0 && (
+                            <View className="flex-row items-center mt-1">
+                              <Ionicons name="checkmark-circle-outline" size={14} color="#10b981" />
+                              <Text className="text-green-600 text-xs ml-1">
+                                Paid: ₱{paidAmount.toLocaleString()}
+                              </Text>
+                            </View>
+                          )}
                           {hasRemainingBalance && (
                             <View className="flex-row items-center mt-1">
                               <Ionicons name="cash-outline" size={14} color="#f59e0b" />
@@ -743,7 +1097,9 @@ export default function CustomerDashboard() {
                             </View>
                           )}
                         </View>
-                        <Text className="text-pink-500 font-bold">₱{(item.total_price || 0).toLocaleString()}</Text>
+                        <Text className="text-pink-500 font-bold">
+                          ₱{(item.billing_total_amount ?? item.total_price ?? 0).toLocaleString()}
+                        </Text>
                       </View>
 
                       <View className="flex-row mt-2">
@@ -757,17 +1113,31 @@ export default function CustomerDashboard() {
                         )}
                       </View>
 
-                      {hasRemainingBalance && (
+                      {/* Action buttons: View Receipt + Pay Remaining Balance */}
+                      <View className="flex-row mt-3 gap-2">
                         <TouchableOpacity
-                          className="mt-3 bg-orange-500 py-2.5 rounded-xl flex-row items-center justify-center"
-                          onPress={() => handlePayBalance(item)}
+                          className="flex-1 py-2.5 rounded-xl flex-row items-center justify-center border border-pink-500"
+                          onPress={() => handleViewReceipt(item)}
                         >
-                          <Ionicons name="cash-outline" size={18} color="white" />
-                          <Text className="text-white font-semibold text-sm ml-2">
-                            Pay Remaining Balance (₱{remainingBalance.toLocaleString()})
+                          <Ionicons name="receipt-outline" size={18} color="#ec4899" />
+                          <Text className="text-pink-500 font-semibold text-sm ml-2">
+                            View Receipt
                           </Text>
                         </TouchableOpacity>
-                      )}
+
+                        {hasRemainingBalance && (
+                          <TouchableOpacity
+                            className="flex-1 py-2.5 rounded-xl flex-row items-center justify-center"
+                            style={{ backgroundColor: '#f97316' }}
+                            onPress={() => handlePayBalance(item)}
+                          >
+                            <Ionicons name="cash-outline" size={18} color="white" />
+                            <Text className="text-white font-semibold text-sm ml-2">
+                              Pay Balance
+                            </Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
                     </View>
                   );
                 })
@@ -791,10 +1161,6 @@ export default function CustomerDashboard() {
   };
 
   return (
-    // ✅ edges={['bottom']} so the top inset is not applied here.
-    //    That lets the pink header extend all the way under the status bar.
-    // ✅ StatusBar style="light" so the status bar icons (time, battery, signal)
-    //    render white against the pink background.
     <SafeAreaView className="flex-1 bg-gray-50" edges={['bottom']}>
       <StatusBar style="light" />
 
@@ -802,6 +1168,7 @@ export default function CustomerDashboard() {
         {renderContent()}
       </View>
 
+      {/* Payment Modal */}
       <PaymentModal
         visible={showPaymentModal}
         appointment={selectedAppointmentForPayment}
@@ -812,6 +1179,15 @@ export default function CustomerDashboard() {
         onRemoveProof={() => setPaymentProof(null)}
         onConfirm={handleConfirmPayment}
         qrCodeImage={qrCodeImage}
+      />
+
+      {/* Receipt Modal */}
+      <ReceiptModal
+        visible={showReceiptModal}
+        appointment={selectedAppointmentForReceipt}
+        customerName={user ? `${user.first_name} ${user.last_name}` : ''}
+        stylistName={selectedAppointmentForReceipt?.stylist_name || 'Not assigned'}
+        onClose={handleCloseReceiptModal}
       />
 
       <View className="flex-row justify-around items-center border-t border-gray-200 bg-white py-3 px-5">

@@ -9,12 +9,77 @@ import {
   User, Phone, MapPin, Star, Award,
   ChevronRight, ChevronDown, Activity, PieChart,
   AlertCircle, Bell, Search, Crown,
-  FileText, // Added for Reports icon
-  Box, // Added for Products icon
-  BarChart3 // Added for Sales icon
+  FileText,
+  Box,
+  BarChart3
 } from 'lucide-react';
 import { useAuth } from "../contexts/auth-context";
 import api from '../api/axios';
+
+// ─────────────────────────────────────────────────────────────
+// Helpers: group /all-appointments rows into one entry per appointment
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Deduplicate /all-appointments rows into one entry per appointment.
+ *
+ * `/all-appointments` returns one row per transaction (per service). Each row
+ * for the same appointment carries the same `billing_total_amount`. If we sum
+ * across rows we'd double-count the appointment total and inflate appointment
+ * counts. So we group first, then compute.
+ */
+const groupByAppointment = (transactions) => {
+  const map = new Map();
+  transactions.forEach(tx => {
+    const apptId = tx.appointment_id ?? tx.id;
+    if (!apptId) return;
+    if (!map.has(apptId)) {
+      map.set(apptId, {
+        appointment_id: apptId,
+        id: tx.id,
+        customer_name: tx.customer_name,
+        customer_email: tx.customer_email,
+        customer_phone: tx.customer_phone,
+        appointment_date: tx.appointment_date,
+        appointment_time: tx.appointment_time,
+        status: tx.status,
+        assigned_employee_id: tx.assigned_employee_id,
+        // Billing fields (identical across rows of the same appointment)
+        billing_total_amount: tx.billing_total_amount != null
+          ? parseFloat(tx.billing_total_amount) : null,
+        billing_paid_amount: tx.billing_paid_amount != null
+          ? parseFloat(tx.billing_paid_amount) : null,
+        billing_balance: tx.billing_balance != null
+          ? parseFloat(tx.billing_balance) : null,
+        billing_payment_type: tx.billing_payment_type ?? null,
+        // Per-service info
+        services: [],
+        priceSum: 0,
+        durationSum: 0,
+      });
+    }
+    const g = map.get(apptId);
+    g.services.push({
+      service_id: tx.service_id,
+      service_name: tx.service_name,
+      price: parseFloat(tx.price) || 0,
+      duration_minutes: parseInt(tx.duration_minutes) || 0,
+    });
+    g.priceSum += parseFloat(tx.price) || 0;
+    g.durationSum += parseInt(tx.duration_minutes) || 0;
+  });
+  return Array.from(map.values());
+};
+
+/**
+ * Appointment-level revenue: billing total when available, else the base sum.
+ */
+const getAppointmentRevenue = (appt) => {
+  if (appt.billing_total_amount != null && appt.billing_total_amount > 0) {
+    return appt.billing_total_amount;
+  }
+  return appt.priceSum || 0;
+};
 
 function Dashboard() {
   const { logout } = useAuth();
@@ -35,7 +100,7 @@ function Dashboard() {
   const [showModal, setShowModal] = useState(false);
   const [feedbacks, setFeedbacks] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
-  
+
   // Appointment status counts - using real data
   const [appointmentStatusCounts, setAppointmentStatusCounts] = useState({
     confirmed: 0,
@@ -43,7 +108,7 @@ function Dashboard() {
     completed: 0,
     cancelled: 0
   });
-  
+
   // Remittance states
   const [remittances, setRemittances] = useState([]);
   const [weeklyRemittanceData, setWeeklyRemittanceData] = useState([]);
@@ -60,10 +125,10 @@ function Dashboard() {
   useEffect(() => {
     const storedToken = getToken();
     setToken(storedToken);
-    
+
     console.log('User from store:', user);
     console.log('Token from storage:', storedToken);
-    
+
     if (!user || !storedToken) {
       navigate('/');
     }
@@ -71,7 +136,7 @@ function Dashboard() {
 
   useEffect(() => {
     const token = localStorage.getItem('token');
-    
+
     if (!token || !user || (user.role !== 'admin' && user.role !== 'owner')) {
       navigate('/');
     }
@@ -83,47 +148,43 @@ function Dashboard() {
       location.pathname === '/dashboard/sales' || 
       location.pathname === '/dashboard/inventoryReports' || 
       location.pathname === '/dashboard/remittances';
-    
+
     if (isTransactionsRoute) {
       setTransactionsOpen(true);
     }
   }, [location.pathname]);
 
-  // Fetch all appointments
+  // ── Fetch all appointments ──
   const fetchAllAppointments = async () => {
     try {
       const response = await api.get('/all-appointments');
-      console.log('All appointments:', response.data);
-      
+      console.log('All appointments (raw):', response.data);
+
       if (Array.isArray(response.data)) {
-        const counts = {
-          confirmed: 0,
-          pending: 0,
-          completed: 0,
-          cancelled: 0
-        };
-        
-        response.data.forEach(app => {
-          if (app.status === 'confirmed') counts.confirmed++;
-          else if (app.status === 'pending') counts.pending++;
-          else if (app.status === 'completed') counts.completed++;
-          else if (app.status === 'cancelled') counts.cancelled++;
+        // ✅ Group by appointment so counts reflect appointments, not transactions
+        const grouped = groupByAppointment(response.data);
+        console.log('Grouped appointments:', grouped);
+
+        // Status counts — per appointment
+        const counts = { confirmed: 0, pending: 0, completed: 0, cancelled: 0 };
+        grouped.forEach(appt => {
+          if (appt.status === 'confirmed') counts.confirmed++;
+          else if (appt.status === 'pending') counts.pending++;
+          else if (appt.status === 'completed') counts.completed++;
+          else if (appt.status === 'cancelled') counts.cancelled++;
         });
-        
         setAppointmentStatusCounts(counts);
-        console.log('Appointment status counts:', counts);
-        
-        const completed = response.data.filter(app => app.status === 'completed');
-        const recentCompleted = completed.slice(0, 5);
-        setRecentCompletedAppointments(recentCompleted);
-        
+
+        // Recent completed — grouped, one per appointment
+        const completed = grouped.filter(a => a.status === 'completed');
+        setRecentCompletedAppointments(completed.slice(0, 5));
+
         setDashboardStats(prev => ({
           ...prev,
-          totalAppointments: response.data.length
+          totalAppointments: grouped.length,   // ✅ real appointment count
         }));
 
-        // Return the data for use in other functions
-        return response.data;
+        return grouped;
       }
     } catch (error) {
       console.error('Error fetching appointments:', error);
@@ -202,7 +263,6 @@ function Dashboard() {
     }
   };
 
-  // Fetch staff list for performance tracking
   const fetchStaffList = async () => {
     try {
       const response = await api.get('/staff-list');
@@ -215,7 +275,6 @@ function Dashboard() {
     }
   };
 
-  // Fetch commissions data
   const fetchCommissions = async () => {
     try {
       const response = await api.get('/employee/commission');
@@ -231,49 +290,51 @@ function Dashboard() {
     }
   };
 
-  // Get commission rate for a specific employee
   const getEmployeeCommissionRate = (employeeId) => {
     const commission = commissionsData.find(c => c.employee_id === employeeId);
     return commission ? parseFloat(commission.commission_amount) : 0;
   };
 
-  // Calculate staff performance
-  const calculateStaffPerformance = (appointments) => {
+  // ── Staff performance — grouped, grand total revenue, per-service commission ──
+  const calculateStaffPerformance = (groupedAppointments) => {
     const staffMap = {};
-    
-    appointments.forEach(app => {
-      const staffId = app.assigned_employee_id;
-      if (staffId) {
-        if (!staffMap[staffId]) {
-          const staff = staffList.find(s => s.id === staffId);
-          const commissionRate = getEmployeeCommissionRate(staffId);
-          staffMap[staffId] = {
-            staff_id: staffId,
-            staff_name: staff?.name || `Staff ${staffId}`,
-            totalRevenue: 0,
-            appointmentCount: 0,
-            totalCommission: 0,
-            commissionRate: commissionRate
-          };
-        }
-        const serviceRevenue = parseFloat(app.price) || 0;
-        staffMap[staffId].totalRevenue += serviceRevenue;
-        staffMap[staffId].appointmentCount += 1;
-        const commissionAmount = serviceRevenue * staffMap[staffId].commissionRate;
-        staffMap[staffId].totalCommission += commissionAmount;
+
+    groupedAppointments.forEach(appt => {
+      const staffId = appt.assigned_employee_id;
+      if (!staffId) return;
+
+      if (!staffMap[staffId]) {
+        const staff = staffList.find(s => s.id === staffId);
+        staffMap[staffId] = {
+          staff_id: staffId,
+          staff_name: staff?.name || `Staff ${staffId}`,
+          totalRevenue: 0,
+          appointmentCount: 0,
+          totalCommission: 0,
+          commissionRate: getEmployeeCommissionRate(staffId),
+        };
       }
+
+      // ✅ Revenue = appointment's grand total (base + adjustments)
+      staffMap[staffId].totalRevenue += getAppointmentRevenue(appt);
+      staffMap[staffId].appointmentCount += 1;   // ✅ one per appointment
+
+      // ✅ Commission stays per-service based on base price
+      const rate = staffMap[staffId].commissionRate;
+      appt.services.forEach(svc => {
+        staffMap[staffId].totalCommission += (svc.price || 0) * rate;
+      });
     });
-    
-    return Object.values(staffMap)
-      .sort((a, b) => b.totalRevenue - a.totalRevenue);
+
+    return Object.values(staffMap).sort((a, b) => b.totalRevenue - a.totalRevenue);
   };
 
-  // Calculate service performance
-  const calculateServicePerformance = (appointments) => {
+  // ── Service performance — operates on flattened { service_name, price } rows ──
+  const calculateServicePerformance = (serviceRows) => {
     const serviceMap = {};
-    
-    appointments.forEach(app => {
-      const serviceName = app.service_name || 'Unknown Service';
+
+    serviceRows.forEach(row => {
+      const serviceName = row.service_name || 'Unknown Service';
       if (!serviceMap[serviceName]) {
         serviceMap[serviceName] = {
           service_name: serviceName,
@@ -281,30 +342,38 @@ function Dashboard() {
           count: 0
         };
       }
-      serviceMap[serviceName].totalRevenue += parseFloat(app.price) || 0;
+      serviceMap[serviceName].totalRevenue += parseFloat(row.price) || 0;
       serviceMap[serviceName].count += 1;
     });
-    
+
     return Object.values(serviceMap)
       .sort((a, b) => b.totalRevenue - a.totalRevenue);
   };
 
-  // Fetch performance data
+  // ── Fetch performance data ──
   const fetchPerformanceData = async () => {
     setIsLoadingPerformance(true);
     try {
       const response = await api.get('/all-appointments');
-      
+
       if (Array.isArray(response.data)) {
-        const completedAppointments = response.data.filter(app => app.status === 'completed');
-        
-        // Calculate staff performance
-        const staffPerf = calculateStaffPerformance(completedAppointments);
-        setStaffPerformance(staffPerf);
-        
-        // Calculate service performance
-        const servicePerf = calculateServicePerformance(completedAppointments);
-        setServicePerformance(servicePerf);
+        const grouped = groupByAppointment(response.data);
+        const completedGrouped = grouped.filter(a => a.status === 'completed');
+
+        // Staff performance — grouped (appointment-level)
+        setStaffPerformance(calculateStaffPerformance(completedGrouped));
+
+        // Service performance — flatten services from the grouped appointments
+        const serviceRows = [];
+        completedGrouped.forEach(appt => {
+          appt.services.forEach(svc => {
+            serviceRows.push({
+              service_name: svc.service_name,
+              price: svc.price,
+            });
+          });
+        });
+        setServicePerformance(calculateServicePerformance(serviceRows));
       }
     } catch (error) {
       console.error('Error fetching performance data:', error);
@@ -313,47 +382,50 @@ function Dashboard() {
     }
   };
 
-  // Fetch most frequent customers
+  // ── Frequent customers — grouped, one visit per appointment, spend = grand total ──
   const fetchFrequentCustomers = async () => {
     try {
       const appointmentsResponse = await api.get('/all-appointments');
       const walkInsResponse = await api.get('/walk-in');
-      
+
       const customerMap = {};
-      
+
       if (Array.isArray(appointmentsResponse.data)) {
-        appointmentsResponse.data.forEach(app => {
-          const customerName = app.customer_name || 'Unknown Customer';
+        const grouped = groupByAppointment(appointmentsResponse.data);
+
+        grouped.forEach(appt => {
+          const customerName = appt.customer_name || 'Unknown Customer';
           const key = customerName;
-          
+
           if (!customerMap[key]) {
             customerMap[key] = {
               name: customerName,
-              email: app.customer_email || 'N/A',
-              phone: app.customer_phone || 'N/A',
+              email: appt.customer_email || 'N/A',
+              phone: appt.customer_phone || 'N/A',
               totalVisits: 0,
               totalSpent: 0,
-              lastVisit: app.appointment_date || null,
+              lastVisit: appt.appointment_date || null,
               type: 'Appointment'
             };
           }
-          
-          customerMap[key].totalVisits += 1;
-          customerMap[key].totalSpent += parseFloat(app.price) || 0;
-          
-          if (app.appointment_date) {
-            if (!customerMap[key].lastVisit || app.appointment_date > customerMap[key].lastVisit) {
-              customerMap[key].lastVisit = app.appointment_date;
+
+          customerMap[key].totalVisits += 1;   // ✅ one per appointment
+          // ✅ Spend uses appointment grand total
+          customerMap[key].totalSpent += getAppointmentRevenue(appt);
+
+          if (appt.appointment_date) {
+            if (!customerMap[key].lastVisit || appt.appointment_date > customerMap[key].lastVisit) {
+              customerMap[key].lastVisit = appt.appointment_date;
             }
           }
         });
       }
-      
+
       if (Array.isArray(walkInsResponse.data)) {
         walkInsResponse.data.forEach(walkIn => {
           const customerName = walkIn.customer_name || 'Walk-in Customer';
           const key = customerName;
-          
+
           if (!customerMap[key]) {
             customerMap[key] = {
               name: customerName,
@@ -365,10 +437,10 @@ function Dashboard() {
               type: 'Walk-in'
             };
           }
-          
+
           customerMap[key].totalVisits += 1;
           customerMap[key].totalSpent += walkIn.amount_paid || 0;
-          
+
           if (walkIn.created_at) {
             const visitDate = walkIn.created_at.split('T')[0];
             if (!customerMap[key].lastVisit || visitDate > customerMap[key].lastVisit) {
@@ -377,11 +449,11 @@ function Dashboard() {
           }
         });
       }
-      
+
       const customersArray = Object.values(customerMap)
         .sort((a, b) => b.totalVisits - a.totalVisits || b.totalSpent - a.totalSpent)
         .slice(0, 5);
-      
+
       setFrequentCustomers(customersArray);
     } catch (error) {
       console.error('Error fetching frequent customers:', error);
@@ -392,7 +464,7 @@ function Dashboard() {
     const days = [];
     const today = new Date();
     const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    
+
     for (let i = 6; i >= 0; i--) {
       const date = new Date(today);
       date.setDate(date.getDate() - i);
@@ -404,7 +476,7 @@ function Dashboard() {
         hasRemittance: false
       });
     }
-    
+
     data.forEach(remittance => {
       const businessDate = remittance.business_schedules?.business_date;
       if (businessDate) {
@@ -415,9 +487,9 @@ function Dashboard() {
         }
       }
     });
-    
+
     setWeeklyRemittanceData(days);
-    
+
     const total = days.reduce((sum, day) => sum + day.amount, 0);
     setTotalWeeklyRemittance(total);
   };
@@ -441,7 +513,7 @@ function Dashboard() {
       ]);
       setIsLoading(false);
     };
-    
+
     fetchAllData();
   }, []);
 
@@ -453,7 +525,7 @@ function Dashboard() {
     }
   }, [staffList, commissionsData]);
 
-  // Check current routes
+  // ── Route checks ──
   const isDashboardRoute = location.pathname === '/dashboard';
   const isAppointmentsRoute = location.pathname === '/dashboard/appointments' || location.pathname === '/dashboard/appointments/list' || location.pathname.startsWith('/dashboard/appointments/');
   const isServicesRoute = location.pathname === '/dashboard/services';
@@ -461,8 +533,7 @@ function Dashboard() {
   const isInventoryRoute = location.pathname === '/dashboard/inventory';
   const isReportsRoute = location.pathname === '/dashboard/reports';
   const isProductsRoute = location.pathname === '/dashboard/products';
-  
-  // Transactions routes
+
   const isSalesRoute = location.pathname === '/dashboard/sales';
   const isInventoryReportsRoute = location.pathname === '/dashboard/inventoryReports';
   const isRemittancesRoute = location.pathname === '/dashboard/remittances';
@@ -479,41 +550,41 @@ function Dashboard() {
 
   const getAppointmentStatusCounts = () => {
     const total = dashboardStats.totalAppointments || 1;
-    
+
     return [
-      { 
-        label: 'Confirmed', 
-        count: appointmentStatusCounts.confirmed, 
-        color: 'bg-green-500', 
-        icon: CheckCircle, 
-        bgColor: 'bg-green-50', 
+      {
+        label: 'Confirmed',
+        count: appointmentStatusCounts.confirmed,
+        color: 'bg-green-500',
+        icon: CheckCircle,
+        bgColor: 'bg-green-50',
         textColor: 'text-green-700',
         percentage: total > 0 ? Math.round((appointmentStatusCounts.confirmed / total) * 100) : 0
       },
-      { 
-        label: 'Pending', 
-        count: appointmentStatusCounts.pending, 
-        color: 'bg-yellow-500', 
-        icon: Clock, 
-        bgColor: 'bg-yellow-50', 
+      {
+        label: 'Pending',
+        count: appointmentStatusCounts.pending,
+        color: 'bg-yellow-500',
+        icon: Clock,
+        bgColor: 'bg-yellow-50',
         textColor: 'text-yellow-700',
         percentage: total > 0 ? Math.round((appointmentStatusCounts.pending / total) * 100) : 0
       },
-      { 
-        label: 'Completed', 
-        count: appointmentStatusCounts.completed, 
-        color: 'bg-blue-500', 
-        icon: CheckCircle, 
-        bgColor: 'bg-blue-50', 
+      {
+        label: 'Completed',
+        count: appointmentStatusCounts.completed,
+        color: 'bg-blue-500',
+        icon: CheckCircle,
+        bgColor: 'bg-blue-50',
         textColor: 'text-blue-700',
         percentage: total > 0 ? Math.round((appointmentStatusCounts.completed / total) * 100) : 0
       },
-      { 
-        label: 'Cancelled', 
-        count: appointmentStatusCounts.cancelled, 
-        color: 'bg-red-500', 
-        icon: XCircle, 
-        bgColor: 'bg-red-50', 
+      {
+        label: 'Cancelled',
+        count: appointmentStatusCounts.cancelled,
+        color: 'bg-red-500',
+        icon: XCircle,
+        bgColor: 'bg-red-50',
         textColor: 'text-red-700',
         percentage: total > 0 ? Math.round((appointmentStatusCounts.cancelled / total) * 100) : 0
       },
@@ -558,7 +629,7 @@ function Dashboard() {
   };
 
   const formatCurrency = (amount) => {
-    return `₱${parseFloat(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    return `₱${parseFloat(amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   };
 
   const handleAppointmentClick = (appointment) => {
@@ -571,11 +642,24 @@ function Dashboard() {
     setSelectedAppointment(null);
   };
 
+  // ── Appointment modal ──
   const AppointmentModal = () => {
     if (!selectedAppointment) return null;
-    
-    const feedback = getFeedbackForAppointment(selectedAppointment.id);
-    
+
+    // The grouped appointment carries `services[]`, `priceSum`, `durationSum`, and billing fields.
+    const services = selectedAppointment.services || [];
+    const grandTotal = selectedAppointment.billing_total_amount
+      ?? selectedAppointment.priceSum
+      ?? 0;
+    const paidAmount = selectedAppointment.billing_paid_amount ?? 0;
+    const balance = selectedAppointment.billing_balance ?? (grandTotal - paidAmount);
+    const serviceNames = services.map(s => s.service_name).join(' + ') || 'N/A';
+    const durationSum = selectedAppointment.durationSum ?? 0;
+
+    // Feedback lookup uses the appointment's id (grouped appointments carry both id and appointment_id)
+    const feedback = getFeedbackForAppointment(selectedAppointment.id)
+      || getFeedbackForAppointment(selectedAppointment.appointment_id);
+
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
         <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl mx-4 overflow-hidden max-h-[85vh] overflow-y-auto scrollbar-hide">
@@ -585,7 +669,7 @@ function Dashboard() {
               <X size={20} />
             </button>
           </div>
-          
+
           <div className="p-5">
             <div className="mb-5">
               <h3 className="text-sm font-semibold text-gray-800 mb-2 flex items-center gap-2">
@@ -604,7 +688,7 @@ function Dashboard() {
                 </p>
               </div>
             </div>
-            
+
             <div className="mb-5">
               <h3 className="text-sm font-semibold text-gray-800 mb-2 flex items-center gap-2">
                 <Calendar size={16} className="text-pink-500" />
@@ -612,8 +696,17 @@ function Dashboard() {
               </h3>
               <div className="bg-gray-50 rounded-lg p-3 space-y-1.5">
                 <p className="text-sm text-gray-700">
-                  <span className="font-medium">Service:</span> {selectedAppointment.service_name || 'N/A'}
+                  <span className="font-medium">Service{services.length > 1 ? 's' : ''}:</span> {serviceNames}
                 </p>
+                {services.length > 1 && (
+                  <div className="pl-3 space-y-0.5">
+                    {services.map((svc, idx) => (
+                      <p key={idx} className="text-xs text-gray-600">
+                        • {svc.service_name} — ₱{svc.price.toLocaleString()} ({svc.duration_minutes} mins)
+                      </p>
+                    ))}
+                  </div>
+                )}
                 <p className="text-sm text-gray-700">
                   <span className="font-medium">Date:</span> {formatDate(selectedAppointment.appointment_date)}
                 </p>
@@ -621,7 +714,7 @@ function Dashboard() {
                   <span className="font-medium">Time:</span> {formatTime(selectedAppointment.appointment_time)}
                 </p>
                 <p className="text-sm text-gray-700">
-                  <span className="font-medium">Duration:</span> {selectedAppointment.duration_minutes} mins
+                  <span className="font-medium">Duration:</span> {durationSum} mins
                 </p>
                 <p className="text-sm text-gray-700">
                   <span className="font-medium">Status:</span>
@@ -629,13 +722,33 @@ function Dashboard() {
                     {selectedAppointment.status}
                   </span>
                 </p>
-                <p className="text-sm text-gray-700">
+              </div>
+            </div>
+
+            {/* Payment info */}
+            <div className="mb-5">
+              <h3 className="text-sm font-semibold text-gray-800 mb-2 flex items-center gap-2">
+                <DollarSign size={16} className="text-pink-500" />
+                Payment
+              </h3>
+              <div className="bg-gray-50 rounded-lg p-3 space-y-1.5">
+                <p className="text-sm text-gray-700 flex justify-between">
                   <span className="font-medium">Total Amount:</span>
-                  <span className="ml-2 text-pink-600 font-bold">₱{parseFloat(selectedAppointment.price || 0).toLocaleString()}</span>
+                  <span className="text-pink-600 font-bold">₱{grandTotal.toLocaleString()}</span>
+                </p>
+                <p className="text-sm text-gray-700 flex justify-between">
+                  <span className="font-medium">Paid:</span>
+                  <span className="text-green-600 font-semibold">₱{paidAmount.toLocaleString()}</span>
+                </p>
+                <p className="text-sm text-gray-700 flex justify-between">
+                  <span className="font-medium">Balance:</span>
+                  <span className={`font-semibold ${balance > 0 ? 'text-orange-600' : 'text-green-600'}`}>
+                    {balance > 0 ? `₱${balance.toLocaleString()}` : 'Paid in Full'}
+                  </span>
                 </p>
               </div>
             </div>
-            
+
             <div className="mb-5">
               <h3 className="text-sm font-semibold text-gray-800 mb-2 flex items-center gap-2">
                 <Star size={16} className="text-yellow-500" />
@@ -668,7 +781,7 @@ function Dashboard() {
                 )}
               </div>
             </div>
-            
+
             <div className="flex justify-end">
               <button
                 onClick={closeModal}
@@ -830,7 +943,7 @@ function Dashboard() {
                 {servicePerformance.slice(0, 5).map((service, index) => {
                   const maxRevenue = servicePerformance[0]?.totalRevenue || 1;
                   const percentage = (service.totalRevenue / maxRevenue) * 100;
-                  
+
                   return (
                     <div key={index} className="space-y-1.5">
                       <div className="flex items-center justify-between">
@@ -916,7 +1029,7 @@ function Dashboard() {
                   const maxRevenue = staffPerformance[0]?.totalRevenue || 1;
                   const percentage = (staff.totalRevenue / maxRevenue) * 100;
                   const initials = staff.staff_name.split(' ').map(n => n[0]).join('').slice(0, 2);
-                  
+
                   return (
                     <div key={index} className="space-y-1.5">
                       <div className="flex items-center justify-between">
@@ -1104,7 +1217,13 @@ function Dashboard() {
                 </tr>
               ) : (
                 recentCompletedAppointments.map((appointment) => {
-                  const feedback = getFeedbackForAppointment(appointment.id);
+                  const feedback = getFeedbackForAppointment(appointment.id)
+                    || getFeedbackForAppointment(appointment.appointment_id);
+                  const serviceNames = (appointment.services || [])
+                    .map(s => s.service_name)
+                    .join(' + ') || 'N/A';
+                  const grandTotal = getAppointmentRevenue(appointment);
+
                   return (
                     <tr 
                       key={appointment.id} 
@@ -1124,7 +1243,9 @@ function Dashboard() {
                       <td className="px-4 py-2.5 whitespace-nowrap">
                         <div className="flex items-center gap-1.5">
                           <Scissors size={11} className="text-gray-400" />
-                          <span className="text-xs text-gray-600">{appointment.service_name}</span>
+                          <span className="text-xs text-gray-600 truncate max-w-[200px]">
+                            {serviceNames}
+                          </span>
                         </div>
                       </td>
                       <td className="px-4 py-2.5 whitespace-nowrap">
@@ -1179,7 +1300,7 @@ function Dashboard() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
       {showModal && <AppointmentModal />}
-      
+
       {sidebarOpen && (
         <div className="fixed inset-0 z-20 bg-black/50 lg:hidden" onClick={() => setSidebarOpen(false)} />
       )}

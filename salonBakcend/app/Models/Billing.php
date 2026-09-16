@@ -14,6 +14,8 @@ class Billing extends Model
         'appointment_id',
         'total_amount',
         'payment_type',
+        'paid_amount',
+        'balance',
     ];
 
     public function appointments()

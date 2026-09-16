@@ -4,7 +4,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from "@/contexts/auth-context";
 import api from '@/api/axios';
 
-// Define types locally
+// ─────────────────────────────────────────────────────────────
+// Types
+// ─────────────────────────────────────────────────────────────
 interface Transaction {
   id: number;
   appointment_id: number;
@@ -51,7 +53,6 @@ interface Appointment {
   appointment_time: string;
   status: string;
   service_status: string;
-  // Grouped fields
   services: Array<{
     service_name: string;
     duration_minutes: number;
@@ -63,8 +64,12 @@ interface Appointment {
   total_duration: number;
   assigned_employee_id?: number;
   stylist_name?: string;
-  stylist_id?: number; // Added for easier access
-  // For backward compatibility
+  stylist_id?: number;
+  // Billing fields from the API
+  billing_total_amount?: number | null;
+  billing_paid_amount?: number | null;
+  billing_balance?: number | null;
+  // Backward compatibility
   service_name?: string;
   duration_minutes?: number;
   price?: string;
@@ -113,7 +118,9 @@ interface CustomerHistoryProps {
   refreshTrigger?: number;
 }
 
-// Separate Feedback Page Component to isolate state
+// ─────────────────────────────────────────────────────────────
+// Feedback Page
+// ─────────────────────────────────────────────────────────────
 const FeedbackPage = ({ 
   appointment, 
   onBack, 
@@ -158,7 +165,11 @@ const FeedbackPage = ({
 
   return (
     <View className="flex-1 bg-gray-50">
-      <View className="bg-gradient-to-r from-pink-500 to-pink-600 px-5 pt-12 pb-4">
+      {/* ✅ Solid pink header (gradient doesn't render on native) */}
+      <View
+        className="px-5 pt-12 pb-4"
+        style={{ backgroundColor: '#ec4899' }}
+      >
         <View className="flex-row items-center justify-between">
           <TouchableOpacity onPress={onBack} className="p-1">
             <Ionicons name="arrow-back" size={24} color="white" />
@@ -190,7 +201,7 @@ const FeedbackPage = ({
           )}
         </View>
 
-        {/* Service Rating Section */}
+        {/* Service Rating */}
         <View className="bg-white rounded-2xl p-6 shadow-sm mb-5">
           <Text className="text-gray-800 text-lg font-semibold text-center mb-2">
             Rate the Service
@@ -198,7 +209,7 @@ const FeedbackPage = ({
           <Text className="text-gray-500 text-sm text-center mb-4">
             How was the overall service quality?
           </Text>
-          
+
           <View className="flex-row justify-center gap-3 mb-2">
             {[1, 2, 3, 4, 5].map((star) => (
               <TouchableOpacity
@@ -219,7 +230,7 @@ const FeedbackPage = ({
           </Text>
         </View>
 
-        {/* Staff Rating Section */}
+        {/* Staff Rating */}
         <View className="bg-white rounded-2xl p-6 shadow-sm mb-5">
           <Text className="text-gray-800 text-lg font-semibold text-center mb-2">
             Rate the Stylist
@@ -227,7 +238,7 @@ const FeedbackPage = ({
           <Text className="text-gray-500 text-sm text-center mb-4">
             How was your experience with {appointment.stylist_name || 'the stylist'}?
           </Text>
-          
+
           <View className="flex-row justify-center gap-3 mb-2">
             {[1, 2, 3, 4, 5].map((star) => (
               <TouchableOpacity
@@ -248,7 +259,7 @@ const FeedbackPage = ({
           </Text>
         </View>
 
-        {/* Comment Section */}
+        {/* Comment */}
         <View className="bg-white rounded-2xl p-6 shadow-sm mb-5">
           <View className="border-t border-gray-100 pt-4">
             <Text className="text-gray-700 text-sm font-semibold mb-3">
@@ -266,6 +277,7 @@ const FeedbackPage = ({
           </View>
         </View>
 
+        {/* ✅ Buttons with solid backgrounds (no gradient on native) */}
         <View className="flex-row gap-3 mb-5">
           <TouchableOpacity
             onPress={onBack}
@@ -276,7 +288,8 @@ const FeedbackPage = ({
           <TouchableOpacity
             onPress={handleSubmit}
             disabled={isSubmitting}
-            className="flex-1 py-3 rounded-xl bg-gradient-to-r from-pink-500 to-pink-600"
+            className="flex-1 py-3 rounded-xl"
+            style={{ backgroundColor: isSubmitting ? '#f9a8d4' : '#ec4899' }}
           >
             <Text className="text-white text-center font-semibold">
               {isSubmitting ? 'Submitting...' : 'Submit Feedback'}
@@ -288,37 +301,34 @@ const FeedbackPage = ({
   );
 };
 
+// ─────────────────────────────────────────────────────────────
+// Main History Tab
+// ─────────────────────────────────────────────────────────────
 export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger }: CustomerHistoryProps) {
   const [showFeedbackPage, setShowFeedbackPage] = useState(false);
   const [selectedAppointmentForFeedback, setSelectedAppointmentForFeedback] = useState<any>(null);
   const [refreshing, setRefreshing] = useState(false);
-  
-  // Local state for data
+
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
   const [staffFeedbacks, setStaffFeedbacks] = useState<StaffFeedback[]>([]);
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  
-  const { 
-    user
-  } = useAuth();
 
-  // Fetch user appointments
+  const { user } = useAuth();
+
+  // ── Fetch user appointments ──
   const fetchUserAppointments = async () => {
     try {
       const response = await api.get("/appointments");
       console.log("Raw appointments response:", response.data);
-      
+
       let transactionsData: any[] = [];
       if (Array.isArray(response.data)) {
         transactionsData = response.data;
       }
-      
-      console.log("Processed transactions:", transactionsData);
-      
-      // Group transactions by appointment_id
+
       const appointmentMap = new Map<number, {
         id: number;
         customer_id: number;
@@ -333,13 +343,16 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
         }>;
         assigned_employee_id?: number;
         stylist_name?: string;
+        // ✅ Billing fields
+        billing_total_amount?: number | null;
+        billing_paid_amount?: number | null;
+        billing_balance?: number | null;
       }>();
-      
+
       transactionsData.forEach((item: any) => {
         const appointmentId = item.id;
-        
+
         if (!appointmentMap.has(appointmentId)) {
-          // Create a new appointment entry
           appointmentMap.set(appointmentId, {
             id: appointmentId,
             customer_id: item.customer_id,
@@ -348,11 +361,14 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
             status: item.status,
             services: [],
             assigned_employee_id: item.assigned_employee_id,
-            stylist_name: item.stylist_name
+            stylist_name: item.stylist_name,
+            // ✅ Carry billing fields through
+            billing_total_amount: item.billing_total_amount ?? null,
+            billing_paid_amount: item.billing_paid_amount ?? null,
+            billing_balance: item.billing_balance ?? null,
           });
         }
-        
-        // Add the service to the appointment
+
         const appointment = appointmentMap.get(appointmentId)!;
         appointment.services.push({
           service_name: item.service_name || 'Unknown Service',
@@ -361,21 +377,23 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
           service_status: item.service_status || 'pending'
         });
       });
-      
-      // Convert the map to an array of appointments
+
       const groupedAppointments: Appointment[] = Array.from(appointmentMap.values()).map((appointment) => {
         const serviceNames = appointment.services.map(s => s.service_name);
-        const totalPrice = appointment.services.reduce((sum, s) => sum + parseFloat(s.price || '0'), 0);
         const totalDuration = appointment.services.reduce((sum, s) => sum + s.duration_minutes, 0);
-        
-        // Determine overall service status
+        const basePriceSum = appointment.services.reduce((sum, s) => sum + parseFloat(s.price || '0'), 0);
+
+        // ✅ Prefer the grand total (base + adjustments) from billing
+        const totalPrice = (appointment.billing_total_amount != null && appointment.billing_total_amount > 0)
+          ? appointment.billing_total_amount
+          : basePriceSum;
+
         const overallStatus = appointment.services.some(s => s.service_status === 'pending') 
           ? 'pending' 
           : appointment.services.every(s => s.service_status === 'completed') 
             ? 'completed' 
             : 'in_progress';
-        
-        // Get stylist name from staff list if available
+
         let stylistName = appointment.stylist_name;
         if (!stylistName && appointment.assigned_employee_id) {
           const staffMember = staff.find(s => s.id === appointment.assigned_employee_id);
@@ -383,7 +401,7 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
             stylistName = `${staffMember.first_name} ${staffMember.last_name}`;
           }
         }
-        
+
         return {
           id: appointment.id,
           customer_id: appointment.customer_id,
@@ -397,15 +415,18 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
           assigned_employee_id: appointment.assigned_employee_id,
           stylist_name: stylistName || 'Not assigned',
           stylist_id: appointment.assigned_employee_id,
-          // For backward compatibility
+          // ✅ Billing fields passed through
+          billing_total_amount: appointment.billing_total_amount ?? totalPrice,
+          billing_paid_amount: appointment.billing_paid_amount ?? 0,
+          billing_balance: appointment.billing_balance ?? (totalPrice / 2),
+          // Backward compatibility
           service_name: serviceNames.join(' + '),
           duration_minutes: totalDuration,
           price: totalPrice.toString(),
           service_status: overallStatus
         };
       });
-      
-      console.log("Grouped appointments:", groupedAppointments);
+
       setAppointments(groupedAppointments);
       return groupedAppointments;
     } catch (error) {
@@ -414,12 +435,9 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
     }
   };
 
-  // Fetch user transactions
   const fetchUserTransactions = async () => {
     try {
       const response = await api.get("/transactions");
-      console.log("Raw transactions response:", response.data);
-      
       let transactionsData: Transaction[] = [];
       if (Array.isArray(response.data)) {
         transactionsData = response.data.map((item: any) => ({
@@ -439,8 +457,6 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
           assigned_employee: item.assigned_employee
         }));
       }
-      
-      console.log("Processed transactions data:", transactionsData);
       setTransactions(transactionsData);
       return transactionsData;
     } catch (error) {
@@ -449,17 +465,13 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
     }
   };
 
-  // Fetch feedbacks
   const fetchFeedbacks = async () => {
     try {
       const response = await api.get("/feedbacks");
-      console.log("Fetched feedbacks:", response.data);
-      
       let feedbacksData: Feedback[] = [];
       if (Array.isArray(response.data)) {
         feedbacksData = response.data;
       }
-      
       setFeedbacks(feedbacksData);
       return feedbacksData;
     } catch (error) {
@@ -468,12 +480,9 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
     }
   };
 
-  // Fetch staff feedbacks
   const fetchStaffFeedbacks = async () => {
     try {
       const response = await api.get("/feedbacks/staff");
-      console.log("Raw staff feedbacks response:", response.data);
-      
       let staffFeedbacksData: StaffFeedback[] = [];
       if (Array.isArray(response.data)) {
         staffFeedbacksData = response.data.map((item: any) => ({
@@ -482,8 +491,6 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
           rating: parseFloat(item.rating) || 0
         }));
       }
-      
-      console.log("Processed staff feedbacks:", staffFeedbacksData);
       setStaffFeedbacks(staffFeedbacksData);
       return staffFeedbacksData;
     } catch (error) {
@@ -492,17 +499,13 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
     }
   };
 
-  // Fetch staff
   const fetchStaff = async () => {
     try {
       const response = await api.get("/employee/specialties");
-      console.log("Fetched staff with specialties:", response.data);
-      
       let staffData: StaffMember[] = [];
       if (Array.isArray(response.data)) {
         staffData = response.data;
       }
-      
       setStaff(staffData);
       return staffData;
     } catch (error) {
@@ -511,7 +514,6 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
     }
   };
 
-  // Submit feedback
   const submitFeedback = async (data: { appointment_id: number; customer_id: number; rating: number; comments: string }) => {
     try {
       const response = await api.post("/feedbacks/submit", {
@@ -520,7 +522,6 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
         rating: data.rating,
         comments: data.comments
       });
-      console.log("Feedback submitted:", response.data);
       return response.data;
     } catch (error) {
       console.log("Error submitting feedback:", error);
@@ -528,7 +529,6 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
     }
   };
 
-  // Submit staff feedback
   const submitStaffFeedback = async (data: { staff_id: number; customer_id: number; rating: number; comments: string }) => {
     try {
       const response = await api.post("/feedbacks/staff/submit", {
@@ -537,7 +537,6 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
         rating: data.rating,
         comments: data.comments
       });
-      console.log("Staff feedback submitted:", response.data);
       return response.data;
     } catch (error) {
       console.log("Error submitting staff feedback:", error);
@@ -545,14 +544,12 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
     }
   };
 
-  // Format date helper
   const formatDate = (date: string) => {
     if (!date) return '';
     const d = new Date(date);
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   };
 
-  // Get status color for appointment status
   const getStatusColor = (status: string) => {
     switch(status) {
       case 'confirmed': return 'bg-green-100 text-green-700';
@@ -563,13 +560,10 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
     }
   };
 
-  // Check if an appointment has feedback
   const hasFeedback = (appointmentId: number) => {
-    const feedbacksForAppointment = feedbacks.filter(f => f.appointment_id === appointmentId);
-    return feedbacksForAppointment.length > 0;
+    return feedbacks.filter(f => f.appointment_id === appointmentId).length > 0;
   };
 
-  // Get feedback rating for an appointment
   const getFeedbackRating = (appointmentId: number) => {
     const feedbacksForAppointment = feedbacks.filter(f => f.appointment_id === appointmentId);
     if (feedbacksForAppointment.length > 0) {
@@ -578,27 +572,20 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
     return null;
   };
 
-  // Get staff name by ID
   const getStaffName = (staffId: number) => {
     if (!staffId) return null;
     const staffMember = staff.find(s => s.id === staffId);
     return staffMember ? `${staffMember.first_name} ${staffMember.last_name}` : null;
   };
 
-  // Get stylist name for an appointment
   const getStylistNameForAppointment = (appointment: Appointment) => {
-    // First check if the appointment already has a stylist name
     if (appointment.stylist_name && appointment.stylist_name !== 'Not assigned') {
       return appointment.stylist_name;
     }
-    
-    // Check if there's an assigned employee ID
     if (appointment.assigned_employee_id) {
       const name = getStaffName(appointment.assigned_employee_id);
       if (name) return name;
     }
-    
-    // If we have transactions, try to get from there
     if (transactions.length > 0) {
       const transaction = transactions.find(t => t.appointment_id === appointment.id);
       if (transaction?.assigned_employee) {
@@ -609,18 +596,14 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
         if (name) return name;
       }
     }
-    
     return 'Not assigned';
   };
 
-  // Get stylist ID for an appointment
   const getStylistIdForAppointment = (appointmentId: number) => {
     const appointment = appointments.find(a => a.id === appointmentId);
     if (appointment && appointment.assigned_employee_id) {
       return appointment.assigned_employee_id;
     }
-    
-    // Try to get from transactions
     const transaction = transactions.find(t => t.appointment_id === appointmentId);
     if (transaction?.assigned_employee_id) {
       return transaction.assigned_employee_id;
@@ -628,18 +611,17 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
     return null;
   };
 
-  // Handle opening feedback page
   const handleOpenFeedbackPage = (appointment: Appointment) => {
     const stylistName = getStylistNameForAppointment(appointment);
     const stylistId = getStylistIdForAppointment(appointment.id);
-    
+
     const enrichedAppointment = {
       ...appointment,
       stylist_name: stylistName,
       stylist_id: stylistId,
       assigned_employee_id: stylistId
     };
-    
+
     if (onOpenFeedbackPage) {
       onOpenFeedbackPage(enrichedAppointment);
     } else {
@@ -648,22 +630,19 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
     }
   };
 
-  // Handle closing feedback page
   const handleCloseFeedbackPage = () => {
     setShowFeedbackPage(false);
     setSelectedAppointmentForFeedback(null);
   };
 
-  // Handle submitting feedback
   const handleSubmitFeedback = async (serviceRating: number, staffRating: number, comment: string) => {
     const customerId = user?.id;
-    
+
     if (!customerId || customerId === 0) {
       Alert.alert("Error", "Please log in again to submit feedback.");
       throw new Error("No customer ID");
     }
 
-    // Submit service feedback
     await submitFeedback({
       appointment_id: selectedAppointmentForFeedback.id,
       customer_id: customerId,
@@ -671,7 +650,6 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
       comments: comment
     });
 
-    // Submit staff feedback if staff is assigned
     if (selectedAppointmentForFeedback.stylist_id || selectedAppointmentForFeedback.assigned_employee_id) {
       const staffId = selectedAppointmentForFeedback.stylist_id || selectedAppointmentForFeedback.assigned_employee_id;
       await submitStaffFeedback({
@@ -683,7 +661,7 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
     } else {
       Alert.alert("Warning", "No stylist was assigned to this appointment. Staff feedback was not submitted.");
     }
-    
+
     Alert.alert("Thank You!", "Your feedback has been submitted successfully.");
     await Promise.all([
       fetchUserAppointments(),
@@ -693,7 +671,6 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
     ]);
   };
 
-  // Handle refresh
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await Promise.all([
@@ -706,7 +683,6 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
     setRefreshing(false);
   }, []);
 
-  // Fetch data on mount
   useEffect(() => {
     setIsLoading(true);
     Promise.all([
@@ -718,7 +694,6 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
     ]).finally(() => setIsLoading(false));
   }, []);
 
-  // Refresh when trigger changes
   useEffect(() => {
     if (refreshTrigger) {
       Promise.all([
@@ -731,7 +706,6 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
     }
   }, [refreshTrigger]);
 
-  // Render stars for rating display
   const renderStars = (rating: number) => {
     const stars = [];
     for (let i = 0; i < 5; i++) {
@@ -747,12 +721,10 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
     return stars;
   };
 
-  // Filter appointments to show only completed and cancelled
   const filteredAppointments = appointments.filter(
     (item) => item.status === 'completed' || item.status === 'cancelled'
   );
 
-  // Main History Tab Content
   if (showFeedbackPage && selectedAppointmentForFeedback) {
     return (
       <FeedbackPage 
@@ -774,7 +746,7 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
       <View className="px-5 pt-6">
         <Text className="text-3xl font-bold text-gray-800 mb-2">History</Text>
         <Text className="text-gray-500 mb-6">Your completed and cancelled appointments</Text>
-        
+
         {isLoading ? (
           <View className="py-10">
             <Text className="text-center text-gray-500">Loading history...</Text>
@@ -792,11 +764,15 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
             const isMultipleServices = item.services && item.services.length > 1;
             const services = item.services || [];
             const serviceNames = item.service_names || ['No Service'];
-            
-            // Get stylist name for this appointment
+
             const stylistName = getStylistNameForAppointment(item);
             const stylistId = getStylistIdForAppointment(item.id);
-            
+
+            // ✅ Grand total (base + adjustments) — this is what we now display
+            const grandTotal = item.billing_total_amount ?? item.total_price ?? 0;
+            const paidAmount = item.billing_paid_amount ?? 0;
+            const balance = item.billing_balance ?? (grandTotal - paidAmount);
+
             return (
               <View key={item.id} className="bg-white rounded-2xl p-4 mb-3 shadow-sm">
                 <View className="flex-row justify-between items-start">
@@ -813,21 +789,20 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
                         </View>
                       )}
                     </View>
-                    
-                    {/* Service Details */}
+
                     {isMultipleServices && services.length > 0 && (
                       <View className="mt-1">
                         {services.map((service, index) => (
                           <View key={index} className="flex-row items-center mt-0.5">
                             <View className="w-1.5 h-1.5 bg-pink-400 rounded-full mr-2" />
                             <Text className="text-gray-500 text-xs">
-                              {service.service_name} ({service.duration_minutes} mins) - ₱{parseFloat(service.price).toLocaleString()}
+                              {service.service_name} ({service.duration_minutes} mins)
                             </Text>
                           </View>
                         ))}
                       </View>
                     )}
-                    
+
                     <View className="flex-row items-center mt-1">
                       <Ionicons name="calendar-outline" size={12} color="#9ca3af" />
                       <Text className="text-gray-400 text-xs ml-1">{formatDate(item.appointment_date)}</Text>
@@ -836,54 +811,51 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
                       <Ionicons name="time-outline" size={12} color="#9ca3af" />
                       <Text className="text-gray-400 text-xs ml-1">{item.appointment_time}</Text>
                     </View>
-                    
-                    {/* Stylist Name - Always displayed with a person icon */}
+
                     <View className="flex-row items-center mt-1">
                       <Ionicons name="person-outline" size={12} color="#9ca3af" />
                       <Text className="text-gray-400 text-xs ml-1">
                         Stylist: <Text className="font-medium text-gray-600">{stylistName}</Text>
                       </Text>
                     </View>
-                    
+
                     {isMultipleServices && (
                       <View className="flex-row items-center mt-1">
                         <Ionicons name="hourglass-outline" size={12} color="#9ca3af" />
                         <Text className="text-gray-400 text-xs ml-1">Total: {item.total_duration} mins</Text>
                       </View>
                     )}
-                    
-                    {/* Show total price for multiple services */}
-                    {isMultipleServices && (
+
+                    {/* ✅ Show grand total (base + adjustments) */}
+                    <View className="flex-row items-center mt-1">
+                      <Ionicons name="cash-outline" size={12} color="#9ca3af" />
+                      <Text className="text-gray-400 text-xs ml-1">
+                        Total: ₱{grandTotal.toLocaleString()}
+                      </Text>
+                    </View>
+
+                    {balance > 0 && (
                       <View className="flex-row items-center mt-1">
-                        <Ionicons name="cash-outline" size={12} color="#9ca3af" />
-                        <Text className="text-gray-400 text-xs ml-1">Total: ₱{item.total_price.toLocaleString()}</Text>
+                        <Ionicons name="alert-circle-outline" size={12} color="#f59e0b" />
+                        <Text className="text-orange-500 text-xs ml-1">
+                          Balance: ₱{balance.toLocaleString()}
+                        </Text>
                       </View>
                     )}
                   </View>
-                  {!isMultipleServices && (
-                    <Text className="text-pink-500 font-semibold">
-                      ₱{parseFloat(item.price || '0').toLocaleString()}
-                    </Text>
-                  )}
+
+                  {/* ✅ Right-side amount uses the grand total, not per-service base price */}
+                  <Text className="text-pink-500 font-semibold">
+                    ₱{grandTotal.toLocaleString()}
+                  </Text>
                 </View>
-                
+
                 <View className="flex-row items-center justify-between mt-3 pt-2 border-t border-gray-100">
                   <View className={`px-2 py-0.5 rounded-full self-start ${getStatusColor(item.status)}`}>
                     <Text className="text-xs font-semibold capitalize">{item.status}</Text>
                   </View>
-                  
-                  {/* Rate Button - Only show for completed appointments without feedback */}
-                  {isCompleted && !hasGivenFeedback && stylistId && stylistName !== 'Not assigned' && (
-                    <TouchableOpacity 
-                      onPress={() => handleOpenFeedbackPage(item)}
-                      className="flex-row items-center gap-1 px-3 py-1.5 bg-yellow-50 rounded-full"
-                    >
-                      <Ionicons name="star-outline" size={14} color="#eab308" />
-                      <Text className="text-xs font-semibold text-yellow-600">Rate</Text>
-                    </TouchableOpacity>
-                  )}
-                  
-                  {/* Rate Button - Show even without stylist but with a warning */}
+
+                  {/* Rate — no stylist assigned */}
                   {isCompleted && !hasGivenFeedback && (!stylistId || stylistName === 'Not assigned') && (
                     <TouchableOpacity 
                       onPress={() => {
@@ -895,7 +867,6 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
                             { 
                               text: "Continue", 
                               onPress: () => {
-                                // Create a version with no stylist
                                 const appointmentWithoutStylist = {
                                   ...item,
                                   stylist_name: 'Not assigned',
@@ -915,13 +886,26 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
                       <Text className="text-xs font-semibold text-yellow-600">Rate Service</Text>
                     </TouchableOpacity>
                   )}
-                  
-                  {/* Already Rated Badge */}
+
+                  {/* Rate — stylist assigned */}
+                  {isCompleted && !hasGivenFeedback && stylistId && stylistName !== 'Not assigned' && (
+                    <TouchableOpacity 
+                      onPress={() => handleOpenFeedbackPage(item)}
+                      className="flex-row items-center gap-1 px-3 py-1.5 bg-yellow-50 rounded-full"
+                    >
+                      <Ionicons name="star-outline" size={14} color="#eab308" />
+                      <Text className="text-xs font-semibold text-yellow-600">Rate</Text>
+                    </TouchableOpacity>
+                  )}
+
+                  {/* ✅ Already-rated badge — ONLY yellow stars, no green star */}
                   {isCompleted && hasGivenFeedback && (
                     <View className="flex-row items-center gap-1 px-3 py-1.5 bg-green-50 rounded-full">
-                      <Ionicons name="star" size={14} color="#10b981" />
-                      <Text className="text-xs font-semibold text-green-600">
-                        {renderStars(existingRating || 0)} {existingRating}/5
+                      <View className="flex-row items-center gap-0.5">
+                        {renderStars(existingRating || 0)}
+                      </View>
+                      <Text className="text-xs font-semibold text-green-600 ml-1">
+                        {Math.round(Number(existingRating) || 0)}/5
                       </Text>
                     </View>
                   )}

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { View, Text, TouchableOpacity, ScrollView, Alert, TextInput, Image, ActivityIndicator } from "react-native";
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from "@/contexts/auth-context";
@@ -9,7 +9,24 @@ interface CustomerSettingsProps {
   onLogout?: () => void;
 }
 
-// Change Password Component (Inside Profile)
+// ─────────────────────────────────────────────────────────────
+// Image URL helper
+// ─────────────────────────────────────────────────────────────
+const BASE_URL = 'http://192.168.100.73:8000';
+
+const getImageUrl = (imagePath: string | null | undefined): string | null => {
+  if (!imagePath) return null;
+  // Already a full URL
+  if (imagePath.startsWith('http')) return imagePath;
+  // Path already includes /storage/
+  if (imagePath.startsWith('/storage/')) return `${BASE_URL}${imagePath}`;
+  // Path is just "users/xxx.jpg" — prepend /storage/
+  return `${BASE_URL}/storage/${imagePath}`;
+};
+
+// ─────────────────────────────────────────────────────────────
+// Change Password Section
+// ─────────────────────────────────────────────────────────────
 const ChangePasswordSection = ({ onBack }: { onBack: () => void }) => {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -34,7 +51,6 @@ const ChangePasswordSection = ({ onBack }: { onBack: () => void }) => {
 
     setIsUpdatingPassword(true);
     try {
-      // Use the direct API call with the correct payload structure
       const response = await api.post(`/user/${user?.id}/password`, {
         password: password,
         password_confirmation: confirmPassword
@@ -53,7 +69,7 @@ const ChangePasswordSection = ({ onBack }: { onBack: () => void }) => {
 
   return (
     <View className="flex-1 bg-gray-50">
-      <View className="bg-gradient-to-r from-pink-500 to-pink-600 px-5 pt-12 pb-4">
+      <View className="px-5 pt-12 pb-4" style={{ backgroundColor: '#ec4899' }}>
         <View className="flex-row items-center justify-between">
           <TouchableOpacity onPress={onBack} className="p-1">
             <Ionicons name="arrow-back" size={24} color="white" />
@@ -135,7 +151,12 @@ const ChangePasswordSection = ({ onBack }: { onBack: () => void }) => {
           <TouchableOpacity
             onPress={handleUpdatePassword}
             disabled={isUpdatingPassword || !password || !confirmPassword || password !== confirmPassword || password.length < 6}
-            className="flex-1 py-3 rounded-xl bg-gradient-to-r from-pink-500 to-pink-600"
+            className="flex-1 py-3 rounded-xl"
+            style={{
+              backgroundColor: (isUpdatingPassword || !password || !confirmPassword || password !== confirmPassword || password.length < 6)
+                ? '#f9a8d4'
+                : '#ec4899'
+            }}
           >
             <Text className="text-white text-center font-semibold">
               {isUpdatingPassword ? 'Updating...' : 'Update Password'}
@@ -147,7 +168,9 @@ const ChangePasswordSection = ({ onBack }: { onBack: () => void }) => {
   );
 };
 
-// Update Phone Number Component (Inside Profile)
+// ─────────────────────────────────────────────────────────────
+// Update Phone Section
+// ─────────────────────────────────────────────────────────────
 const UpdatePhoneSection = ({ onBack, currentPhone }: { onBack: () => void, currentPhone: string }) => {
   const [phoneNumber, setPhoneNumber] = useState(currentPhone || '');
   const [isUpdatingPhone, setIsUpdatingPhone] = useState(false);
@@ -183,7 +206,7 @@ const UpdatePhoneSection = ({ onBack, currentPhone }: { onBack: () => void, curr
 
   return (
     <View className="flex-1 bg-gray-50">
-      <View className="bg-gradient-to-r from-pink-500 to-pink-600 px-5 pt-12 pb-4">
+      <View className="px-5 pt-12 pb-4" style={{ backgroundColor: '#ec4899' }}>
         <View className="flex-row items-center justify-between">
           <TouchableOpacity onPress={onBack} className="p-1">
             <Ionicons name="arrow-back" size={24} color="white" />
@@ -234,7 +257,10 @@ const UpdatePhoneSection = ({ onBack, currentPhone }: { onBack: () => void, curr
           <TouchableOpacity
             onPress={handleUpdatePhone}
             disabled={isUpdatingPhone || !phoneNumber.trim()}
-            className="flex-1 py-3 rounded-xl bg-gradient-to-r from-pink-500 to-pink-600"
+            className="flex-1 py-3 rounded-xl"
+            style={{
+              backgroundColor: (isUpdatingPhone || !phoneNumber.trim()) ? '#f9a8d4' : '#ec4899'
+            }}
           >
             <Text className="text-white text-center font-semibold">
               {isUpdatingPhone ? 'Updating...' : 'Update Phone Number'}
@@ -246,19 +272,47 @@ const UpdatePhoneSection = ({ onBack, currentPhone }: { onBack: () => void, curr
   );
 };
 
-// Main Profile Component (Contains all settings)
-const ProfilePage = ({ onBack }: { onBack: () => void }) => {
+// ─────────────────────────────────────────────────────────────
+// Profile Page
+// ─────────────────────────────────────────────────────────────
+const ProfilePage = ({
+  onBack,
+  profileImage,
+  onProfileImageUpdated,
+}: {
+  onBack: () => void;
+  profileImage: string | null;
+  onProfileImageUpdated: (newPath: string) => void;
+}) => {
   const { user } = useAuth();
-  const [profileImage, setProfileImage] = useState<string | null>(user?.profile_image || null);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [showUpdatePhone, setShowUpdatePhone] = useState(false);
 
-  const getImageUrl = (imagePath: string | null) => {
-    if (!imagePath) return null;
-    if (imagePath.startsWith('http')) return imagePath;
-    return `http://192.168.100.73:8000/storage/${imagePath}`;
-  };
+  // ✅ Resolve the current user id once, with a fallback to /user if the auth
+  //    context hasn't hydrated yet.
+  const [resolvedUserId, setResolvedUserId] = useState<number | null>(user?.id ?? null);
+
+  useEffect(() => {
+    if (user?.id) {
+      setResolvedUserId(user.id);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.get('/user');
+        if (!cancelled && res.data?.id) {
+          setResolvedUserId(res.data.id);
+        }
+      } catch (e) {
+        console.log('Failed to resolve user id:', e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
 
   const pickDocument = async () => {
     try {
@@ -282,6 +336,16 @@ const ProfilePage = ({ onBack }: { onBack: () => void }) => {
   };
 
   const uploadProfileImage = async (uri: string, fileName: string, mimeType: string) => {
+    const userId = resolvedUserId ?? user?.id;
+
+    if (!userId) {
+      Alert.alert(
+        'Not Logged In',
+        'We could not determine your account. Please log out and log in again.'
+      );
+      return;
+    }
+
     setIsUploadingImage(true);
     try {
       const formData = new FormData();
@@ -291,19 +355,32 @@ const ProfilePage = ({ onBack }: { onBack: () => void }) => {
         type: mimeType,
       } as any);
 
-      console.log('Uploading profile image...');
-      const response = await api.post(`/profile/add`, formData, {
+      console.log('Uploading profile image for user:', userId);
+
+      const response = await api.post(`/profile/add/${userId}`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
       });
 
-      console.log('Profile image uploaded:', response.data);
-      
-      // Get the user data again to refresh the profile image
-      const userResponse = await api.get('/user');
-      if (userResponse.data) {
-        setProfileImage(userResponse.data.profile_image);
+      console.log('Profile image upload response:', response.data);
+
+      // ✅ Trust the response first — the controller returns the new path
+      let newPath: string | null = response.data?.profile_image ?? null;
+
+      // ✅ Then re-fetch /user to be sure (in case the response shape changes)
+      try {
+        const userResponse = await api.get('/user');
+        if (userResponse.data?.profile_image) {
+          newPath = userResponse.data.profile_image;
+        }
+      } catch (e) {
+        console.log('Failed to re-fetch user after upload:', e);
+      }
+
+      if (newPath) {
+        // ✅ Propagate the new path to the parent so it can re-render
+        onProfileImageUpdated(newPath);
       }
 
       Alert.alert('Success', 'Profile picture updated successfully!');
@@ -315,22 +392,20 @@ const ProfilePage = ({ onBack }: { onBack: () => void }) => {
     }
   };
 
+  // Build the display URL from the parent-managed path (which we just updated)
   const displayImage = getImageUrl(profileImage);
 
-  // If showing change password sub-page
   if (showChangePassword) {
     return <ChangePasswordSection onBack={() => setShowChangePassword(false)} />;
   }
 
-  // If showing update phone sub-page
   if (showUpdatePhone) {
     return <UpdatePhoneSection onBack={() => setShowUpdatePhone(false)} currentPhone={user?.phone_number || ''} />;
   }
 
-  // Main Profile Page
   return (
     <View className="flex-1 bg-gray-50">
-      <View className="bg-gradient-to-r from-pink-500 to-pink-600 px-5 pt-12 pb-4">
+      <View className="px-5 pt-12 pb-4" style={{ backgroundColor: '#ec4899' }}>
         <View className="flex-row items-center">
           <TouchableOpacity onPress={onBack} className="p-1 mr-3">
             <Ionicons name="arrow-back" size={24} color="white" />
@@ -340,15 +415,12 @@ const ProfilePage = ({ onBack }: { onBack: () => void }) => {
       </View>
 
       <ScrollView className="flex-1 p-5">
-        {/* Profile Card with Image */}
+        {/* Profile Card */}
         <View className="bg-white rounded-2xl p-6 items-center shadow-sm mb-5">
-          <TouchableOpacity
-            onPress={pickDocument}
-            className="mb-4"
-          >
+          <TouchableOpacity onPress={pickDocument} className="mb-4">
             {displayImage ? (
-              <Image 
-                source={{ uri: displayImage }} 
+              <Image
+                source={{ uri: displayImage }}
                 className="w-24 h-24 rounded-full border-4 border-pink-200"
                 resizeMode="cover"
               />
@@ -377,7 +449,7 @@ const ProfilePage = ({ onBack }: { onBack: () => void }) => {
 
         {/* Settings Options */}
         <View className="bg-white rounded-2xl overflow-hidden shadow-sm">
-          <TouchableOpacity 
+          <TouchableOpacity
             className="flex-row items-center px-5 py-4 border-b border-gray-100"
             onPress={pickDocument}
           >
@@ -386,7 +458,7 @@ const ProfilePage = ({ onBack }: { onBack: () => void }) => {
             <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
           </TouchableOpacity>
 
-          <TouchableOpacity 
+          <TouchableOpacity
             className="flex-row items-center px-5 py-4 border-b border-gray-100"
             onPress={() => setShowUpdatePhone(true)}
           >
@@ -395,7 +467,7 @@ const ProfilePage = ({ onBack }: { onBack: () => void }) => {
             <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
           </TouchableOpacity>
 
-          <TouchableOpacity 
+          <TouchableOpacity
             className="flex-row items-center px-5 py-4"
             onPress={() => setShowChangePassword(true)}
           >
@@ -409,11 +481,39 @@ const ProfilePage = ({ onBack }: { onBack: () => void }) => {
   );
 };
 
+// ─────────────────────────────────────────────────────────────
+// Main Settings Tab
+// ─────────────────────────────────────────────────────────────
 export default function CustomerSettingsTab({ onLogout }: CustomerSettingsProps) {
   const [showProfilePage, setShowProfilePage] = useState(false);
   const { user, logout } = useAuth();
 
-  // Handle logout
+  // ✅ Shared profile image state — both the Settings card and the Profile page read from here
+  const [profileImage, setProfileImage] = useState<string | null>(user?.profile_image ?? null);
+
+  // Keep the shared state in sync when the auth context hydrates
+  useEffect(() => {
+    if (user?.profile_image && user.profile_image !== profileImage) {
+      setProfileImage(user.profile_image);
+    }
+  }, [user?.profile_image]);
+
+  // On mount, fetch the freshest user data so we don't show a stale image
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.get('/user');
+        if (!cancelled && res.data?.profile_image) {
+          setProfileImage(res.data.profile_image);
+        }
+      } catch (e) {
+        console.log('Failed to fetch user on mount:', e);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   const handleLogout = async () => {
     try {
       await logout();
@@ -425,7 +525,6 @@ export default function CustomerSettingsTab({ onLogout }: CustomerSettingsProps)
     }
   };
 
-  // Handle open profile page
   const handleOpenProfilePage = () => {
     setShowProfilePage(true);
   };
@@ -434,38 +533,60 @@ export default function CustomerSettingsTab({ onLogout }: CustomerSettingsProps)
     setShowProfilePage(false);
   };
 
-  // If showing profile page
+  const handleProfileImageUpdated = (newPath: string) => {
+    // ✅ Update the shared state — both the Profile page and the main card will re-render
+    setProfileImage(newPath);
+  };
+
   if (showProfilePage) {
-    return <ProfilePage onBack={handleCloseProfilePage} />;
+    return (
+      <ProfilePage
+        onBack={handleCloseProfilePage}
+        profileImage={profileImage}
+        onProfileImageUpdated={handleProfileImageUpdated}
+      />
+    );
   }
 
-  // Main Settings Tab Content
+  // Build the profile-image URL for the main card
+  const mainDisplayImage = getImageUrl(profileImage);
+
   return (
     <ScrollView showsVerticalScrollIndicator={false} className="flex-1">
       <View className="px-5 pt-6">
         <Text className="text-3xl font-bold text-gray-800 mb-6">Settings</Text>
-        
+
         {/* Profile Section */}
         <View className="bg-white rounded-2xl p-5 mb-4 items-center" style={{ elevation: 2 }}>
-          <View className="bg-pink-100 p-4 rounded-full mb-3">
-            <Ionicons name="person" size={50} color="#ec4899" />
-          </View>
-          <Text className="text-xl font-bold text-gray-800">{user?.first_name} {user?.last_name}</Text>
+          {mainDisplayImage ? (
+            <Image
+              source={{ uri: mainDisplayImage }}
+              className="w-20 h-20 rounded-full mb-3"
+              resizeMode="cover"
+            />
+          ) : (
+            <View className="bg-pink-100 p-4 rounded-full mb-3">
+              <Ionicons name="person" size={50} color="#ec4899" />
+            </View>
+          )}
+          <Text className="text-xl font-bold text-gray-800">
+            {user?.first_name} {user?.last_name}
+          </Text>
           <Text className="text-gray-500">{user?.email}</Text>
           <Text className="text-gray-500 text-sm">{user?.phone_number}</Text>
-          <TouchableOpacity 
+          <TouchableOpacity
             className="bg-pink-500 px-6 py-2 rounded-full mt-3"
             onPress={handleOpenProfilePage}
           >
             <Text className="text-white font-semibold">View Profile</Text>
           </TouchableOpacity>
         </View>
-        
-        {/* Account Settings - Only Notifications and Profile */}
+
+        {/* Account Settings */}
         <View className="bg-white rounded-2xl p-5 mb-4" style={{ elevation: 2 }}>
           <Text className="text-lg font-semibold text-gray-800 mb-3">Account Settings</Text>
-          
-          <TouchableOpacity 
+
+          <TouchableOpacity
             className="flex-row items-center py-3 border-b border-gray-100"
             onPress={handleOpenProfilePage}
           >
@@ -473,15 +594,15 @@ export default function CustomerSettingsTab({ onLogout }: CustomerSettingsProps)
             <Text className="ml-3 flex-1 text-gray-700">Profile</Text>
             <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
           </TouchableOpacity>
-          
+
           <TouchableOpacity className="flex-row items-center py-3">
             <Ionicons name="notifications-outline" size={22} color="#ec4899" />
             <Text className="ml-3 flex-1 text-gray-700">Notifications</Text>
             <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
           </TouchableOpacity>
         </View>
-        
-        {/* Logout Button */}
+
+        {/* Logout */}
         <TouchableOpacity className="bg-red-500 py-4 rounded-xl mb-6" onPress={handleLogout}>
           <Text className="text-white text-center font-semibold text-lg">Log Out</Text>
         </TouchableOpacity>

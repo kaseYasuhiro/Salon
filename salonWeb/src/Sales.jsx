@@ -109,6 +109,82 @@ function Sales() {
   const formatNumber = (num) => num.toLocaleString();
 
   // ============================================================
+  // REVENUE HELPERS
+  // ============================================================
+
+  /**
+   * Group transactions by appointment_id so we don't double-count the billing total.
+   *
+   * `/all-appointments` returns one row per transaction (per service). For a single
+   * appointment with 3 services, there are 3 rows — each carrying the SAME
+   * `billing_total_amount`. If we just summed across rows we'd count the appointment
+   * total 3×. So we dedupe by appointment_id first.
+   *
+   * Result: an array of unique appointments, each with:
+   *   - representative row data (date, assigned_employee_id, status)
+   *   - billing_total_amount (grand total for the appointment)
+   *   - billing_paid_amount (how much has been paid)
+   *   - billing_balance
+   *   - services: [{ service_id, price, service_name }]
+   *   - priceSum: sum of base prices (for commissions and fallbacks)
+   */
+  const groupByAppointment = (transactions) => {
+    const map = new Map();
+
+    transactions.forEach(tx => {
+      const apptId = tx.appointment_id ?? tx.id;
+      if (!apptId) return;
+
+      if (!map.has(apptId)) {
+        map.set(apptId, {
+          appointment_id: apptId,
+          id: tx.id,
+          appointment_date: tx.appointment_date,
+          appointment_time: tx.appointment_time,
+          status: tx.status,
+          assigned_employee_id: tx.assigned_employee_id,
+          customer_name: tx.customer_name,
+          // Billing fields from the row (they're identical across the appointment's rows)
+          billing_total_amount: tx.billing_total_amount != null
+            ? parseFloat(tx.billing_total_amount)
+            : null,
+          billing_paid_amount: tx.billing_paid_amount != null
+            ? parseFloat(tx.billing_paid_amount)
+            : null,
+          billing_balance: tx.billing_balance != null
+            ? parseFloat(tx.billing_balance)
+            : null,
+          billing_payment_type: tx.billing_payment_type ?? null,
+          // Per-service info used for commission and other calcs
+          services: [],
+          priceSum: 0
+        });
+      }
+
+      const grouped = map.get(apptId);
+      grouped.services.push({
+        service_id: tx.service_id,
+        service_name: tx.service_name,
+        price: parseFloat(tx.price) || 0
+      });
+      grouped.priceSum += parseFloat(tx.price) || 0;
+    });
+
+    return Array.from(map.values());
+  };
+
+  /**
+   * Return the "revenue" value for an appointment — prefer the billing total
+   * (base + adjustments); fall back to the sum of base prices for legacy rows.
+   */
+  const getAppointmentRevenue = (appointment) => {
+    if (appointment.billing_total_amount != null && appointment.billing_total_amount > 0) {
+      return appointment.billing_total_amount;
+    }
+    return appointment.priceSum;
+  };
+
+  // ============================================================
   // FETCHERS
   // ============================================================
 
@@ -174,14 +250,20 @@ function Sales() {
     return c ? parseFloat(c.commission_amount) : 0;
   };
 
-  const calculateCommissionsForAppointments = (appointments) => {
+  /**
+   * Commission is calculated per-SERVICE using the base `price` (not the billing total).
+   * Reasoning: the service-price adjustments (hair length/thickness) aren't stored per
+   * service in a way that we can attribute — so commissions stay based on base price.
+   */
+  const calculateCommissionsForGroupedAppointments = (appointments) => {
     let total = 0;
-    appointments.forEach(app => {
-      const empId = app.assigned_employee_id;
-      if (empId) {
-        const rate = getEmployeeCommissionRate(empId);
-        total += (parseFloat(app.price) || 0) * rate;
-      }
+    appointments.forEach(appt => {
+      const empId = appt.assigned_employee_id;
+      if (!empId) return;
+      const rate = getEmployeeCommissionRate(empId);
+      appt.services.forEach(svc => {
+        total += (svc.price || 0) * rate;
+      });
     });
     return total;
   };
@@ -191,8 +273,8 @@ function Sales() {
     if (!staffValue || staffValue === 'all') return appointments;
     const target = parseInt(staffValue, 10);
     if (isNaN(target)) return appointments;
-    return appointments.filter(app => {
-      const id = app.assigned_employee_id;
+    return appointments.filter(appt => {
+      const id = appt.assigned_employee_id;
       return id != null && parseInt(id, 10) === target;
     });
   };
@@ -216,8 +298,8 @@ function Sales() {
       };
     }
 
-    appointments.forEach(app => {
-      const dateStr = normalizeDateStr(app.appointment_date);
+    appointments.forEach(appt => {
+      const dateStr = normalizeDateStr(appt.appointment_date);
       if (!dateStr) return;
       if (!map[dateStr]) {
         map[dateStr] = {
@@ -226,18 +308,19 @@ function Sales() {
           commissions: 0, grossProfit: 0, netProfit: 0, appointments: []
         };
       }
-      map[dateStr].revenue += parseFloat(app.price) || 0;
+      // ✅ Use the appointment's revenue (billing total when available)
+      map[dateStr].revenue += getAppointmentRevenue(appt);
       map[dateStr].count += 1;
-      map[dateStr].appointments.push(app);
+      map[dateStr].appointments.push(appt);
     });
 
     const globalExpenses = expenses.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0);
-    const totalRevenue = appointments.reduce((s, a) => s + (parseFloat(a.price) || 0), 0);
+    const totalRevenue = appointments.reduce((s, a) => s + getAppointmentRevenue(a), 0);
 
     Object.keys(map).forEach(key => {
       const b = map[key];
       const w = getWrittenOffAmountForDate(key);
-      const c = calculateCommissionsForAppointments(b.appointments);
+      const c = calculateCommissionsForGroupedAppointments(b.appointments);
       const e = totalRevenue > 0 ? globalExpenses * (b.revenue / totalRevenue) : 0;
       b.writtenOff = w;
       b.commissions = c;
@@ -269,8 +352,8 @@ function Sales() {
       };
     }
 
-    appointments.forEach(app => {
-      const dateStr = normalizeDateStr(app.appointment_date);
+    appointments.forEach(appt => {
+      const dateStr = normalizeDateStr(appt.appointment_date);
       if (!dateStr) return;
       const ws = getWeekStartStr(dateStr);
       if (!map[ws]) {
@@ -281,19 +364,19 @@ function Sales() {
           commissions: 0, grossProfit: 0, netProfit: 0, appointments: []
         };
       }
-      map[ws].revenue += parseFloat(app.price) || 0;
+      map[ws].revenue += getAppointmentRevenue(appt);
       map[ws].count += 1;
-      map[ws].appointments.push(app);
+      map[ws].appointments.push(appt);
     });
 
     const globalExpenses = expenses.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0);
-    const totalRevenue = appointments.reduce((s, a) => s + (parseFloat(a.price) || 0), 0);
+    const totalRevenue = appointments.reduce((s, a) => s + getAppointmentRevenue(a), 0);
 
     Object.keys(map).forEach(key => {
       const b = map[key];
       const we = getLocalDateString(new Date(new Date(key + 'T00:00:00').getTime() + 6 * 86400000));
       const w = getWrittenOffAmountForRange(key, we);
-      const c = calculateCommissionsForAppointments(b.appointments);
+      const c = calculateCommissionsForGroupedAppointments(b.appointments);
       const e = totalRevenue > 0 ? globalExpenses * (b.revenue / totalRevenue) : 0;
       b.writtenOff = w;
       b.commissions = c;
@@ -321,8 +404,8 @@ function Sales() {
       };
     }
 
-    appointments.forEach(app => {
-      const dateStr = normalizeDateStr(app.appointment_date);
+    appointments.forEach(appt => {
+      const dateStr = normalizeDateStr(appt.appointment_date);
       if (!dateStr) return;
       const mk = getMonthKey(dateStr);
       if (!map[mk]) {
@@ -336,13 +419,13 @@ function Sales() {
           commissions: 0, grossProfit: 0, netProfit: 0, appointments: []
         };
       }
-      map[mk].revenue += parseFloat(app.price) || 0;
+      map[mk].revenue += getAppointmentRevenue(appt);
       map[mk].count += 1;
-      map[mk].appointments.push(app);
+      map[mk].appointments.push(appt);
     });
 
     const globalExpenses = expenses.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0);
-    const totalRevenue = appointments.reduce((s, a) => s + (parseFloat(a.price) || 0), 0);
+    const totalRevenue = appointments.reduce((s, a) => s + getAppointmentRevenue(a), 0);
 
     Object.keys(map).forEach(key => {
       const b = map[key];
@@ -350,7 +433,7 @@ function Sales() {
       const ms = `${key}-01`;
       const me = getLocalDateString(new Date(year, month, 0));
       const w = getWrittenOffAmountForRange(ms, me);
-      const c = calculateCommissionsForAppointments(b.appointments);
+      const c = calculateCommissionsForGroupedAppointments(b.appointments);
       const e = totalRevenue > 0 ? globalExpenses * (b.revenue / totalRevenue) : 0;
       b.writtenOff = w;
       b.commissions = c;
@@ -374,12 +457,15 @@ function Sales() {
     try {
       const response = await api.get('/all-appointments');
       if (Array.isArray(response.data)) {
-        const completed = response.data.filter(app => app.status === 'completed');
+        // ✅ Group transactions into unique appointments FIRST
+        const allCompletedGrouped = groupByAppointment(
+          response.data.filter(app => app.status === 'completed')
+        );
 
-        let filtered = completed;
+        let filtered = allCompletedGrouped;
         if (dateRange.startDate && dateRange.endDate) {
-          filtered = completed.filter(app => {
-            const d = normalizeDateStr(app.appointment_date);
+          filtered = allCompletedGrouped.filter(appt => {
+            const d = normalizeDateStr(appt.appointment_date);
             return d && d >= dateRange.startDate && d <= dateRange.endDate;
           });
         }
@@ -387,12 +473,16 @@ function Sales() {
         filtered = applyStaffFilter(filtered, activeStaff);
 
         if (selectedService !== 'all') {
-          filtered = filtered.filter(
-            app => app.service_id === parseInt(selectedService) || app.service_name === selectedService
+          filtered = filtered.filter(appt =>
+            appt.services.some(s =>
+              s.service_id === parseInt(selectedService) ||
+              s.service_name === selectedService
+            )
           );
         }
 
-        const totalRevenue = filtered.reduce((s, a) => s + (parseFloat(a.price) || 0), 0);
+        // ✅ Revenue from billing_total_amount (deduped)
+        const totalRevenue = filtered.reduce((s, a) => s + getAppointmentRevenue(a), 0);
         const totalAppointments = filtered.length;
         const averageRevenue = totalAppointments > 0 ? totalRevenue / totalAppointments : 0;
 
@@ -403,7 +493,7 @@ function Sales() {
         const globalExpenses = expenses.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0);
         const totalExpenses = isAllStaff ? globalExpenses : 0;
 
-        const totalCommissions = calculateCommissionsForAppointments(filtered);
+        const totalCommissions = calculateCommissionsForGroupedAppointments(filtered);
         const grossProfit = totalRevenue - totalWrittenOff;
         const netProfit = isAllStaff
           ? grossProfit - globalExpenses - totalCommissions
@@ -444,19 +534,21 @@ function Sales() {
     try {
       const response = await api.get('/all-appointments');
       if (Array.isArray(response.data)) {
-        const completed = response.data.filter(app => app.status === 'completed');
+        const allCompletedGrouped = groupByAppointment(
+          response.data.filter(app => app.status === 'completed')
+        );
 
-        let filtered = completed;
+        let filtered = allCompletedGrouped;
         if (dateRange.startDate && dateRange.endDate) {
-          filtered = completed.filter(app => {
-            const d = normalizeDateStr(app.appointment_date);
+          filtered = allCompletedGrouped.filter(appt => {
+            const d = normalizeDateStr(appt.appointment_date);
             return d && d >= dateRange.startDate && d <= dateRange.endDate;
           });
         }
 
         filtered = applyStaffFilter(filtered, activeStaff);
 
-        const totalRevenue = filtered.reduce((s, a) => s + (parseFloat(a.price) || 0), 0);
+        const totalRevenue = filtered.reduce((s, a) => s + getAppointmentRevenue(a), 0);
         const totalAppointments = filtered.length;
 
         const totalWrittenOff = reports
@@ -465,7 +557,7 @@ function Sales() {
 
         const globalExpenses = expenses.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0);
         const totalExpenses = isAllStaff ? globalExpenses : 0;
-        const totalCommissions = calculateCommissionsForAppointments(filtered);
+        const totalCommissions = calculateCommissionsForGroupedAppointments(filtered);
         const grossProfit = totalRevenue - totalWrittenOff;
         const netProfit = isAllStaff
           ? grossProfit - globalExpenses - totalCommissions
@@ -535,12 +627,11 @@ function Sales() {
 
   const handleStaffFilterChange = (value) => {
     setSelectedStaff(value);
-    fetchProfitData(value);     // ✅ pass the value directly — no stale state
+    fetchProfitData(value);
   };
 
   const handleProfitFilterChange = (value) => {
     setProfitFilter(value);
-    // Use a microtask so the state change is flushed; read fresh selectedStaff inside
     setTimeout(() => fetchProfitData(), 0);
   };
 

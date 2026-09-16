@@ -153,13 +153,13 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
   const [showReceipt, setShowReceipt] = useState(false);
   const [receiptData, setReceiptData] = useState<ReceiptData | null>(null);
   const [bookingResponse, setBookingResponse] = useState<any>(null);
-  
+
   // Hair options state
   const [selectedHairLength, setSelectedHairLength] = useState<string>('');
   const [selectedHairThickness, setSelectedHairThickness] = useState<string>('');
   const [selectedHairColor, setSelectedHairColor] = useState<number | null>(null);
   const [availableHairColors, setAvailableHairColors] = useState<HairColor[]>([]);
-  
+
   // Local state for data from API
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [services, setServices] = useState<Service[]>([]);
@@ -170,26 +170,19 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
   const [staffFeedbacks, setStaffFeedbacks] = useState<StaffFeedback[]>([]);
   const [allAppointments, setAllAppointments] = useState<Appointment[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  
-  // Maximum appointments per time slot
+
   const MAX_APPOINTMENTS_PER_TIME = 3;
-  
+
   const { user } = useAuth();
 
-  // Import QR code image
   const qrCodeImage = require('@/assets/images/qr_code.png');
 
-  // Fetch staff
+  // ── Fetchers ──
   const fetchStaff = async () => {
     try {
       const response = await api.get("/employee/specialties");
-      console.log("Fetched staff with specialties:", response.data);
-      
       let staffData: StaffMember[] = [];
-      if (Array.isArray(response.data)) {
-        staffData = response.data;
-      }
-      
+      if (Array.isArray(response.data)) staffData = response.data;
       setStaff(staffData);
       return staffData;
     } catch (error) {
@@ -198,12 +191,9 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     }
   };
 
-  // Fetch services
   const fetchServices = async () => {
     try {
       const response = await api.get("/services");
-      console.log("Fetched services:", response.data);
-      
       let servicesData: Service[] = [];
       if (Array.isArray(response.data)) {
         servicesData = response.data.map((service: any) => ({
@@ -219,7 +209,6 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
           updated_at: service.updated_at,
         }));
       }
-      
       setServices(servicesData);
       return servicesData;
     } catch (error) {
@@ -228,17 +217,11 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     }
   };
 
-  // Fetch service specialties
   const fetchServiceSpecialties = async () => {
     try {
       const response = await api.get("/services/specialties");
-      console.log("Fetched service specialties:", response.data);
-      
       let specialtiesData: any[] = [];
-      if (Array.isArray(response.data)) {
-        specialtiesData = response.data;
-      }
-      
+      if (Array.isArray(response.data)) specialtiesData = response.data;
       setServiceSpecialties(specialtiesData);
       return specialtiesData;
     } catch (error) {
@@ -247,15 +230,11 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     }
   };
 
-  // Fetch business schedules
   const fetchBusinessSchedules = async () => {
     try {
       const response = await api.get('/daysched');
-      console.log('Fetched business schedules:', response.data);
       let schedulesData: BusinessSchedule[] = [];
-      if (Array.isArray(response.data)) {
-        schedulesData = response.data;
-      }
+      if (Array.isArray(response.data)) schedulesData = response.data;
       setBusinessSchedules(schedulesData);
       return schedulesData;
     } catch (error) {
@@ -264,15 +243,11 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     }
   };
 
-  // Fetch staff assignments
   const fetchStaffAssignments = async () => {
     try {
       const response = await api.get('/assign');
-      console.log('Fetched staff assignments:', response.data);
       let assignmentsData: StaffAssignment[] = [];
-      if (Array.isArray(response.data)) {
-        assignmentsData = response.data;
-      }
+      if (Array.isArray(response.data)) assignmentsData = response.data;
       setStaffAssignments(assignmentsData);
       return assignmentsData;
     } catch (error) {
@@ -281,12 +256,9 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     }
   };
 
-  // Fetch staff feedbacks
   const fetchStaffFeedbacks = async () => {
     try {
       const response = await api.get("/feedbacks/staff");
-      console.log("Raw staff feedbacks response:", response.data);
-      
       let staffFeedbacksData: StaffFeedback[] = [];
       if (Array.isArray(response.data)) {
         staffFeedbacksData = response.data.map((item: any) => ({
@@ -295,8 +267,6 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
           rating: parseFloat(item.rating) || 0
         }));
       }
-      
-      console.log("Processed staff feedbacks:", staffFeedbacksData);
       setStaffFeedbacks(staffFeedbacksData);
       return staffFeedbacksData;
     } catch (error) {
@@ -305,12 +275,9 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     }
   };
 
-  // Fetch all appointments
   const fetchAllAppointments = async () => {
     try {
       const response = await api.get('/all-appointments');
-      console.log('Fetched all appointments:', response.data);
-      
       let appointmentsData: Appointment[] = [];
       if (Array.isArray(response.data)) {
         appointmentsData = response.data.map((item: any) => ({
@@ -330,8 +297,6 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
           price: item.price
         }));
       }
-      
-      console.log('Processed appointments:', appointmentsData);
       setAllAppointments(appointmentsData);
       return appointmentsData;
     } catch (error) {
@@ -340,17 +305,11 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     }
   };
 
-  // Fetch service hair colors
   const fetchServiceHairColors = async () => {
     try {
       const response = await api.get('/service/haircolors');
-      console.log('Fetched service hair colors:', response.data);
-      
       let hairColorsData: ServiceHairColor[] = [];
-      if (Array.isArray(response.data)) {
-        hairColorsData = response.data;
-      }
-      
+      if (Array.isArray(response.data)) hairColorsData = response.data;
       setServiceHairColors(hairColorsData);
       return hairColorsData;
     } catch (error) {
@@ -359,18 +318,12 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     }
   };
 
-  // Fetch service price adjustments
   const fetchServicePriceAdjustments = async () => {
     try {
       const response = await api.get('/services/price/adjustment');
-      console.log('Fetched service price adjustments:', response.data);
-      
       let servicesWithAdjustments: Service[] = [];
-      if (Array.isArray(response.data)) {
-        servicesWithAdjustments = response.data;
-      }
-      
-      // Update services with price adjustments
+      if (Array.isArray(response.data)) servicesWithAdjustments = response.data;
+
       setServices((prevServices: Service[]) => {
         return prevServices.map((service: Service) => {
           const serviceWithAdj = servicesWithAdjustments.find((s: Service) => s.id === service.id);
@@ -383,7 +336,7 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
           return service;
         });
       });
-      
+
       return servicesWithAdjustments;
     } catch (error) {
       console.error('Error fetching service price adjustments:', error);
@@ -391,7 +344,6 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     }
   };
 
-  // Complete booking with GCash payment
   const completeBooking = async (formData: FormData) => {
     try {
       const response = await api.post("/booking/complete", formData, {
@@ -407,7 +359,6 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     }
   };
 
-  // Load all data on mount
   useEffect(() => {
     setIsLoading(true);
     Promise.all([
@@ -423,13 +374,12 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     ]).finally(() => setIsLoading(false));
   }, []);
 
-  // Update available hair colors when selected services change
   useEffect(() => {
     if (selectedServiceIds.length === 0) {
       setAvailableHairColors([]);
       return;
     }
-    
+
     const allHairColors: HairColor[] = [];
     selectedServiceIds.forEach((id: number) => {
       const colors = getHairColorsForService(id);
@@ -442,64 +392,53 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     setAvailableHairColors(allHairColors);
   }, [selectedServiceIds, serviceHairColors]);
 
-  // Get schedule for a specific date
   const getScheduleForDate = (dateStr: string): BusinessSchedule | null => {
     return businessSchedules.find(schedule => schedule.business_date === dateStr) || null;
   };
 
-  // Get staff assigned to a specific date
   const getStaffAssignedToDate = (dateStr: string): StaffAssignment[] => {
     const schedule = getScheduleForDate(dateStr);
     if (!schedule) return [];
-    
     return staffAssignments.filter(assignment => assignment.business_date_id === schedule.id);
   };
 
-  // Check if staff is available on a specific date
   const isStaffAvailableOnDate = (staffId: number, date: Date): boolean => {
     const dateStr = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
     const assignedStaff = getStaffAssignedToDate(dateStr);
     return assignedStaff.some(assignment => assignment.staff_id === staffId);
   };
 
-  // Check if a date is bookable (has schedule and is open)
   const isDateBookable = (date: Date): boolean => {
     const dateStr = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
     const schedule = getScheduleForDate(dateStr);
-    
     if (!schedule) return false;
     if (schedule.is_open !== 1) return false;
     return true;
   };
 
-  // Get schedule status for display
   const getScheduleStatus = (date: Date): { status: 'open' | 'closed' | 'no_schedule'; schedule: BusinessSchedule | null } => {
     const dateStr = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
     const schedule = getScheduleForDate(dateStr);
-    
     if (!schedule) return { status: 'no_schedule', schedule: null };
     if (schedule.is_open === 1) return { status: 'open', schedule };
     return { status: 'closed', schedule };
   };
 
-  // Get active services
   const getActiveServices = () => {
     return services.filter(service => service.service_status === 'active');
   };
 
-  // Get services based on staff's specialty
   const getServicesForStaff = () => {
     if (!selectedStaffId) return [];
-    
     const selectedStaff = staff.find(s => s.id === selectedStaffId);
     if (!selectedStaff) return [];
-    
+
     const staffSpecialties = selectedStaff.staff_specialties
       ?.filter(s => s.is_active === 1)
       .map(s => s.specialties?.specialty_name?.toLowerCase()) || [];
-    
+
     const activeServices = getActiveServices();
-    
+
     return activeServices.filter(service => {
       const serviceSpecialties = getServiceSpecialties(service.id);
       return serviceSpecialties.some(ss => {
@@ -509,48 +448,42 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     });
   };
 
-  // Get service specialties
   const getServiceSpecialties = (serviceId: number) => {
     return serviceSpecialties.filter(item => item.service_id === serviceId);
   };
 
-  // Get available hair colors for a service
   const getHairColorsForService = (serviceId: number): HairColor[] => {
     const serviceHairColorsFiltered = serviceHairColors.filter((item: ServiceHairColor) => item.service_id === serviceId);
     return serviceHairColorsFiltered.map((item: ServiceHairColor) => item.hair_colors);
   };
 
-  // Check if service requires hair color
   const doesServiceRequireHairColor = (serviceId: number): boolean => {
     const service = services.find((s: Service) => s.id === serviceId);
     return service?.reqHairColor === 1;
   };
 
-  // Get price adjustments for a service
   const getPriceAdjustmentsForService = (serviceId: number): PriceAdjustment[] => {
     const service = services.find((s: Service) => s.id === serviceId);
     return service?.service_price_adjustments || [];
   };
 
-  // Calculate price with adjustments
   const calculatePriceWithAdjustments = (serviceId: number, hairLength: string, hairThickness: string): number => {
     const service = services.find((s: Service) => s.id === serviceId);
     if (!service) return 0;
-    
+
     const adjustments = service.service_price_adjustments || [];
     const matchingAdjustment = adjustments.find(
       (adj: PriceAdjustment) => adj.hair_length === hairLength && adj.hair_thickness === hairThickness
     );
-    
+
     const additionalPrice = matchingAdjustment ? parseFloat(matchingAdjustment.additional_price) : 0;
     return service.price + additionalPrice;
   };
 
-  // Get total price with all adjustments
   const getTotalPriceWithAdjustments = (): number => {
     const servicesForStaff = getServicesForStaff();
     const selectedServices = servicesForStaff.filter((s: Service) => selectedServiceIds.includes(s.id));
-    
+
     let total = 0;
     for (const service of selectedServices) {
       const price = calculatePriceWithAdjustments(service.id, selectedHairLength, selectedHairThickness);
@@ -559,24 +492,21 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     return total;
   };
 
-  // Check if selected services are multitaskable
   const areServicesMultitaskable = () => {
     if (selectedServiceIds.length === 0) return false;
     if (selectedServiceIds.length === 1) return true;
-    
+
     const servicesForStaff = getServicesForStaff();
     const selectedServices = servicesForStaff.filter(s => selectedServiceIds.includes(s.id));
     return selectedServices.every(s => s.is_multitaskable === 1);
   };
 
-  // Get service price (base price without adjustments)
   const getServicePrice = () => {
     const servicesForStaff = getServicesForStaff();
     const selectedServices = servicesForStaff.filter(s => selectedServiceIds.includes(s.id));
     return selectedServices.reduce((sum, s) => sum + s.price, 0);
   };
 
-  // Get total duration of selected services
   const getTotalDuration = () => {
     const servicesForStaff = getServicesForStaff();
     const selectedServices = servicesForStaff.filter(s => selectedServiceIds.includes(s.id));
@@ -599,14 +529,10 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     const lastDay = new Date(Date.UTC(year, month + 1, 0));
     const daysInMonth = lastDay.getUTCDate();
     const startingDayOfWeek = firstDay.getUTCDay();
-    
+
     const days = [];
-    for (let i = 0; i < startingDayOfWeek; i++) {
-      days.push(null);
-    }
-    for (let i = 1; i <= daysInMonth; i++) {
-      days.push(new Date(Date.UTC(year, month, i)));
-    }
+    for (let i = 0; i < startingDayOfWeek; i++) days.push(null);
+    for (let i = 1; i <= daysInMonth; i++) days.push(new Date(Date.UTC(year, month, i)));
     return days;
   };
 
@@ -631,61 +557,56 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     return dateUTC < todayUTC;
   };
 
-  // Generate time slots based on open_time and close_time
   const generateTimeSlots = (openTime: string, closeTime: string): string[] => {
     const slots: string[] = [];
     const startHour = parseInt(openTime.split(':')[0]);
     const startMinute = parseInt(openTime.split(':')[1]);
     const endHour = parseInt(closeTime.split(':')[0]);
     const endMinute = parseInt(closeTime.split(':')[1]);
-    
+
     let currentHour = startHour;
     let currentMinute = startMinute;
-    
+
     while (currentHour < endHour || (currentHour === endHour && currentMinute < endMinute)) {
       const hourStr = String(currentHour).padStart(2, '0');
       const minuteStr = String(currentMinute).padStart(2, '0');
       slots.push(`${hourStr}:${minuteStr}`);
-      
+
       currentMinute += 30;
       if (currentMinute >= 60) {
         currentMinute = 0;
         currentHour++;
       }
     }
-    
     return slots;
   };
 
-  // Get appointments for a specific date and time range (considering duration)
   const getAppointmentsForTimeRange = (date: Date, time: string, durationMinutes: number): Appointment[] => {
     const dateStr = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
     const [hours, minutes] = time.split(':').map(Number);
     const startMinutes = hours * 60 + minutes;
     const endMinutes = startMinutes + durationMinutes;
-    
+
     return allAppointments.filter(app => {
       if (app.status === 'cancelled') return false;
       if (app.appointment_date !== dateStr) return false;
-      
+
       const [appHours, appMinutes] = app.appointment_time.split(':').map(Number);
       const appStartMinutes = appHours * 60 + appMinutes;
       const appEndMinutes = appStartMinutes + app.duration_minutes;
-      
+
       return (appStartMinutes < endMinutes && appEndMinutes > startMinutes);
     });
   };
 
-  // Get appointment count for a specific time range
   const getAppointmentCountForTimeRange = (date: Date, time: string, durationMinutes: number): number => {
     return getAppointmentsForTimeRange(date, time, durationMinutes).length;
   };
 
-  // Get appointments for a specific date and time (exact match - for display)
   const getAppointmentsForDateTime = (date: Date, time: string): Appointment[] => {
     const dateStr = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
     const timeStr = time + ':00';
-    
+
     return allAppointments.filter(app => {
       if (app.status === 'cancelled') return false;
       if (app.appointment_date !== dateStr) return false;
@@ -695,23 +616,20 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     });
   };
 
-  // Get appointment count for a specific date and time (exact match)
   const getAppointmentCountForDateTime = (date: Date, time: string): number => {
     return getAppointmentsForDateTime(date, time).length;
   };
 
-  // Check if a time slot is available for booking (considering duration)
   const isTimeSlotAvailable = (date: Date, time: string): boolean => {
     const totalDuration = getTotalDuration();
     const count = getAppointmentCountForTimeRange(date, time, totalDuration);
     return count < MAX_APPOINTMENTS_PER_TIME;
   };
 
-  // Get time slot status for display
   const getTimeSlotStatus = (date: Date, time: string): 'available' | 'partial' | 'full' => {
     const totalDuration = getTotalDuration();
     const count = getAppointmentCountForTimeRange(date, time, totalDuration);
-    
+
     if (count === 0) return 'available';
     if (count < MAX_APPOINTMENTS_PER_TIME) return 'partial';
     return 'full';
@@ -719,22 +637,19 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
 
   const getTimeSlotsForDate = (date: Date): string[] => {
     const scheduleStatus = getScheduleStatus(date);
-    if (scheduleStatus.status !== 'open' || !scheduleStatus.schedule) {
-      return [];
-    }
-    
+    if (scheduleStatus.status !== 'open' || !scheduleStatus.schedule) return [];
+
     const { open_time, close_time } = scheduleStatus.schedule;
     return generateTimeSlots(open_time, close_time);
   };
 
-  // ── Image Picker ── Using DocumentPicker (Works with Expo Go)
   const pickImageFromGallery = async () => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
         type: 'image/*',
         copyToCacheDirectory: true,
       });
-      
+
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const asset = result.assets[0];
         setPaymentProof({
@@ -763,16 +678,16 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
       setSelectedServiceIds(selectedServiceIds.filter(id => id !== serviceId));
       return;
     }
-    
+
     if (selectedServiceIds.length >= 2) {
       Alert.alert("Maximum Services", "You can select up to 2 services only.");
       return;
     }
-    
+
     const servicesForStaff = getServicesForStaff();
     const newService = servicesForStaff.find(s => s.id === serviceId);
     const existingServices = servicesForStaff.filter(s => selectedServiceIds.includes(s.id));
-    
+
     if (selectedServiceIds.length === 1) {
       const existingService = existingServices[0];
       if (newService?.is_multitaskable !== 1 && existingService?.is_multitaskable !== 1) {
@@ -788,7 +703,7 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
         return;
       }
     }
-    
+
     setSelectedServiceIds([...selectedServiceIds, serviceId]);
   };
 
@@ -797,18 +712,18 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
       Alert.alert("Selection Required", "Please select at least one service.");
       return;
     }
-    
+
     const requiresHairColor = selectedServiceIds.some((id: number) => doesServiceRequireHairColor(id));
     const hasPriceAdjustments = selectedServiceIds.some((id: number) => {
       const adjustments = getPriceAdjustmentsForService(id);
       return adjustments.length > 0;
     });
-    
+
     if (!requiresHairColor && !hasPriceAdjustments) {
       setBookingStep('datetime');
       return;
     }
-    
+
     setBookingStep('hair_options');
   };
 
@@ -817,18 +732,18 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
       const adjustments = getPriceAdjustmentsForService(id);
       return adjustments.length > 0;
     });
-    
+
     if (hasPriceAdjustments && (!selectedHairLength || !selectedHairThickness)) {
       Alert.alert("Selection Required", "Please select your hair length and thickness for price adjustments.");
       return;
     }
-    
+
     const requiresHairColor = selectedServiceIds.some((id: number) => doesServiceRequireHairColor(id));
     if (requiresHairColor && !selectedHairColor) {
       Alert.alert("Selection Required", "Please select a hair color for your service.");
       return;
     }
-    
+
     setBookingStep('datetime');
   };
 
@@ -837,7 +752,7 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
       Alert.alert("Invalid Date", "Cannot select past dates. Please choose today or a future date.");
       return;
     }
-    
+
     if (!isDateBookable(date)) {
       const scheduleStatus = getScheduleStatus(date);
       if (scheduleStatus.status === 'no_schedule') {
@@ -847,12 +762,12 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
       }
       return;
     }
-    
+
     if (!isStaffAvailableOnDate(selectedStaffId!, date)) {
       Alert.alert("Staff Not Available", "The selected stylist is not available on this date. Please select another date.");
       return;
     }
-    
+
     setSelectedDateForModal(date);
     setShowTimePickerModal(true);
   };
@@ -861,12 +776,12 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     if (!isTimeSlotAvailable(selectedDateForModal!, time)) {
       const totalDuration = getTotalDuration();
       Alert.alert(
-        "Time Slot Full", 
+        "Time Slot Full",
         `This time slot already has ${MAX_APPOINTMENTS_PER_TIME} appointment(s) within the ${totalDuration}-minute service duration. Please choose another time.`
       );
       return;
     }
-    
+
     const [hours, minutes] = time.split(':');
     const newDateTime = new Date(selectedDateForModal!);
     newDateTime.setHours(parseInt(hours), parseInt(minutes), 0);
@@ -874,7 +789,7 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     setSelectedTime(newDateTime);
     setShowTimePickerModal(false);
     setSelectedDateForModal(null);
-    
+
     setBookingStep('payment');
   };
 
@@ -899,39 +814,34 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     try {
       const formattedTime = selectedTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
       const appointmentDate = `${selectedDate.getUTCFullYear()}-${String(selectedDate.getUTCMonth() + 1).padStart(2, '0')}-${String(selectedDate.getUTCDate()).padStart(2, '0')}`;
-      
+
+      const totalAmount = getTotalPriceWithAdjustments();
+      const downpaymentAmount = totalAmount / 2;
+
       const formData = new FormData();
       formData.append('appointment_date', appointmentDate);
       formData.append('appointment_time', formattedTime);
       formData.append('status', 'pending');
-      
+
       selectedServiceIds.forEach((id) => {
         formData.append('service_ids[]', id.toString());
       });
-      
+
       formData.append('assigned_employee_id', selectedStaffId.toString());
       formData.append('service_status', 'pending');
-      
-      const totalPrice = getTotalPriceWithAdjustments();
-      formData.append('total_amount', totalPrice.toString());
+
+      formData.append('total_amount', totalAmount.toString());
       formData.append('payment_type', 'downpayment');
       formData.append('payment_method', selectedPaymentMethod || 'gcash');
       formData.append('customer_id', user?.id?.toString() || '0');
-      
-      // Add hair options
-      if (selectedHairLength) {
-        formData.append('hair_length', selectedHairLength);
-      }
-      if (selectedHairThickness) {
-        formData.append('hair_thickness', selectedHairThickness);
-      }
+
+      if (selectedHairLength) formData.append('hair_length', selectedHairLength);
+      if (selectedHairThickness) formData.append('hair_thickness', selectedHairThickness);
       if (selectedHairColor) {
         const color = availableHairColors.find((c: HairColor) => c.id === selectedHairColor);
-        if (color) {
-          formData.append('preferred_color', color.color_name);
-        }
+        if (color) formData.append('preferred_color', color.color_name);
       }
-      
+
       if (paymentProof) {
         formData.append('payment_proof', {
           uri: paymentProof.uri,
@@ -939,40 +849,34 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
           type: paymentProof.type,
         } as any);
       }
-      
-      console.log("Selected Service IDs:", selectedServiceIds);
-      console.log("Hair Length:", selectedHairLength);
-      console.log("Hair Thickness:", selectedHairThickness);
-      console.log("Hair Color:", selectedHairColor);
-      
+
+      console.log("Booking — Total:", totalAmount, "Downpayment:", downpaymentAmount);
+      console.log("Hair Length:", selectedHairLength, "Thickness:", selectedHairThickness, "Color:", selectedHairColor);
+
       const result = await completeBooking(formData);
       console.log("Booking response:", result);
 
-      const amount = getAmount();
-      const paymentTypeLabel = getPaymentTypeLabel();
-      const totalPriceReceipt = getTotalPriceWithAdjustments();
-      const paymentMethodLabel = selectedPaymentMethod === 'gcash' ? 'GCash' : 'GCash';
+      const paymentMethodLabel = 'GCash';
       const staffName = getStaffName(selectedStaffId);
       const receiptNumber = generateReceiptNumber();
-      const remainingBalance = totalPriceReceipt - amount;
       const serviceNames = getServiceNames();
 
       const receipt: ReceiptData = {
         bookingId: result.appointment_id?.toString() || receiptNumber,
         serviceName: serviceNames,
-        date: selectedDate.toLocaleDateString('en-US', { 
-          weekday: 'long', 
-          year: 'numeric', 
-          month: 'long', 
-          day: 'numeric' 
+        date: selectedDate.toLocaleDateString('en-US', {
+          weekday: 'long',
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric'
         }),
         time: formattedTime,
         stylistName: staffName,
-        totalAmount: totalPriceReceipt,
-        paymentType: paymentTypeLabel,
+        totalAmount: totalAmount,
+        paymentType: getPaymentTypeLabel(),
         paymentMethod: paymentMethodLabel,
-        amountPaid: amount,
-        remainingBalance: remainingBalance,
+        amountPaid: downpaymentAmount,
+        remainingBalance: totalAmount - downpaymentAmount,
         status: 'Pending Confirmation',
         bookingDate: new Date().toLocaleDateString('en-US', {
           weekday: 'long',
@@ -991,7 +895,6 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     } catch (error: any) {
       console.error("Booking error:", error);
       if (error.response?.data?.errors) {
-        console.error("Validation errors:", error.response.data.errors);
         const errorMessages = Object.values(error.response.data.errors).flat().join('\n');
         Alert.alert("Validation Error", errorMessages);
       } else {
@@ -1013,9 +916,7 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     setSelectedHairLength('');
     setSelectedHairThickness('');
     setSelectedHairColor(null);
-    if (onBookingSuccess) {
-      onBookingSuccess();
-    }
+    if (onBookingSuccess) onBookingSuccess();
   };
 
   const handleBackToStylist = () => {
@@ -1026,19 +927,10 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     setSelectedHairColor(null);
   };
 
-  const handleBackToServices = () => {
-    setBookingStep('services');
-  };
+  const handleBackToServices = () => setBookingStep('services');
+  const handleBackToHairOptions = () => setBookingStep('hair_options');
+  const handleBackToDateTime = () => setBookingStep('datetime');
 
-  const handleBackToHairOptions = () => {
-    setBookingStep('hair_options');
-  };
-
-  const handleBackToDateTime = () => {
-    setBookingStep('datetime');
-  };
-
-  // Helper functions
   const getStaffName = (staffId: number | null) => {
     if (!staffId) return '';
     const staffMember = staff.find(s => s.id === staffId);
@@ -1049,7 +941,7 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     if (!staffId) return 'No specialties assigned';
     const staffMember = staff.find(s => s.id === staffId);
     if (!staffMember?.staff_specialties) return 'No specialties assigned';
-    
+
     return staffMember.staff_specialties
       .filter(s => s.is_active === 1)
       .map(s => s.specialties?.specialty_name || '')
@@ -1072,35 +964,30 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     return `RCP-${year}${month}${day}-${random}`;
   };
 
-  // Get staff rating with error handling
   const getStaffRating = (staffId: number) => {
     try {
       const staffReviews = staffFeedbacks.filter(f => f.staff_id === staffId);
       if (staffReviews.length === 0) return { average: 0, count: 0 };
-      
+
       const total = staffReviews.reduce((sum, feedback) => {
         const rating = typeof feedback.rating === 'number' ? feedback.rating : parseFloat(feedback.rating as any) || 0;
         return sum + rating;
       }, 0);
-      
+
       const average = parseFloat((total / staffReviews.length).toFixed(1));
-      return { 
-        average: average, 
-        count: staffReviews.length 
-      };
+      return { average, count: staffReviews.length };
     } catch (error) {
       console.error(`Error getting rating for staff ${staffId}:`, error);
       return { average: 0, count: 0 };
     }
   };
 
-  // Generate star rating display with error handling
   const renderStars = (rating: number) => {
     const validRating = typeof rating === 'number' && !isNaN(rating) ? rating : 0;
     const fullStars = Math.floor(validRating);
     const hasHalfStar = validRating % 1 >= 0.5;
     const stars = [];
-    
+
     for (let i = 0; i < fullStars; i++) {
       stars.push(<Ionicons key={`star-${i}`} name="star" size={14} color="#fbbf24" />);
     }
@@ -1114,11 +1001,11 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     return stars;
   };
 
-  // Time Picker Modal
+  // ── Time Picker Modal ──
   const TimePickerModal = () => {
     const availableTimeSlots = selectedDateForModal ? getTimeSlotsForDate(selectedDateForModal) : [];
     const totalDuration = getTotalDuration();
-    
+
     return (
       <Modal
         transparent={true}
@@ -1140,14 +1027,11 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                   Duration: {totalDuration} minutes • Max {MAX_APPOINTMENTS_PER_TIME} appointment(s) per slot
                 </Text>
               </View>
-              <TouchableOpacity onPress={() => {
-                setShowTimePickerModal(false);
-                setSelectedDateForModal(null);
-              }}>
+              <TouchableOpacity onPress={() => { setShowTimePickerModal(false); setSelectedDateForModal(null); }}>
                 <Ionicons name="close" size={24} color="#9ca3af" />
               </TouchableOpacity>
             </View>
-            
+
             <View className="flex-row items-center justify-between mb-3 px-2">
               <View className="flex-row items-center gap-2">
                 <View className="w-3 h-3 rounded-full bg-green-500" />
@@ -1162,7 +1046,7 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                 <Text className="text-xs text-gray-600">Full</Text>
               </View>
             </View>
-            
+
             {availableTimeSlots.length === 0 ? (
               <View className="py-8 items-center">
                 <Ionicons name="alert-circle-outline" size={48} color="#d1d5db" />
@@ -1178,11 +1062,11 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                     const appointmentCount = getAppointmentCountForTimeRange(selectedDateForModal!, time, totalDuration);
                     const isAvailable = status !== 'full';
                     const isSelected = selectedTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }) === time;
-                    
+
                     let statusColor = 'bg-gray-100';
                     let statusTextColor = 'text-gray-700';
                     let borderColor = 'border-gray-200';
-                    
+
                     if (isSelected) {
                       statusColor = 'bg-pink-500';
                       statusTextColor = 'text-white';
@@ -1200,7 +1084,7 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                       statusTextColor = 'text-red-500';
                       borderColor = 'border-red-200';
                     }
-                    
+
                     return (
                       <TouchableOpacity
                         key={time}
@@ -1255,7 +1139,8 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     );
   };
 
-  // Receipt Modal Component
+  // ── Receipt Modal ──
+  // ✅ Solid pink header (gradient doesn't render on native)
   const ReceiptModal = () => {
     if (!receiptData) return null;
 
@@ -1269,10 +1154,17 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
         <View className="flex-1 justify-center items-center bg-black/50 p-4">
           <ScrollView className="max-h-[90%]" showsVerticalScrollIndicator={false}>
             <View className="bg-white rounded-2xl overflow-hidden w-full" style={{ minWidth: 320 }}>
-              <View className="bg-gradient-to-r from-pink-500 to-pink-600 px-6 py-4 items-center">
+              {/* ✅ FIXED: solid pink header instead of gradient */}
+              <View
+                className="px-6 py-4 items-center"
+                style={{ backgroundColor: '#ec4899' }}
+              >
                 <Text className="text-white text-2xl font-bold mb-1">Reshel Oco Hair Salon</Text>
                 <Text className="text-white opacity-90 text-sm">Official Receipt</Text>
-                <View className="bg-white/20 rounded-full px-3 py-1 mt-2">
+                <View
+                  className="rounded-full px-3 py-1 mt-2"
+                  style={{ backgroundColor: 'rgba(255,255,255,0.2)' }}
+                >
                   <Text className="text-white text-xs font-mono">{receiptData.bookingId}</Text>
                 </View>
               </View>
@@ -1321,7 +1213,7 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                       <Text className="text-gray-800 text-sm">{receiptData.paymentMethod}</Text>
                     </View>
                     <View className="flex-row justify-between pt-2 border-t border-dashed border-gray-200">
-                      <Text className="text-gray-600 text-sm font-semibold">Amount Paid (Downpayment)</Text>
+                      <Text className="text-gray-600 text-sm font-semibold">Amount Paid</Text>
                       <Text className="text-green-600 font-bold text-base">₱{receiptData.amountPaid.toLocaleString()}</Text>
                     </View>
                     {receiptData.remainingBalance > 0 && (
@@ -1343,7 +1235,7 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                   <View className="flex-row items-start gap-2">
                     <Ionicons name="information-circle-outline" size={16} color="#ec4899" />
                     <Text className="text-gray-500 text-xs flex-1">
-                      Please arrive 10 minutes before your scheduled time. 
+                      Please arrive 10 minutes before your scheduled time.
                       {receiptData.remainingBalance > 0 && ' The remaining balance can be paid at the salon.'}
                     </Text>
                   </View>
@@ -1355,14 +1247,15 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
               </View>
 
               <View className="border-t border-pink-100 px-6 py-4 flex-row gap-3">
-                <TouchableOpacity 
+                <TouchableOpacity
                   className="flex-1 py-3 rounded-xl border border-pink-500"
                   onPress={handleCloseReceipt}
                 >
                   <Text className="text-pink-500 text-center font-semibold">Close</Text>
                 </TouchableOpacity>
-                <TouchableOpacity 
-                  className="flex-1 py-3 rounded-xl bg-pink-500"
+                <TouchableOpacity
+                  className="flex-1 py-3 rounded-xl"
+                  style={{ backgroundColor: '#ec4899' }}
                   onPress={handleCloseReceipt}
                 >
                   <Text className="text-white text-center font-semibold">View My Bookings</Text>
@@ -1381,17 +1274,13 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     const downpaymentAmount = totalPrice / 2;
     const servicesForStaff = getServicesForStaff();
     const selectedStaff = selectedStaffId ? staff.find(s => s.id === selectedStaffId) : null;
-    
+
     return (
       <View className="flex-1">
-        <ScrollView 
-          showsVerticalScrollIndicator={false} 
-          className="flex-1"
-        >
+        <ScrollView showsVerticalScrollIndicator={false} className="flex-1">
           <View className="px-5 pt-6">
-            {/* Back Button */}
             {(bookingStep === 'services' || bookingStep === 'hair_options' || bookingStep === 'datetime' || bookingStep === 'payment') && (
-              <TouchableOpacity 
+              <TouchableOpacity
                 className="flex-row items-center mb-4"
                 onPress={
                   bookingStep === 'payment' ? handleBackToDateTime :
@@ -1410,22 +1299,22 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                 </Text>
               </TouchableOpacity>
             )}
-            
+
             <Text className="text-3xl font-bold text-gray-800 mb-2">
-              {bookingStep === 'stylist' ? 'Select Stylist' : 
+              {bookingStep === 'stylist' ? 'Select Stylist' :
                bookingStep === 'services' ? 'Select Services' :
                bookingStep === 'hair_options' ? 'Hair Options' :
                bookingStep === 'datetime' ? 'Select Date & Time' :
                'Payment & Confirmation'}
             </Text>
             <Text className="text-gray-500 mb-6">
-              {bookingStep === 'stylist' ? 'Choose your preferred stylist' : 
+              {bookingStep === 'stylist' ? 'Choose your preferred stylist' :
                bookingStep === 'services' ? `Selected: ${selectedStaff?.first_name} ${selectedStaff?.last_name}` :
                bookingStep === 'hair_options' ? 'Select hair details for your service' :
                bookingStep === 'datetime' ? `Selected: ${selectedStaff?.first_name} ${selectedStaff?.last_name} - ${getServiceNames()}` :
                'Complete your booking with GCash downpayment'}
             </Text>
-            
+
             {/* Step 1: Stylist Selection */}
             {bookingStep === 'stylist' && (
               <>
@@ -1440,20 +1329,17 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                     <Text className="text-gray-500 text-center mt-3">No stylists available</Text>
                   </View>
                 ) : (
-                  <ScrollView 
-                    showsVerticalScrollIndicator={false}
-                    className="mb-4"
-                  >
+                  <ScrollView showsVerticalScrollIndicator={false} className="mb-4">
                     <View className="flex-row flex-wrap justify-between">
                       {staff.map((staffMember) => {
                         const ratingData = getStaffRating(staffMember.id);
                         const { average, count } = ratingData;
                         const specialties = getStaffSpecialties(staffMember.id);
                         const profileImage = (staffMember as any).profile_image;
-                        
+
                         return (
-                          <TouchableOpacity 
-                            key={staffMember.id} 
+                          <TouchableOpacity
+                            key={staffMember.id}
                             className="w-[48%] mb-4"
                             onPress={() => handleStaffSelect(staffMember.id)}
                             activeOpacity={0.85}
@@ -1462,55 +1348,48 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                             <View className="bg-white rounded-2xl shadow-lg overflow-hidden" style={{ elevation: 4 }}>
                               <View className="relative">
                                 {profileImage ? (
-                                  <Image 
-                                    source={{ uri: profileImage }} 
-                                    className="w-full h-48"
-                                    resizeMode="cover"
-                                  />
+                                  <Image source={{ uri: profileImage }} className="w-full h-48" resizeMode="cover" />
                                 ) : (
-                                  <View className="w-full h-48 bg-gradient-to-br from-pink-400 to-pink-600 items-center justify-center">
+                                  // ✅ FIXED: solid pink fallback instead of gradient
+                                  <View
+                                    className="w-full h-48 items-center justify-center"
+                                    style={{ backgroundColor: '#ec4899' }}
+                                  >
                                     <Text className="text-white font-bold text-5xl">
                                       {staffMember.first_name?.charAt(0)}{staffMember.last_name?.charAt(0)}
                                     </Text>
                                   </View>
                                 )}
-                                
+
                                 {average > 0 && (
                                   <View className="absolute top-3 right-3 bg-black/70 backdrop-blur-sm rounded-full px-3 py-1.5 flex-row items-center">
                                     <Ionicons name="star" size={14} color="#fbbf24" />
                                     <Text className="text-white font-bold text-xs ml-1">
                                       {typeof average === 'number' && !isNaN(average) ? average.toFixed(1) : '0.0'}
                                     </Text>
-                                    <Text className="text-white/70 text-xs ml-1">
-                                      ({count})
-                                    </Text>
+                                    <Text className="text-white/70 text-xs ml-1">({count})</Text>
                                   </View>
                                 )}
-                                
+
                                 <View className="absolute bottom-3 left-3 bg-green-500 rounded-full px-3 py-1">
                                   <Text className="text-white text-xs font-semibold">Available</Text>
                                 </View>
                               </View>
-                              
+
                               <View className="p-3">
                                 <Text className="text-base font-bold text-gray-800" numberOfLines={1}>
                                   {staffMember.first_name} {staffMember.last_name}
                                 </Text>
-                                
-                                <Text className="text-gray-500 text-xs mt-1" numberOfLines={2}>
-                                  {specialties}
-                                </Text>
-                                
+                                <Text className="text-gray-500 text-xs mt-1" numberOfLines={2}>{specialties}</Text>
+
                                 <View className="flex-row items-center mt-2">
                                   <View className="flex-row">
-                                    {average > 0 ? (
-                                      renderStars(average)
-                                    ) : (
+                                    {average > 0 ? renderStars(average) : (
                                       <Text className="text-gray-400 text-xs">No ratings yet</Text>
                                     )}
                                   </View>
                                 </View>
-                                
+
                                 <View className="mt-3 pt-3 border-t border-gray-100">
                                   <View className="bg-pink-500 rounded-full py-2 items-center">
                                     <Text className="text-white font-semibold text-sm">Select Stylist</Text>
@@ -1526,7 +1405,7 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                 )}
               </>
             )}
-            
+
             {/* Step 2: Service Selection */}
             {bookingStep === 'services' && (
               <View className="bg-white rounded-2xl p-5 shadow-sm" style={{ elevation: 2 }}>
@@ -1535,9 +1414,7 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                   <Text className="text-lg font-bold text-gray-800">
                     {selectedStaff?.first_name} {selectedStaff?.last_name}
                   </Text>
-                  <Text className="text-gray-500 text-sm mt-1">
-                    {getStaffSpecialties(selectedStaffId)}
-                  </Text>
+                  <Text className="text-gray-500 text-sm mt-1">{getStaffSpecialties(selectedStaffId)}</Text>
                   <View className="flex-row items-center mt-2">
                     <View className="flex-row">
                       {(() => {
@@ -1561,7 +1438,7 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                 <Text className="text-gray-500 text-sm mb-4">
                   Select up to 2 services (must be multitaskable)
                 </Text>
-                
+
                 {servicesForStaff.length === 0 ? (
                   <View className="py-8 items-center">
                     <Ionicons name="alert-circle-outline" size={48} color="#d1d5db" />
@@ -1575,10 +1452,10 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                     const isMultitaskable = service.is_multitaskable === 1;
                     const requiresHairColor = service.reqHairColor === 1;
                     const hasPriceAdjustments = service.service_price_adjustments && service.service_price_adjustments.length > 0;
-                    
+
                     return (
-                      <TouchableOpacity 
-                        key={service.id} 
+                      <TouchableOpacity
+                        key={service.id}
                         className={`rounded-2xl p-4 mb-3 border-2 ${
                           isSelected ? 'border-pink-500 bg-pink-50' : 'border-gray-200 bg-white'
                         }`}
@@ -1590,11 +1467,9 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                           <View className={`w-6 h-6 rounded-full border-2 mr-3 mt-1 items-center justify-center ${
                             isSelected ? 'bg-pink-500 border-pink-500' : 'border-gray-300'
                           }`}>
-                            {isSelected && (
-                              <Ionicons name="checkmark" size={14} color="white" />
-                            )}
+                            {isSelected && <Ionicons name="checkmark" size={14} color="white" />}
                           </View>
-                          
+
                           <View className="flex-1">
                             <Text className="text-lg font-semibold text-gray-800">{service.service_name}</Text>
                             <Text className="text-gray-500 text-sm mt-1" numberOfLines={1}>
@@ -1631,7 +1506,7 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                     );
                   })
                 )}
-                
+
                 {selectedServiceIds.length > 0 && (
                   <View className="mt-4 p-3 bg-gray-50 rounded-xl">
                     <Text className="text-gray-600 text-sm">Selected: {getServiceNames()}</Text>
@@ -1643,6 +1518,9 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                       <Text className="text-gray-600 text-sm">Downpayment (50%):</Text>
                       <Text className="text-blue-500 font-bold text-lg">₱{downpaymentAmount.toLocaleString()}</Text>
                     </View>
+                    <Text className="text-gray-400 text-[10px] mt-1">
+                      Final price may change based on hair length & thickness adjustments.
+                    </Text>
                     {selectedServiceIds.length === 2 && !areServicesMultitaskable() && (
                       <Text className="text-red-500 text-xs mt-1">
                         ⚠️ Warning: Selected services may not be multitaskable
@@ -1655,8 +1533,8 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                     )}
                   </View>
                 )}
-                
-                <TouchableOpacity 
+
+                <TouchableOpacity
                   className="bg-pink-500 py-4 rounded-xl mt-6"
                   onPress={handleContinueToHairOptions}
                   disabled={selectedServiceIds.length === 0 || isProcessing}
@@ -1667,7 +1545,7 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                 </TouchableOpacity>
               </View>
             )}
-            
+
             {/* Step 3: Hair Options */}
             {bookingStep === 'hair_options' && (
               <View className="bg-white rounded-2xl p-5 shadow-sm" style={{ elevation: 2 }}>
@@ -1682,26 +1560,26 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                     <Text className="text-pink-500 font-bold">Base: ₱{getServicePrice().toLocaleString()}</Text>
                   </View>
                 </View>
-                
+
                 {(() => {
                   const hasPriceAdjustments = selectedServiceIds.some((id: number) => {
                     const adjustments = getPriceAdjustmentsForService(id);
                     return adjustments.length > 0;
                   });
-                  
+
                   const requiresHairColor = selectedServiceIds.some((id: number) => doesServiceRequireHairColor(id));
                   const hairLengthOptions = [
                     { value: 'short', label: 'Short' },
                     { value: 'medium', label: 'Medium' },
                     { value: 'long', label: 'Long' }
                   ];
-                  
+
                   const hairThicknessOptions = [
                     { value: 'thin', label: 'Thin' },
                     { value: 'medium', label: 'Medium' },
                     { value: 'thick', label: 'Thick' }
                   ];
-                  
+
                   return (
                     <>
                       {hasPriceAdjustments && (
@@ -1710,53 +1588,41 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                           <Text className="text-gray-500 text-sm mb-4">
                             Select your hair length and thickness to determine the final price.
                           </Text>
-                          
+
                           <Text className="text-gray-700 font-semibold text-sm mb-2">Hair Length</Text>
                           <View className="flex-row flex-wrap gap-2 mb-4">
-                            {hairLengthOptions.map((option: { value: string; label: string }) => (
+                            {hairLengthOptions.map((option) => (
                               <TouchableOpacity
                                 key={option.value}
                                 className={`px-4 py-2 rounded-xl border-2 ${
-                                  selectedHairLength === option.value
-                                    ? 'border-pink-500 bg-pink-50'
-                                    : 'border-gray-200 bg-white'
+                                  selectedHairLength === option.value ? 'border-pink-500 bg-pink-50' : 'border-gray-200 bg-white'
                                 }`}
                                 onPress={() => setSelectedHairLength(option.value)}
                               >
-                                <Text className={`${
-                                  selectedHairLength === option.value
-                                    ? 'text-pink-600 font-semibold'
-                                    : 'text-gray-700'
-                                }`}>
+                                <Text className={`${selectedHairLength === option.value ? 'text-pink-600 font-semibold' : 'text-gray-700'}`}>
                                   {option.label}
                                 </Text>
                               </TouchableOpacity>
                             ))}
                           </View>
-                          
+
                           <Text className="text-gray-700 font-semibold text-sm mb-2">Hair Thickness</Text>
                           <View className="flex-row flex-wrap gap-2 mb-4">
-                            {hairThicknessOptions.map((option: { value: string; label: string }) => (
+                            {hairThicknessOptions.map((option) => (
                               <TouchableOpacity
                                 key={option.value}
                                 className={`px-4 py-2 rounded-xl border-2 ${
-                                  selectedHairThickness === option.value
-                                    ? 'border-pink-500 bg-pink-50'
-                                    : 'border-gray-200 bg-white'
+                                  selectedHairThickness === option.value ? 'border-pink-500 bg-pink-50' : 'border-gray-200 bg-white'
                                 }`}
                                 onPress={() => setSelectedHairThickness(option.value)}
                               >
-                                <Text className={`${
-                                  selectedHairThickness === option.value
-                                    ? 'text-pink-600 font-semibold'
-                                    : 'text-gray-700'
-                                }`}>
+                                <Text className={`${selectedHairThickness === option.value ? 'text-pink-600 font-semibold' : 'text-gray-700'}`}>
                                   {option.label}
                                 </Text>
                               </TouchableOpacity>
                             ))}
                           </View>
-                          
+
                           {selectedHairLength && selectedHairThickness && (
                             <View className="bg-blue-50 rounded-xl p-3 mb-4">
                               <Text className="text-gray-600 text-sm">Price Preview</Text>
@@ -1785,14 +1651,14 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                           )}
                         </>
                       )}
-                      
+
                       {requiresHairColor && (
                         <>
                           <Text className="text-lg font-semibold text-gray-800 mb-2">Select Hair Color</Text>
                           <Text className="text-gray-500 text-sm mb-4">
                             Choose your preferred hair color for the service.
                           </Text>
-                          
+
                           {availableHairColors.length === 0 ? (
                             <View className="bg-yellow-50 rounded-xl p-4 mb-4">
                               <Text className="text-yellow-700 text-sm text-center">
@@ -1805,21 +1671,12 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                                 <TouchableOpacity
                                   key={color.id}
                                   className={`px-4 py-2 rounded-xl border-2 flex-row items-center ${
-                                    selectedHairColor === color.id
-                                      ? 'border-pink-500 bg-pink-50'
-                                      : 'border-gray-200 bg-white'
+                                    selectedHairColor === color.id ? 'border-pink-500 bg-pink-50' : 'border-gray-200 bg-white'
                                   }`}
                                   onPress={() => setSelectedHairColor(color.id)}
                                 >
-                                  <View 
-                                    className="w-4 h-4 rounded-full mr-2"
-                                    style={{ backgroundColor: color.color_code }}
-                                  />
-                                  <Text className={`${
-                                    selectedHairColor === color.id
-                                      ? 'text-pink-600 font-semibold'
-                                      : 'text-gray-700'
-                                  }`}>
+                                  <View className="w-4 h-4 rounded-full mr-2" style={{ backgroundColor: color.color_code }} />
+                                  <Text className={`${selectedHairColor === color.id ? 'text-pink-600 font-semibold' : 'text-gray-700'}`}>
                                     {color.color_name}
                                   </Text>
                                 </TouchableOpacity>
@@ -1831,8 +1688,8 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                     </>
                   );
                 })()}
-                
-                <TouchableOpacity 
+
+                <TouchableOpacity
                   className="bg-pink-500 py-4 rounded-xl mt-4"
                   onPress={handleContinueToDateTime}
                   disabled={isProcessing}
@@ -1843,7 +1700,7 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                 </TouchableOpacity>
               </View>
             )}
-            
+
             {/* Step 4: Calendar + Time Selection */}
             {bookingStep === 'datetime' && (
               <View className="bg-white rounded-2xl p-5 shadow-sm" style={{ elevation: 2 }}>
@@ -1862,8 +1719,7 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                     </Text>
                   )}
                 </View>
-                
-                {/* Legend */}
+
                 <View className="flex-row justify-around mb-4 pb-3 border-b border-gray-100">
                   <View className="flex-row items-center gap-1">
                     <View className="w-3 h-3 rounded-full bg-green-500" />
@@ -1878,8 +1734,7 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                     <Text className="text-xs text-gray-600">No Schedule</Text>
                   </View>
                 </View>
-                
-                {/* Calendar Header */}
+
                 <View className="flex-row justify-between items-center mb-4">
                   <TouchableOpacity onPress={() => changeMonth(-1)} className="p-2">
                     <Ionicons name="chevron-back" size={24} color="#ec4899" />
@@ -1892,7 +1747,6 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                   </TouchableOpacity>
                 </View>
 
-                {/* Week Days Header */}
                 <View className="flex-row mb-2">
                   {weekDays.map((day, index) => (
                     <View key={index} className="flex-1 items-center py-2">
@@ -1901,26 +1755,23 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                   ))}
                 </View>
 
-                {/* Calendar Grid */}
                 <View className="flex-row flex-wrap">
                   {getDaysInMonth(currentMonth).map((date, index) => {
-                    if (!date) {
-                      return <View key={`empty-${index}`} className="w-[14.28%] aspect-square p-1" />;
-                    }
-                    
+                    if (!date) return <View key={`empty-${index}`} className="w-[14.28%] aspect-square p-1" />;
+
                     const dateUTC = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
                     const todayUTC = new Date(Date.UTC(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()));
-                    const isSelected = selectedDate && 
+                    const isSelected = selectedDate &&
                       dateUTC.getTime() === new Date(Date.UTC(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate())).getTime();
                     const isTodayDate = dateUTC.getTime() === todayUTC.getTime();
                     const isPast = dateUTC < todayUTC;
                     const scheduleStatus = getScheduleStatus(date);
                     const isStaffAvailable = selectedStaffId ? isStaffAvailableOnDate(selectedStaffId, date) : false;
                     const isBookable = isDateBookable(date) && isStaffAvailable;
-                    
+
                     let cellBgColor = 'bg-gray-50';
                     let indicatorColor = null;
-                    
+
                     if (!isPast) {
                       if (isBookable) {
                         cellBgColor = 'bg-green-50';
@@ -1935,9 +1786,9 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                     } else {
                       cellBgColor = 'bg-gray-100';
                     }
-                    
+
                     const dayNumber = date.getUTCDate();
-                    
+
                     return (
                       <TouchableOpacity
                         key={date.toISOString()}
@@ -1947,9 +1798,9 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                       >
                         <View className={`flex-1 items-center justify-center rounded-full ${cellBgColor} ${isSelected ? 'ring-2 ring-pink-500' : ''}`}>
                           <Text className={`text-sm ${
-                            isSelected ? 'text-pink-600 font-bold' : 
-                            isTodayDate ? 'text-pink-600 font-semibold' : 
-                            isPast ? 'text-gray-400' : 
+                            isSelected ? 'text-pink-600 font-bold' :
+                            isTodayDate ? 'text-pink-600 font-semibold' :
+                            isPast ? 'text-gray-400' :
                             isBookable ? 'text-green-700' :
                             scheduleStatus.status === 'closed' ? 'text-red-700' :
                             'text-gray-500'
@@ -1968,7 +1819,6 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                   })}
                 </View>
 
-                {/* Selected Date Display */}
                 {selectedDate && (
                   <View className="mt-6 p-4 bg-gray-50 rounded-xl">
                     <Text className="text-gray-600 text-sm">Selected Date</Text>
@@ -1981,17 +1831,14 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                         <Text className="text-pink-600 font-semibold ml-1">
                           {selectedTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
                         </Text>
-                        <Text className="text-gray-400 text-xs ml-2">
-                          ({totalDuration} min duration)
-                        </Text>
+                        <Text className="text-gray-400 text-xs ml-2">({totalDuration} min duration)</Text>
                       </View>
                     )}
                   </View>
                 )}
 
-                {/* Change Time Button */}
                 {selectedDate && (
-                  <TouchableOpacity 
+                  <TouchableOpacity
                     className="flex-row items-center justify-center py-3 mt-3 border border-pink-500 rounded-xl"
                     onPress={() => {
                       setSelectedDateForModal(selectedDate);
@@ -2002,12 +1849,10 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                     <Text className="text-pink-500 font-semibold ml-2">Change Time</Text>
                   </TouchableOpacity>
                 )}
-                
-                <TouchableOpacity 
+
+                <TouchableOpacity
                   className="bg-pink-500 py-4 rounded-xl mt-4"
-                  onPress={() => {
-                    setBookingStep('payment');
-                  }}
+                  onPress={() => setBookingStep('payment')}
                   disabled={!selectedDate || isProcessing}
                 >
                   <Text className="text-white text-center font-semibold text-lg">
@@ -2016,7 +1861,7 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                 </TouchableOpacity>
               </View>
             )}
-            
+
             {/* Step 5: Payment */}
             {bookingStep === 'payment' && (
               <View className="bg-white rounded-2xl p-5 shadow-sm" style={{ elevation: 2 }}>
@@ -2055,22 +1900,16 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                   </View>
                 </View>
 
-                {/* QR Code Display */}
                 <View className="items-center mb-4">
                   <Text className="text-gray-700 font-semibold text-base mb-2">Scan to Pay with GCash</Text>
                   <View className="bg-white rounded-xl p-3 border-2 border-pink-200 shadow-md">
-                    <Image 
-                      source={qrCodeImage}
-                      className="w-40 h-40"
-                      resizeMode="contain"
-                    />
+                    <Image source={qrCodeImage} className="w-40 h-40" resizeMode="contain" />
                   </View>
                   <Text className="text-gray-500 text-sm mt-2 text-center">
                     Amount to pay: <Text className="font-bold text-blue-600">₱{downpaymentAmount.toLocaleString()}</Text>
                   </Text>
                 </View>
 
-                {/* Instructions */}
                 <View className="bg-blue-50 rounded-xl p-3 mb-4">
                   <Text className="text-blue-800 font-semibold text-sm mb-1">📋 How to Pay:</Text>
                   <View className="space-y-1">
@@ -2082,9 +1921,8 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                   </View>
                 </View>
 
-                {/* Payment Method Selection */}
                 <Text className="text-gray-700 font-semibold text-sm mb-2">Payment Method</Text>
-                <TouchableOpacity 
+                <TouchableOpacity
                   className={`flex-row items-center justify-between p-3 rounded-xl mb-4 border-2 ${
                     selectedPaymentMethod === 'gcash' ? 'border-pink-500 bg-pink-50' : 'border-gray-200 bg-white'
                   }`}
@@ -2103,20 +1941,17 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                   <View className={`w-5 h-5 rounded-full border-2 items-center justify-center ${
                     selectedPaymentMethod === 'gcash' ? 'bg-pink-500 border-pink-500' : 'border-gray-300'
                   }`}>
-                    {selectedPaymentMethod === 'gcash' && (
-                      <Ionicons name="checkmark" size={12} color="white" />
-                    )}
+                    {selectedPaymentMethod === 'gcash' && <Ionicons name="checkmark" size={12} color="white" />}
                   </View>
                 </TouchableOpacity>
 
-                {/* Upload Payment Proof */}
                 <View className="mb-4">
                   <Text className="text-gray-700 font-semibold text-sm mb-2">Upload Payment Proof</Text>
                   <Text className="text-gray-500 text-xs mb-2">
                     Take a screenshot of your GCash payment receipt and upload it here
                   </Text>
-                  
-                  <TouchableOpacity 
+
+                  <TouchableOpacity
                     className="flex-row items-center justify-center p-4 border-2 border-dashed border-pink-300 rounded-xl bg-pink-50"
                     onPress={pickImageFromGallery}
                     disabled={isProcessing}
@@ -2126,25 +1961,17 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                       {paymentProof ? 'Receipt Uploaded ✓' : 'Tap to Upload Receipt'}
                     </Text>
                   </TouchableOpacity>
-                  
+
                   {paymentProof && (
                     <View className="mt-2">
-                      <Image 
-                        source={{ uri: paymentProof.uri }} 
-                        className="w-full h-48 rounded-xl"
-                        resizeMode="cover"
-                      />
-                      <TouchableOpacity 
-                        className="mt-1 self-end"
-                        onPress={() => setPaymentProof(null)}
-                      >
+                      <Image source={{ uri: paymentProof.uri }} className="w-full h-48 rounded-xl" resizeMode="cover" />
+                      <TouchableOpacity className="mt-1 self-end" onPress={() => setPaymentProof(null)}>
                         <Text className="text-red-500 text-xs font-semibold">Remove</Text>
                       </TouchableOpacity>
                     </View>
                   )}
                 </View>
 
-                {/* Info Box */}
                 <View className="bg-yellow-50 rounded-xl p-3 mb-4 border border-yellow-200">
                   <View className="flex-row items-start gap-2">
                     <Ionicons name="information-circle-outline" size={16} color="#eab308" />
@@ -2155,8 +1982,7 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                   </View>
                 </View>
 
-                {/* Confirm Button */}
-                <TouchableOpacity 
+                <TouchableOpacity
                   className={`py-4 rounded-xl ${(!selectedPaymentMethod || !paymentProof) ? 'bg-gray-400' : 'bg-pink-500'}`}
                   onPress={handleConfirmBooking}
                   disabled={!selectedPaymentMethod || !paymentProof || isProcessing}

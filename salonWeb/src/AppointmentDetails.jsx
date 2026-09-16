@@ -9,7 +9,9 @@ import {
 } from 'lucide-react';
 import api from '../api/axios';
 
-// Toast notification component
+// ─────────────────────────────────────────────────────────────
+// Toast
+// ─────────────────────────────────────────────────────────────
 const Toast = ({ message, type, onClose }) => {
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -37,7 +39,9 @@ const Toast = ({ message, type, onClose }) => {
   );
 };
 
-// Cancel/Refund Modal - Extracted outside to prevent re-renders
+// ─────────────────────────────────────────────────────────────
+// Cancel/Refund Modal
+// ─────────────────────────────────────────────────────────────
 const CancelModal = ({ 
   showCancelModal, 
   cancelFormData, 
@@ -177,13 +181,17 @@ const CancelModal = ({
   );
 };
 
-// Payment Proof Modal - Extracted outside to prevent re-renders
+// ─────────────────────────────────────────────────────────────
+// Payment Proof Modal
+// ─────────────────────────────────────────────────────────────
 const PaymentProofModal = ({ selectedPaymentData, setSelectedPaymentData, setShowPaymentProofModal }) => {
   if (!selectedPaymentData) return null;
   
   const { payment_method, payment_proof, billing } = selectedPaymentData;
   const appointment_id = billing?.appointment_id || 'N/A';
   const total_amount = billing?.total_amount || '0.00';
+  const paid_amount = billing?.paid_amount || '0.00';
+  const balance = billing?.balance || '0.00';
   const payment_type = billing?.payment_type || 'N/A';
   
   const proofUrl = payment_proof ? `http://192.168.100.73:8000${payment_proof}` : null;
@@ -226,6 +234,34 @@ const PaymentProofModal = ({ selectedPaymentData, setSelectedPaymentData, setSho
                 <p className="text-sm font-semibold text-gray-800">{payment_method || 'N/A'}</p>
               </div>
             </div>
+
+            {/* ✅ Show paid / balance from the billing row */}
+            <div className="grid grid-cols-3 gap-4 mt-3 pt-3 border-t border-gray-200">
+              <div>
+                <p className="text-xs text-gray-500">Paid</p>
+                <p className="text-sm font-semibold text-green-600">
+                  ₱{parseFloat(paid_amount).toLocaleString()}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">Balance</p>
+                <p className="text-sm font-semibold text-orange-600">
+                  ₱{parseFloat(balance).toLocaleString()}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">Status</p>
+                <p className="text-sm font-semibold">
+                  {parseFloat(balance) <= 0 ? (
+                    <span className="text-green-600">Paid in Full</span>
+                  ) : parseFloat(paid_amount) > 0 ? (
+                    <span className="text-yellow-600">Partial</span>
+                  ) : (
+                    <span className="text-red-600">Unpaid</span>
+                  )}
+                </p>
+              </div>
+            </div>
           </div>
 
           {proofUrl ? (
@@ -243,7 +279,6 @@ const PaymentProofModal = ({ selectedPaymentData, setSelectedPaymentData, setSho
                     if (parent) {
                       parent.innerHTML = `
                         <div class="flex flex-col items-center justify-center p-8">
-                          <FileText size={48} class="text-gray-400 mb-2" />
                           <p class="text-gray-500 text-sm">Failed to load image</p>
                           <p class="text-gray-400 text-xs mt-1 break-all">${proofUrl}</p>
                         </div>
@@ -275,7 +310,9 @@ const PaymentProofModal = ({ selectedPaymentData, setSelectedPaymentData, setSho
   );
 };
 
-// Reschedule Modal - Extracted outside to prevent re-renders
+// ─────────────────────────────────────────────────────────────
+// Reschedule Modal
+// ─────────────────────────────────────────────────────────────
 const RescheduleModal = ({ 
   showRescheduleModal, 
   rescheduleFormData, 
@@ -396,6 +433,9 @@ const RescheduleModal = ({
   );
 };
 
+// ─────────────────────────────────────────────────────────────
+// Main Component
+// ─────────────────────────────────────────────────────────────
 const AppointmentDetails = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -444,7 +484,7 @@ const AppointmentDetails = () => {
     setToast(null);
   };
 
-  // Fetch future open schedule dates
+  // ── Fetch future open schedule dates ──
   const fetchOpenScheduleDates = async () => {
     setIsLoadingDates(true);
     try {
@@ -468,7 +508,7 @@ const AppointmentDetails = () => {
     }
   };
 
-  // Fetch all appointments from /all-appointments
+  // ── Fetch all appointments ──
   const fetchAllAppointments = async () => {
     setIsLoading(true);
     try {
@@ -476,7 +516,6 @@ const AppointmentDetails = () => {
       console.log('All appointments:', response.data);
       
       if (Array.isArray(response.data)) {
-        // Group transactions by appointment_id
         const appointmentMap = new Map();
         
         response.data.forEach((transaction) => {
@@ -494,11 +533,16 @@ const AppointmentDetails = () => {
               status: transaction.status || 'pending',
               assigned_employee_id: transaction.assigned_employee_id,
               services: [],
-              total_price: 0,
+              total_price: 0,             // base sum (kept for fallback)
               total_duration: 0,
               service_names: [],
               created_at: transaction.created_at,
-              updated_at: transaction.updated_at
+              updated_at: transaction.updated_at,
+              // ✅ Billing fields from the backend
+              billing_total_amount: transaction.billing_total_amount ?? null,
+              billing_paid_amount: transaction.billing_paid_amount ?? null,
+              billing_balance: transaction.billing_balance ?? null,
+              billing_payment_type: transaction.billing_payment_type ?? null,
             });
           }
           
@@ -522,6 +566,12 @@ const AppointmentDetails = () => {
           if (appointment.assigned_employee_id) {
             staffName = `Staff ID: ${appointment.assigned_employee_id}`;
           }
+
+          // ✅ Prefer the billing total when available
+          const billingTotal = appointment.billing_total_amount != null && appointment.billing_total_amount > 0
+            ? appointment.billing_total_amount
+            : null;
+          const grandTotal = billingTotal ?? appointment.total_price;
           
           return {
             id: appointment.id,
@@ -536,11 +586,17 @@ const AppointmentDetails = () => {
             staff_name: staffName,
             services: appointment.services,
             service_names: appointment.service_names,
-            total_price: appointment.total_price,
+            base_price: appointment.total_price,          // base sum, unchanged
+            total_price: grandTotal,                       // ✅ grand total (for display)
             total_duration: appointment.total_duration,
             service_name: appointment.service_names.join(' + ') || 'No Service',
             duration_minutes: appointment.total_duration,
-            price: appointment.total_price.toString(),
+            price: grandTotal.toString(),
+            // ✅ Billing fields for the detail view
+            billing_total_amount: appointment.billing_total_amount,
+            billing_paid_amount: appointment.billing_paid_amount,
+            billing_balance: appointment.billing_balance,
+            billing_payment_type: appointment.billing_payment_type,
             created_at: appointment.created_at,
             updated_at: appointment.updated_at
           };
@@ -548,7 +604,6 @@ const AppointmentDetails = () => {
         
         setAppointments(groupedAppointments);
         
-        // Check for date query parameter
         const queryParams = new URLSearchParams(location.search);
         const dateParam = queryParams.get('date');
         
@@ -560,10 +615,8 @@ const AppointmentDetails = () => {
           setSelectedDate(null);
         }
         
-        // Check if we're on the list view route or detail view
         const isListView = window.location.pathname === '/dashboard/appointments/list';
         
-        // If there's an ID in the URL and we're not on the list view, load that appointment
         if (id && !isListView) {
           const found = groupedAppointments.find(a => a.id === parseInt(id));
           if (found) {
@@ -585,7 +638,7 @@ const AppointmentDetails = () => {
     }
   };
 
-  // Fetch appointment details from /appointment/{id}
+  // ── Fetch single appointment details ──
   const fetchAppointmentDetail = async (appointmentId) => {
     setIsLoadingDetail(true);
     try {
@@ -608,7 +661,7 @@ const AppointmentDetails = () => {
     }
   };
 
-  // Fetch payment details for cancellation
+  // ── Fetch payment details for cancellation ──
   const fetchPaymentDetails = async (appointmentId) => {
     try {
       const response = await api.get(`/appointment/payment-details/${appointmentId}`);
@@ -621,7 +674,7 @@ const AppointmentDetails = () => {
     }
   };
 
-  // Fetch payment proof
+  // ── Fetch payment proof ──
   const fetchPaymentProof = async (appointmentId) => {
     try {
       const response = await api.get(`/appointment/payment?appointment_id=${appointmentId}`);
@@ -645,9 +698,8 @@ const AppointmentDetails = () => {
     }
   };
 
-  // Update appointment status (Approve/Confirm)
+  // ── Update appointment status ──
   const handleUpdateStatus = async (appointmentId, newStatus) => {
-    // If cancelling, open the cancel modal instead
     if (newStatus === 'cancelled') {
       await handleOpenCancelModal(appointmentId);
       return;
@@ -662,7 +714,6 @@ const AppointmentDetails = () => {
       console.log('Appointment status updated:', response.data);
       showToast(`Appointment ${newStatus === 'confirmed' ? 'confirmed' : 'updated'} successfully!`, 'success');
       
-      // Refresh data
       await fetchAllAppointments();
       if (selectedAppointment) {
         await fetchAppointmentDetail(appointmentId);
@@ -676,7 +727,7 @@ const AppointmentDetails = () => {
     }
   };
 
-  // Open cancel modal
+  // ── Open cancel modal ──
   const handleOpenCancelModal = async (appointmentId) => {
     try {
       const paymentData = await fetchPaymentDetails(appointmentId);
@@ -686,14 +737,18 @@ const AppointmentDetails = () => {
         return;
       }
       
-      const refundAmount = paymentData.billing?.total_amount || 0;
+      // ✅ Refund only the amount actually paid, not the grand total
+      const billing = paymentData.billing || {};
+      const paidAmount = parseFloat(billing.paid_amount ?? 0);
+      const grandTotal = parseFloat(billing.total_amount ?? 0);
+      const refundAmount = paidAmount > 0 ? paidAmount : (grandTotal / 2);
       
       setCancelFormData({
         appointment_id: appointmentId,
         payment_id: paymentData.id,
         cancellation_reason: '',
         refund_method: 'cash',
-        refund_amount: parseFloat(refundAmount)
+        refund_amount: refundAmount
       });
       
       setShowCancelModal(true);
@@ -703,7 +758,7 @@ const AppointmentDetails = () => {
     }
   };
 
-  // Cancel appointment with refund
+  // ── Cancel with refund ──
   const handleCancelWithRefund = async (e) => {
     e.preventDefault();
     
@@ -750,7 +805,7 @@ const AppointmentDetails = () => {
     }
   };
 
-  // Reschedule functions
+  // ── Reschedule ──
   const handleReschedule = async (e) => {
     e.preventDefault();
     
@@ -798,10 +853,8 @@ const AppointmentDetails = () => {
   };
 
   const handleOpenRescheduleModal = async () => {
-    // Fetch open schedule dates before opening modal
     await fetchOpenScheduleDates();
     
-    // Pre-fill with current appointment data
     setRescheduleFormData({
       appointment_date: selectedAppointment?.appointment_date || '',
       appointment_time: selectedAppointment?.appointment_time ? selectedAppointment.appointment_time.slice(0, 5) : ''
@@ -819,7 +872,7 @@ const AppointmentDetails = () => {
     });
   };
 
-  // Format helpers
+  // ── Formatting helpers ──
   const formatTime = (time) => {
     if (!time) return 'TBA';
     const timeParts = time.split(':');
@@ -870,7 +923,6 @@ const AppointmentDetails = () => {
     return statusMap[status] || { label: status, color: 'bg-gray-100 text-gray-700' };
   };
 
-  // Go back to list (preserving the date filter if it exists)
   const goBackToList = () => {
     setSelectedAppointment(null);
     setShowAppointmentDetail(false);
@@ -883,14 +935,12 @@ const AppointmentDetails = () => {
     }
   };
 
-  // Clear date filter
   const clearDateFilter = () => {
     setIsDateFiltered(false);
     setSelectedDate(null);
     navigate('/dashboard/appointments/list');
   };
 
-  // Filter appointments by date if a date is selected
   const getFilteredAppointments = () => {
     if (isDateFiltered && selectedDate) {
       return appointments.filter(app => app.appointment_date === selectedDate);
@@ -898,7 +948,6 @@ const AppointmentDetails = () => {
     return appointments;
   };
 
-  // Filter appointments based on search and status
   const filteredAppointments = getFilteredAppointments().filter(app => {
     if (selectedStatus !== 'all' && app.status !== selectedStatus) return false;
     if (searchTerm && !app.customer_name?.toLowerCase().includes(searchTerm.toLowerCase())) return false;
@@ -909,7 +958,7 @@ const AppointmentDetails = () => {
     fetchAllAppointments();
   }, [location.search]);
 
-  // Loading State
+  // ── Loading state ──
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -921,7 +970,7 @@ const AppointmentDetails = () => {
     );
   }
 
-  // Error State
+  // ── Error state ──
   if (error) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -942,7 +991,7 @@ const AppointmentDetails = () => {
     );
   }
 
-  // Show appointment detail view
+  // ── Detail view ──
   if (showAppointmentDetail && selectedAppointment) {
     const statusBadge = getStatusBadge(selectedAppointment.status);
     const isPending = selectedAppointment.status === 'pending';
@@ -950,15 +999,21 @@ const AppointmentDetails = () => {
     const isMultipleServices = selectedAppointment.services && selectedAppointment.services.length > 1;
     const services = selectedAppointment.services || [];
 
+    // ✅ Billing values
+    const basePriceSum = selectedAppointment.base_price ?? services.reduce(
+      (sum, s) => sum + (parseFloat(s.price) || 0), 0
+    );
+    const grandTotal = selectedAppointment.billing_total_amount
+      ?? selectedAppointment.total_price
+      ?? basePriceSum;
+    const paidAmount = selectedAppointment.billing_paid_amount ?? (grandTotal / 2);
+    const balance = selectedAppointment.billing_balance ?? (grandTotal - paidAmount);
+    const hasAdjustments = grandTotal > basePriceSum + 0.01;
+
     return (
       <div className="space-y-6">
-        {/* Toast Notification */}
         {toast && (
-          <Toast 
-            message={toast.message} 
-            type={toast.type} 
-            onClose={hideToast} 
-          />
+          <Toast message={toast.message} type={toast.type} onClose={hideToast} />
         )}
 
         {/* Header */}
@@ -1023,17 +1078,38 @@ const AppointmentDetails = () => {
                         <p className="text-sm font-medium text-gray-800">{service.service_name}</p>
                         <p className="text-xs text-gray-500">{service.duration_minutes} mins</p>
                       </div>
-                      <p className="text-sm font-semibold text-pink-600">
+                      <p className="text-sm font-semibold text-gray-700">
                         ₱{parseFloat(service.price).toLocaleString()}
                       </p>
                     </div>
                   ))}
+
+                  {/* Subtotal (base price sum) */}
                   <div className="flex items-center justify-between pt-3 border-t border-gray-200">
-                    <p className="text-sm font-semibold text-gray-800">Total</p>
-                    <p className="text-lg font-bold text-pink-600">
-                      ₱{selectedAppointment.total_price.toLocaleString()}
+                    <p className="text-sm font-medium text-gray-600">Subtotal (Base Price)</p>
+                    <p className="text-sm font-semibold text-gray-700">
+                      ₱{basePriceSum.toLocaleString()}
                     </p>
                   </div>
+
+                  {/* ✅ Show adjustment line if there's a difference */}
+                  {hasAdjustments && (
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-medium text-purple-600">Hair Adjustments</p>
+                      <p className="text-sm font-semibold text-purple-600">
+                        +₱{(grandTotal - basePriceSum).toLocaleString()}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* ✅ Grand total */}
+                  <div className="flex items-center justify-between pt-2 border-t-2 border-pink-200">
+                    <p className="text-base font-bold text-gray-800">Grand Total</p>
+                    <p className="text-xl font-bold text-pink-600">
+                      ₱{grandTotal.toLocaleString()}
+                    </p>
+                  </div>
+
                   <div className="flex items-center justify-between">
                     <p className="text-sm text-gray-500">Total Duration</p>
                     <p className="text-sm font-medium text-gray-700">{selectedAppointment.total_duration} mins</p>
@@ -1043,7 +1119,7 @@ const AppointmentDetails = () => {
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <p className="text-sm font-medium text-gray-800">{selectedAppointment.service_name}</p>
-                    <p className="text-sm font-semibold text-pink-600">
+                    <p className="text-sm font-semibold text-gray-700">
                       ₱{parseFloat(selectedAppointment.price || '0').toLocaleString()}
                     </p>
                   </div>
@@ -1051,8 +1127,54 @@ const AppointmentDetails = () => {
                     <p className="text-sm text-gray-500">Duration</p>
                     <p className="text-sm font-medium text-gray-700">{selectedAppointment.duration_minutes} mins</p>
                   </div>
+                  <div className="flex items-center justify-between pt-2 border-t border-gray-200">
+                    <p className="text-base font-bold text-gray-800">Total</p>
+                    <p className="text-lg font-bold text-pink-600">
+                      ₱{grandTotal.toLocaleString()}
+                    </p>
+                  </div>
                 </div>
               )}
+            </div>
+
+            {/* ✅ Payment Summary Card */}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+              <h2 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                <DollarSign size={20} className="text-pink-500" />
+                Payment Summary
+              </h2>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between py-2 border-b border-gray-100">
+                  <span className="text-sm text-gray-600">Total Amount</span>
+                  <span className="text-sm font-bold text-gray-800">
+                    ₱{grandTotal.toLocaleString()}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between py-2 border-b border-gray-100">
+                  <span className="text-sm text-gray-600">Amount Paid</span>
+                  <span className="text-sm font-semibold text-green-600">
+                    ₱{paidAmount.toLocaleString()}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between py-2 border-b border-gray-100">
+                  <span className="text-sm text-gray-600">Remaining Balance</span>
+                  <span className={`text-sm font-semibold ${balance > 0 ? 'text-orange-600' : 'text-green-600'}`}>
+                    {balance > 0 ? `₱${balance.toLocaleString()}` : 'Paid in Full'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between py-2">
+                  <span className="text-sm text-gray-600">Payment Status</span>
+                  <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${
+                    balance <= 0
+                      ? 'bg-green-100 text-green-700'
+                      : paidAmount > 0
+                        ? 'bg-yellow-100 text-yellow-700'
+                        : 'bg-red-100 text-red-700'
+                  }`}>
+                    {balance <= 0 ? 'Paid in Full' : paidAmount > 0 ? 'Partial' : 'Unpaid'}
+                  </span>
+                </div>
+              </div>
             </div>
 
             {/* Appointment Details */}
@@ -1089,7 +1211,6 @@ const AppointmentDetails = () => {
 
           {/* Right Column - Actions */}
           <div className="space-y-6">
-            {/* Actions Card */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
               <h2 className="text-lg font-semibold text-gray-800 mb-4">Actions</h2>
               
@@ -1168,7 +1289,19 @@ const AppointmentDetails = () => {
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-gray-500">Total Amount</span>
                   <span className="text-sm font-bold text-pink-600">
-                    ₱{selectedAppointment.total_price.toLocaleString()}
+                    ₱{grandTotal.toLocaleString()}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-gray-500">Paid</span>
+                  <span className="text-sm font-semibold text-green-600">
+                    ₱{paidAmount.toLocaleString()}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-gray-500">Balance</span>
+                  <span className={`text-sm font-semibold ${balance > 0 ? 'text-orange-600' : 'text-green-600'}`}>
+                    ₱{balance.toLocaleString()}
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
@@ -1179,18 +1312,11 @@ const AppointmentDetails = () => {
                   <span className="text-xs text-gray-500">Staff Assigned</span>
                   <span className="text-sm font-medium text-gray-700">{selectedAppointment.staff_name || 'None'}</span>
                 </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-gray-500">Status</span>
-                  <span className={`text-sm font-medium ${getStatusColor(selectedAppointment.status)}`}>
-                    {selectedAppointment.status?.charAt(0).toUpperCase() + selectedAppointment.status?.slice(1)}
-                  </span>
-                </div>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Modals - Using extracted components */}
         <PaymentProofModal 
           selectedPaymentData={selectedPaymentData}
           setSelectedPaymentData={setSelectedPaymentData}
@@ -1221,18 +1347,13 @@ const AppointmentDetails = () => {
     );
   }
 
-  // Show list view as cards
+  // ── List view ──
   return (
     <div className="space-y-6">
       {toast && (
-        <Toast 
-          message={toast.message} 
-          type={toast.type} 
-          onClose={hideToast} 
-        />
+        <Toast message={toast.message} type={toast.type} onClose={hideToast} />
       )}
 
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-800">
@@ -1264,7 +1385,6 @@ const AppointmentDetails = () => {
         </div>
       </div>
 
-      {/* Stats Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
           <p className="text-xs text-gray-500">Total</p>
@@ -1284,7 +1404,6 @@ const AppointmentDetails = () => {
         </div>
       </div>
 
-      {/* Controls */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div className="flex flex-wrap gap-3">
           <div className="relative">
@@ -1312,7 +1431,6 @@ const AppointmentDetails = () => {
         </div>
       </div>
 
-      {/* Appointments as Cards */}
       {filteredAppointments.length === 0 ? (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 text-center">
           <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
@@ -1330,13 +1448,15 @@ const AppointmentDetails = () => {
           {filteredAppointments.map((appointment) => {
             const isMultipleServices = appointment.services && appointment.services.length > 1;
             const statusBadge = getStatusBadge(appointment.status);
-            
+            const grandTotal = appointment.billing_total_amount ?? appointment.total_price ?? 0;
+            const paidAmount = appointment.billing_paid_amount ?? (grandTotal / 2);
+            const balance = appointment.billing_balance ?? (grandTotal - paidAmount);
+
             return (
               <div 
                 key={appointment.id}
                 className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 border border-gray-100 overflow-hidden"
               >
-                {/* Card Header */}
                 <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <div className="w-8 h-8 bg-gradient-to-br from-pink-100 to-pink-200 rounded-full flex items-center justify-center">
@@ -1354,9 +1474,7 @@ const AppointmentDetails = () => {
                   </span>
                 </div>
 
-                {/* Card Body */}
                 <div className="px-4 py-3 space-y-2">
-                  {/* Services */}
                   <div>
                     <p className="text-xs text-gray-500">Services</p>
                     {isMultipleServices ? (
@@ -1377,7 +1495,6 @@ const AppointmentDetails = () => {
                     )}
                   </div>
 
-                  {/* Date & Time */}
                   <div className="flex items-center gap-4 text-sm">
                     <div className="flex items-center gap-1 text-gray-600">
                       <CalendarIcon size={14} className="text-gray-400" />
@@ -1389,16 +1506,23 @@ const AppointmentDetails = () => {
                     </div>
                   </div>
 
-                  {/* Amount */}
                   <div className="flex items-center justify-between pt-1">
                     <span className="text-xs text-gray-500">Total Amount</span>
                     <span className="text-sm font-bold text-pink-600">
-                      ₱{appointment.total_price.toLocaleString()}
+                      ₱{grandTotal.toLocaleString()}
                     </span>
                   </div>
+
+                  {balance > 0 && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-gray-500">Balance</span>
+                      <span className="text-xs font-semibold text-orange-600">
+                        ₱{balance.toLocaleString()}
+                      </span>
+                    </div>
+                  )}
                 </div>
 
-                {/* Card Footer - View Details Button */}
                 <div className="px-4 py-3 bg-gray-50 border-t border-gray-100">
                   <button
                     onClick={() => fetchAppointmentDetail(appointment.id)}
@@ -1414,7 +1538,6 @@ const AppointmentDetails = () => {
         </div>
       )}
 
-      {/* Modals */}
       <PaymentProofModal 
         selectedPaymentData={selectedPaymentData}
         setSelectedPaymentData={setSelectedPaymentData}

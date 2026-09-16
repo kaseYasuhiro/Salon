@@ -138,7 +138,7 @@ Route::middleware('auth:sanctum')->group(function () {
 });
 
 //dipa sure
-Route::post('/profile/add', [UserController::class, 'addProfileImage']);
+Route::post('/profile/add/{id}', [UserController::class, 'addProfileImage']);
 Route::post('/refund/submit', [RefundsController::class, 'submitRefund']);
 Route::post('/refund/update', [RefundsController::class, 'updateRefund']);
 Route::post('/service/haircolors/add', [ServiceHairColorsController::class, 'addAvailableColors']);

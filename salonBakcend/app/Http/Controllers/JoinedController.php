@@ -254,64 +254,86 @@ class JoinedController extends Controller
 
 
     public function userAppointments(Request $request)
-    {   
+    {
         $user = $request->user();
-        
-        $transactions = Transaction::whereHas('appointments', function($query) use ($user) {
+
+        $transactions = Transaction::whereHas('appointments', function ($query) use ($user) {
             $query->where('customer_id', $user->id);
         })->with(['appointments', 'services'])->get();
-        
+
+        // ── Preload all billings for this user's appointments in one query ──
+        $appointmentIds = $transactions
+            ->pluck('appointments.id')
+            ->unique()
+            ->filter()
+            ->values();
+
+        $billings = \DB::table('billings')
+            ->whereIn('appointment_id', $appointmentIds)
+            ->get()
+            ->keyBy('appointment_id');   // one billing per appointment (post-fix)
+
         // Format the response
-        $result = $transactions->map(function($transaction) {
+        $result = $transactions->map(function ($transaction) use ($billings) {
+            $appointment = $transaction->appointments;
+            $appointmentId = $appointment->id ?? null;
+
+            // Look up the billing row for this appointment
+            $billing = $appointmentId ? $billings->get($appointmentId) : null;
+
             return [
-                'id' => $transaction->appointments->id,
-                'customer_id' => $transaction->appointments->customer_id,
-                'appointment_date' => $transaction->appointments->appointment_date,
-                'appointment_time' => $transaction->appointments->appointment_time,
-                'status' => $transaction->appointments->status,
+                'id' => $appointment->id,
+                'customer_id' => $appointment->customer_id,
+                'appointment_date' => $appointment->appointment_date,
+                'appointment_time' => $appointment->appointment_time,
+                'status' => $appointment->status,
                 'service_name' => $transaction->services->service_name ?? null,
                 'duration_minutes' => $transaction->services->duration_minutes ?? 0,
                 'price' => $transaction->services->price ?? '0',
+
+                // ✅ Assigned stylist (users.id reference)
+                'assigned_employee_id' => $transaction->assigned_employee_id ?? null,
+
+                // ── Billing fields (single source of truth) ──
+                'billing_total_amount' => $billing ? (float) $billing->total_amount : null,
+                'billing_paid_amount' => $billing ? (float) $billing->paid_amount : null,
+                'billing_balance' => $billing ? (float) $billing->balance : null,
+                'billing_payment_type' => $billing->payment_type ?? null,
             ];
         });
-        
+
         return response()->json($result);
     }
+
 
     public function billWithPayment()
     {
         return Payments::with('billing')->get();
     }
 
+    
     public function completeBooking(Request $request)
     {
         $user = $request->user();
 
-        // Log the incoming request data for debugging
         \Log::info('Complete Booking Request Data:', $request->all());
-        
-        // Get service IDs from the request
+
+        // ── Parse service IDs ──
         $serviceIds = [];
-        
-        // Check if service_ids is sent as an array (from FormData with service_ids[])
+
         if ($request->has('service_ids') && is_array($request->input('service_ids'))) {
             $serviceIds = $request->input('service_ids');
-        } 
-        // Check if service_ids is sent as a JSON string
-        else if ($request->has('service_ids') && is_string($request->input('service_ids'))) {
+        } else if ($request->has('service_ids') && is_string($request->input('service_ids'))) {
             $decoded = json_decode($request->input('service_ids'), true);
             if (is_array($decoded)) {
                 $serviceIds = $decoded;
             } else {
                 $serviceIds = [$request->input('service_ids')];
             }
-        }
-        // Fallback to single service_id
-        else if ($request->has('service_id')) {
+        } else if ($request->has('service_id')) {
             $serviceIds = [$request->service_id];
         }
 
-        // Log the parsed service IDs
         \Log::info('Parsed Service IDs:', $serviceIds);
         \Log::info('Number of services:', ['count' => count($serviceIds)]);
 
@@ -322,7 +344,7 @@ class JoinedController extends Controller
             ], 422);
         }
 
-        // Validate the request
+        // ── Validate ──
         $request->validate([
             'appointment_date' => ['required', 'date', 'date_format:Y-m-d'],
             'appointment_time' => ['required', 'date_format:H:i'],
@@ -331,8 +353,8 @@ class JoinedController extends Controller
             'hair_length' => ['nullable', 'string'],
             'hair_thickness' => ['nullable', 'string'],
             'preferred_color' => ['nullable', 'string'],
-            'total_amount' => ['required', 'numeric'],
-            'payment_type' => ['required', 'string', 'in:downpayment,remaining'],
+            'total_amount' => ['required', 'numeric', 'min:0'],
+            'payment_type' => ['required', 'string', 'in:downpayment'], // ✅ only downpayment allowed at booking
             'payment_method' => ['required', 'string', 'in:gcash,cash'],
             'payment_proof' => ['required', 'image', 'mimes:jpeg,png,jpg,gif', 'max:2048']
         ]);
@@ -347,7 +369,7 @@ class JoinedController extends Controller
             }
         }
 
-        // Create appointment
+        // ── Create appointment ──
         $appointment = Appointments::create([
             'customer_id' => $user->id,
             'customer_name' => $user->first_name . ' ' . $user->last_name,
@@ -358,7 +380,7 @@ class JoinedController extends Controller
             'status' => $request->status,
         ]);
 
-        // Create multiple transactions - one for each service
+        // ── Create one transaction per service ──
         $transactions = [];
         foreach ($serviceIds as $serviceId) {
             \Log::info('Creating transaction for service ID:', ['service_id' => $serviceId]);
@@ -373,14 +395,35 @@ class JoinedController extends Controller
             $transactions[] = $transaction;
         }
 
-        // Create billing
-        $billing = Billing::create([
-            'appointment_id' => $appointment->id,
-            'total_amount' => $request->total_amount,
-            'payment_type' => $request->payment_type
+        // ── Compute paid_amount and balance ──
+        // Booking ALWAYS requires a 50% downpayment.
+        //   total_amount = full price (base + adjustments)
+        //   paid_amount  = 50% of total (the downpayment)
+        //   balance      = remaining 50% owed at the salon
+        $totalAmount = (float) $request->total_amount;
+        $paidAmount = round($totalAmount * 0.5, 2);          // ✅ 50% downpayment
+        $balance = round($totalAmount - $paidAmount, 2);      // ✅ remaining 50%
+
+        // Safety: ensure balance never goes negative due to rounding
+        if ($balance < 0) $balance = 0;
+
+        \Log::info('Billing amounts:', [
+            'total_amount' => $totalAmount,
+            'paid_amount' => $paidAmount,
+            'balance' => $balance,
+            'payment_type' => $request->payment_type,
         ]);
 
-        // Handle payment proof upload
+        // ── Create billing ──
+        $billing = Billing::create([
+            'appointment_id' => $appointment->id,
+            'total_amount' => $totalAmount,
+            'payment_type' => $request->payment_type, // 'downpayment'
+            'paid_amount' => $paidAmount,
+            'balance' => $balance,
+        ]);
+
+        // ── Handle payment proof upload ──
         $paymentProofPath = null;
         if ($request->hasFile('payment_proof')) {
             $file = $request->file('payment_proof');
@@ -389,7 +432,7 @@ class JoinedController extends Controller
             $paymentProofPath = '/storage/' . $path;
         }
 
-        // Create payment
+        // ── Create payment ──
         $payment = Payments::create([
             'billing_id' => $billing->id,
             'payment_method' => $request->payment_method,
@@ -404,7 +447,12 @@ class JoinedController extends Controller
             'payment_id' => $payment->id,
             'payment_proof' => $paymentProofPath,
             'services_count' => count($transactions),
-            'service_ids' => $serviceIds // Include this for debugging
+            'service_ids' => $serviceIds,
+
+            // ✅ Return computed amounts
+            'total_amount' => $totalAmount,
+            'paid_amount' => $paidAmount,
+            'balance' => $balance,
         ], 200);
     }
 
@@ -412,7 +460,7 @@ class JoinedController extends Controller
     {
         $request->validate([
             'appointment_id' => ['required', 'numeric'],
-            'total_amount' => ['required', 'numeric'],
+            'total_amount' => ['required', 'numeric', 'min:0'],
             'payment_type' => ['required', 'string', 'in:remaining'],
             'payment_method' => ['required', 'string', 'in:gcash,cash'],
             'payment_proof' => ['required', 'image', 'mimes:jpeg,png,jpg,gif', 'max:2048']
@@ -420,21 +468,59 @@ class JoinedController extends Controller
 
         // Get the authenticated user
         $user = $request->user('sanctum');
-        
-        // If user is not authenticated, return error
+
         if (!$user) {
             return response()->json([
                 'message' => 'Unauthenticated. Please log in again.'
             ], 401);
         }
 
-        $billing = Billing::create([
-            'appointment_id' => $request->appointment_id,
-            'total_amount' => $request->total_amount,
-            'payment_type' => $request->payment_type
+        // ── Find the EXISTING billing for this appointment ──
+        // The booking flow created it with total_amount, paid_amount, balance, and payment_type='downpayment'.
+        $billing = Billing::where('appointment_id', $request->appointment_id)
+            ->latest()
+            ->first();
+
+        if (!$billing) {
+            return response()->json([
+                'message' => 'No billing record found for this appointment.'
+            ], 404);
+        }
+
+        // ── Guard: don't allow paying the remaining balance twice ──
+        if ($billing->balance <= 0) {
+            return response()->json([
+                'message' => 'This appointment has already been fully paid.'
+            ], 400);
+        }
+
+        // ── Amount being paid now (the remaining balance) ──
+        // The client sends `total_amount` = the amount they are paying right now,
+        // which should equal the current outstanding balance.
+        $paymentAmount = (float) $request->total_amount;
+
+        // Clamp so we never overpay
+        if ($paymentAmount > $billing->balance) {
+            $paymentAmount = (float) $billing->balance;
+        }
+
+        // ── Update billing: accumulate paid_amount, recompute balance ──
+        $billing->paid_amount = round((float) $billing->paid_amount + $paymentAmount, 2);
+        $billing->balance = round((float) $billing->total_amount - (float) $billing->paid_amount, 2);
+        if ($billing->balance < 0) $billing->balance = 0;
+
+        // Mark the billing row as 'remaining' once the remaining payment is made
+        $billing->payment_type = 'remaining';
+        $billing->save();
+
+        \Log::info('Remaining balance payment:', [
+            'billing_id' => $billing->id,
+            'amount_paid_now' => $paymentAmount,
+            'paid_amount_total' => $billing->paid_amount,
+            'balance_after' => $billing->balance,
         ]);
 
-        // Handle payment proof upload
+        // ── Handle payment proof upload ──
         $paymentProofPath = null;
         if ($request->hasFile('payment_proof')) {
             $file = $request->file('payment_proof');
@@ -443,7 +529,7 @@ class JoinedController extends Controller
             $paymentProofPath = '/storage/' . $path;
         }
 
-        // Create payment
+        // ── Create a Payments row attached to the SAME billing ──
         $payment = Payments::create([
             'billing_id' => $billing->id,
             'payment_method' => $request->payment_method,
@@ -453,32 +539,62 @@ class JoinedController extends Controller
         return response()->json([
             'message' => 'Remaining Balance Paid Successfully',
             'billing_id' => $billing->id,
-            'payment_id' => $payment->id
+            'payment_id' => $payment->id,
+            'total_amount' => (float) $billing->total_amount,
+            'paid_amount' => (float) $billing->paid_amount,
+            'balance' => (float) $billing->balance,
         ], 200);
     }
 
 
-    public function allAppointments(Request $request)
-    {   
+   public function allAppointments(Request $request)
+    {
         $user = $request->user();
-        
+
         if (!in_array($user->role, ['admin', 'owner', 'staff', 'customer'])) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
-        
+
         $transactions = Transaction::with(['appointments', 'services', 'user'])
             ->orderBy('created_at', 'desc')
             ->get();
-        
-        $result = $transactions->map(function($transaction) {
+
+        // ── Preload all billings for these appointments in one query ──
+        $appointmentIds = $transactions
+            ->pluck('appointments.id')
+            ->unique()
+            ->filter()
+            ->values();
+
+        $billings = \DB::table('billings')
+            ->whereIn('appointment_id', $appointmentIds)
+            ->get()
+            ->keyBy('appointment_id');   // one billing per appointment
+
+        // Preload all customers referenced by appointments
+        $customerIds = $transactions
+            ->pluck('appointments.customer_id')
+            ->unique()
+            ->filter()
+            ->values();
+
+        $customers = User::whereIn('id', $customerIds)
+            ->get()
+            ->keyBy('id');
+
+        $result = $transactions->map(function ($transaction) use ($billings, $customers) {
             $appointment = $transaction->appointments;
-            
-            // Get customer data from users table
+
+            // Look up customer via the preloaded map (no more N+1)
             $customer = null;
             if ($appointment && $appointment->customer_id) {
-                $customer = User::find($appointment->customer_id);
+                $customer = $customers->get($appointment->customer_id);
             }
-            
+
+            // Look up the billing row for this appointment
+            $appointmentId = $appointment->id ?? null;
+            $billing = $appointmentId ? $billings->get($appointmentId) : null;
+
             return [
                 'id' => $transaction->id,
                 'appointment_id' => $appointment->id ?? null,
@@ -493,9 +609,15 @@ class JoinedController extends Controller
                 'service_name' => $transaction->services->service_name ?? null,
                 'duration_minutes' => $transaction->services->duration_minutes ?? 0,
                 'price' => $transaction->services->price ?? '0',
+
+                // ── Billing fields (single source of truth) ──
+                'billing_total_amount' => $billing ? (float) $billing->total_amount : null,
+                'billing_paid_amount' => $billing ? (float) $billing->paid_amount : null,
+                'billing_balance' => $billing ? (float) $billing->balance : null,
+                'billing_payment_type' => $billing->payment_type ?? null,
             ];
         });
-        
+
         return response()->json($result);
     }
 

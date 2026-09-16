@@ -165,20 +165,34 @@ class UserController extends Controller
 
     public function addProfileImage(Request $request, $id)
     {
-        $user_id = $request->user()->id;
+        // Find the target user
+        $user = User::find($id);
 
+        if (!$user) {
+            return response()->json(['message' => 'User not found'], 404);
+        }
+
+        // Validate
         $request->validate([
-            'profile_image' => ['required', 'image', 'mimes:jpg, jpeg, png']
+            'profile_image' => ['required', 'image', 'mimes:jpg,jpeg,png', 'max:2048']
         ]);
 
-        $image_url = $request->file('profile_image')->store('users', 'public');
+        // (Optional) Delete the old image file if one exists
+        if ($user->profile_image) {
+            $oldPath = str_replace('/storage/', '', $user->profile_image);
+            \Storage::disk('public')->delete($oldPath);
+        }
 
-        User::create([
-            'profile_image' => $image_url
-        ]);
+        // Store the new image
+        $imagePath = $request->file('profile_image')->store('users', 'public');
+
+        // ✅ UPDATE, don't CREATE
+        $user->profile_image = $imagePath;
+        $user->save();
 
         return response()->json([
-            'message' => 'Profile Image Added Successfully'
+            'message' => 'Profile Image Added Successfully',
+            'profile_image' => $imagePath
         ], 200);
     }
 
