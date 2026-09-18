@@ -13,9 +13,7 @@ function Services() {
   const [services, setServices] = useState([]);
   const [allProducts, setAllProducts] = useState([]);
   const [specialtiesList, setSpecialtiesList] = useState([]);
-  const [hairColors, setHairColors] = useState([]); // Master list of all hair colors from /haircolors
-  const [selectedHairColors, setSelectedHairColors] = useState([]); // IDs of colors selected for current service
-  const [serviceHairColors, setServiceHairColors] = useState([]); // Hair colors already assigned to selected service
+  const [hairColors, setHairColors] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingUsages, setIsLoadingUsages] = useState(false);
   const [showModal, setShowModal] = useState(false);
@@ -29,7 +27,20 @@ function Services() {
   const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
   const [isSavingAll, setIsSavingAll] = useState(false);
   const [statusFilter, setStatusFilter] = useState('all');
-  const [isSavingHairColors, setIsSavingHairColors] = useState(false);
+
+  // ── Add/Edit Hair Color modal state ──
+  const [showHairColorModal, setShowHairColorModal] = useState(false);
+  const [isSavingHairColor, setIsSavingHairColor] = useState(false);
+  const [hairColorError, setHairColorError] = useState('');
+  const [editingHairColor, setEditingHairColor] = useState(null);
+  const [hairColorForm, setHairColorForm] = useState({
+    color_name: '',
+    color_code: '#000000',
+    is_active: true,
+  });
+
+  // ── Manage Hair Colors panel state ──
+  const [hairColorsOpen, setHairColorsOpen] = useState(true);
 
   const [usageFormData, setUsageFormData] = useState({
     service_id: '',
@@ -55,7 +66,6 @@ function Services() {
     ]
   });
 
-  // Hair length and thickness options
   const hairLengthOptions = [
     { value: 'short', label: 'Short' },
     { value: 'medium', label: 'Medium' },
@@ -80,7 +90,6 @@ function Services() {
     { label: 'Avg. Price', value: '₱0', icon: DollarSign, bgColor: 'bg-blue-50', textColor: 'text-blue-600' },
   ]);
 
-  // Toast notification
   const showToast = (message, type = 'success') => {
     setToast({ show: true, message, type });
     setTimeout(() => {
@@ -88,22 +97,16 @@ function Services() {
     }, 3000);
   };
 
-  // Add a new price adjustment row
   const addPriceAdjustment = () => {
     setFormData(prev => ({
       ...prev,
       price_adjustments: [
         ...prev.price_adjustments,
-        {
-          hair_length: 'short',
-          hair_thickness: 'thin',
-          additional_price: '0'
-        }
+        { hair_length: 'short', hair_thickness: 'thin', additional_price: '0' }
       ]
     }));
   };
 
-  // Remove a price adjustment row
   const removePriceAdjustment = (index) => {
     if (formData.price_adjustments.length <= 1) {
       showToast('You need at least one price adjustment.', 'warning');
@@ -115,7 +118,6 @@ function Services() {
     }));
   };
 
-  // Update a price adjustment field
   const updatePriceAdjustment = (index, field, value) => {
     setFormData(prev => ({
       ...prev,
@@ -125,20 +127,13 @@ function Services() {
     }));
   };
 
-  // Fetch services with their specialties and price adjustments
   const fetchServices = async () => {
     setIsLoading(true);
     try {
       const servicesResponse = await api.get('/services');
-      console.log('Fetched services:', servicesResponse.data);
-      
       const specialtiesResponse = await api.get('/services/specialties');
-      console.log('Fetched service specialties:', specialtiesResponse.data);
-      
-      // Fetch price adjustments for all services
       const priceAdjustmentsResponse = await api.get('/services/price/adjustment');
-      console.log('Fetched price adjustments:', priceAdjustmentsResponse.data);
-      
+
       const specialtiesMap = new Map();
       if (Array.isArray(specialtiesResponse.data)) {
         specialtiesResponse.data.forEach(item => {
@@ -153,8 +148,7 @@ function Services() {
           });
         });
       }
-      
-      // Create a map of price adjustments by service ID
+
       const priceAdjustmentsMap = new Map();
       if (Array.isArray(priceAdjustmentsResponse.data)) {
         priceAdjustmentsResponse.data.forEach(service => {
@@ -163,7 +157,7 @@ function Services() {
           }
         });
       }
-      
+
       let servicesWithData = [];
       if (Array.isArray(servicesResponse.data)) {
         servicesWithData = servicesResponse.data.map(service => ({
@@ -172,22 +166,20 @@ function Services() {
           service_price_adjustments: priceAdjustmentsMap.get(service.id) || []
         }));
       }
-      
-      console.log('Services with merged data:', servicesWithData);
+
       setServices(servicesWithData);
-      
+
       const activeServices = servicesWithData.filter(s => s.service_status === 'active').length;
       const inactiveServices = servicesWithData.filter(s => s.service_status === 'inactive').length;
       const totalPrice = servicesWithData.reduce((sum, s) => sum + parseFloat(s.price), 0);
       const avgPrice = servicesWithData.length > 0 ? totalPrice / servicesWithData.length : 0;
-      
+
       setStats([
         { ...stats[0], value: servicesWithData.length.toString() },
         { ...stats[1], value: activeServices.toString() },
         { ...stats[2], value: inactiveServices.toString() },
         { ...stats[3], value: `₱${avgPrice.toFixed(0)}` },
       ]);
-      
     } catch (error) {
       console.error('Error fetching services:', error);
     } finally {
@@ -195,87 +187,105 @@ function Services() {
     }
   };
 
-  // Fetch all products from /products route
   const fetchProducts = async () => {
     try {
       const response = await api.get('/products');
-      console.log('Fetched products:', response.data);
-      if (Array.isArray(response.data)) {
-        setAllProducts(response.data);
-      }
+      if (Array.isArray(response.data)) setAllProducts(response.data);
     } catch (error) {
       console.error('Error fetching products:', error);
     }
   };
 
-  // Fetch all specialties from the specialties table
   const fetchSpecialtiesList = async () => {
     try {
       const response = await api.get('/specialties');
-      console.log('Available specialties:', response.data);
-      if (Array.isArray(response.data)) {
-        setSpecialtiesList(response.data);
-      }
+      if (Array.isArray(response.data)) setSpecialtiesList(response.data);
     } catch (error) {
       console.error('Error fetching specialties list:', error);
     }
   };
 
-  // Fetch all hair colors (master list from /haircolors)
   const fetchHairColors = async () => {
     try {
       const response = await api.get('/haircolors');
-      console.log('Fetched hair colors (master list):', response.data);
-      if (Array.isArray(response.data)) {
-        setHairColors(response.data);
-      }
+      if (Array.isArray(response.data)) setHairColors(response.data);
     } catch (error) {
       console.error('Error fetching hair colors:', error);
     }
   };
 
-  // Save hair colors for a service - Sends each color individually
-  const saveHairColorsForService = async (serviceId, selectedColorIds) => {
-    setIsSavingHairColors(true);
-    try {
-      // Filter out any undefined or null values
-      const validColorIds = selectedColorIds.filter(id => id != null);
-      
-      if (validColorIds.length === 0) {
-        console.log('No valid hair colors to add');
-        return { success: true };
-      }
-      
-      // Send each color individually
-      const promises = validColorIds.map((colorId) => {
-        return api.post('/service/haircolors/add', {
-          service_id: serviceId,
-          hair_color_id: parseInt(colorId)
-        });
+  const handleOpenHairColorModal = (color = null) => {
+    if (color) {
+      setEditingHairColor(color);
+      setHairColorForm({
+        color_name: color.color_name || '',
+        color_code: (color.color_code || '#000000').toUpperCase(),
+        is_active: color.is_active === 1 || color.is_active === true,
       });
-      
-      await Promise.all(promises);
-      console.log('Hair colors added successfully');
-      return { success: true };
-      
-    } catch (error) {
-      console.error('Error saving hair colors:', error);
-      if (error.response) {
-        console.error('Error response data:', error.response.data);
-        console.error('Error response status:', error.response.status);
+    } else {
+      setEditingHairColor(null);
+      setHairColorForm({
+        color_name: '',
+        color_code: '#000000',
+        is_active: true,
+      });
+    }
+    setHairColorError('');
+    setShowHairColorModal(true);
+  };
+
+  const handleSaveHairColor = async (e) => {
+    e.preventDefault();
+
+    if (!hairColorForm.color_name.trim()) {
+      setHairColorError('Color name is required.');
+      return;
+    }
+    if (!/^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/.test(hairColorForm.color_code)) {
+      setHairColorError('Color code must be a valid hex (e.g. #FF5733).');
+      return;
+    }
+
+    setIsSavingHairColor(true);
+    setHairColorError('');
+
+    const payload = {
+      color_name: hairColorForm.color_name.trim(),
+      color_code: hairColorForm.color_code.toUpperCase(),
+      is_active: hairColorForm.is_active ? 1 : 0,
+    };
+
+    try {
+      if (editingHairColor) {
+        await api.post(`/haircolors/update/${editingHairColor.id}`, payload);
+        showToast('Hair color updated successfully!', 'success');
+      } else {
+        await api.post('/haircolors/add', payload);
+        showToast('Hair color added successfully!', 'success');
       }
-      throw error;
+
+      setShowHairColorModal(false);
+      setEditingHairColor(null);
+      setHairColorForm({ color_name: '', color_code: '#000000', is_active: true });
+
+      await fetchHairColors();
+    } catch (error) {
+      console.error('Error saving hair color:', error);
+      const msg =
+        error.response?.data?.errors
+          ? Object.values(error.response.data.errors).flat().join(' ')
+          : error.response?.data?.message || 'Failed to save hair color.';
+      setHairColorError(msg);
+      showToast(msg, 'error');
     } finally {
-      setIsSavingHairColors(false);
+      setIsSavingHairColor(false);
     }
   };
 
-  // Fetch product usages for a specific service
   const fetchProductUsages = async (serviceId) => {
     setIsLoadingUsages(true);
     try {
       const response = await api.get(`/service/usage/${serviceId}`);
-      console.log('Fetched product usages for service:', response.data);
       if (Array.isArray(response.data)) {
         setSelectedServiceUsages(response.data);
       } else {
@@ -289,11 +299,9 @@ function Services() {
     }
   };
 
-  // Fetch price adjustments for a specific service
   const fetchServicePriceAdjustments = async (serviceId) => {
     try {
       const response = await api.get(`/services/price/adjustment/${serviceId}`);
-      console.log('Fetched price adjustments:', response.data);
       return response.data;
     } catch (error) {
       console.error('Error fetching price adjustments:', error);
@@ -305,7 +313,7 @@ function Services() {
     fetchServices();
     fetchProducts();
     fetchSpecialtiesList();
-    fetchHairColors(); // Fetch master list of hair colors
+    fetchHairColors();
   }, []);
 
   const handleInputChange = (e) => {
@@ -327,18 +335,6 @@ function Services() {
     setServiceSpecialtyFormData(prev => ({ ...prev, [name]: value }));
   };
 
-  // Handle hair color selection toggle
-  const handleHairColorToggle = (colorId) => {
-    setSelectedHairColors(prev => {
-      if (prev.includes(colorId)) {
-        return prev.filter(id => id !== colorId);
-      } else {
-        return [...prev, colorId];
-      }
-    });
-  };
-
-  // Handle product selection from dropdown
   const handleSelectProduct = (product) => {
     setUsageFormData({
       ...usageFormData,
@@ -349,32 +345,24 @@ function Services() {
     setShowProductDropdown(false);
   };
 
-  // Filter products based on search term
   const filteredProducts = allProducts.filter(product =>
     product.product_name.toLowerCase().includes(productSearchTerm.toLowerCase())
   );
 
-  // SAVE ALL CHANGES - Single API call including hair colors
+  // SAVE ALL CHANGES — now only handles specialties + products (hair colors managed elsewhere)
   const handleSaveAllChanges = async () => {
     if (!selectedService) return;
 
     const hasSpecialtyToAdd = serviceSpecialtyFormData.specialty_id;
     const hasProductToAdd = usageFormData.product_id && usageFormData.estimated_usage;
-    const hasHairColors = selectedHairColors.length > 0;
 
-    if (!hasSpecialtyToAdd && !hasProductToAdd && !hasHairColors) {
-      showToast('No changes to save. Please add a specialty, product usage, or hair colors.', 'info');
+    if (!hasSpecialtyToAdd && !hasProductToAdd) {
+      showToast('No changes to save. Please add a specialty or product usage.', 'info');
       return;
     }
 
     setIsSavingAll(true);
     try {
-      // Save hair colors if any are selected
-      if (hasHairColors && selectedService.reqHairColor) {
-        await saveHairColorsForService(selectedService.id, selectedHairColors);
-      }
-
-      // Prepare update data for specialties and products
       const updateData = {
         service_id: selectedService.id,
         specialty_id: hasSpecialtyToAdd ? parseInt(serviceSpecialtyFormData.specialty_id) : null,
@@ -382,47 +370,22 @@ function Services() {
         estimated_usage: hasProductToAdd ? parseFloat(usageFormData.estimated_usage) : null,
       };
 
-      // Only call update-all if there are specialties or products to add
       if (hasSpecialtyToAdd || hasProductToAdd) {
         const response = await api.post('/services/update-all', updateData);
-        console.log('Update response:', response.data);
         if (!response.data.success) {
           showToast(response.data.message || 'Some changes could not be saved.', 'warning');
         }
       }
 
       showToast('Changes saved successfully!', 'success');
-      
-      // Reset forms
-      setServiceSpecialtyFormData({
-        service_id: selectedService.id,
-        specialty_id: ''
-      });
-      setUsageFormData({
-        service_id: selectedService.id,
-        product_id: '',
-        product_name: '',
-        estimated_usage: ''
-      });
+
+      setServiceSpecialtyFormData({ service_id: selectedService.id, specialty_id: '' });
+      setUsageFormData({ service_id: selectedService.id, product_id: '', product_name: '', estimated_usage: '' });
       setProductSearchTerm('');
-      setSelectedHairColors([]);
-      
-      // Refresh data
+
       await fetchServices();
       await fetchProductUsages(selectedService.id);
-      
-      // Refresh hair colors display by fetching the master list again
       await fetchHairColors();
-      
-      // Update serviceHairColors to reflect the newly added colors
-      // Since we don't have a dedicated endpoint, we'll filter the master list
-      // based on what was selected (this is a workaround)
-      const assignedColors = hairColors.filter(color => selectedHairColors.includes(color.id));
-      setServiceHairColors(assignedColors.map(color => ({
-        hair_color_id: color.id,
-        hair_colors: color
-      })));
-
     } catch (error) {
       console.error('Error saving all changes:', error);
       showToast(error.response?.data?.message || 'Error saving changes. Please try again.', 'error');
@@ -431,16 +394,14 @@ function Services() {
     }
   };
 
-  // Add service with price adjustments
   const handleAddService = async (e) => {
     e.preventDefault();
-    
+
     if (!formData.service_name || !formData.description || !formData.price || !formData.duration_minutes) {
       setFormError('Please fill in all fields');
       return;
     }
 
-    // Validate price adjustments
     for (const adj of formData.price_adjustments) {
       if (!adj.hair_length || !adj.hair_thickness || parseFloat(adj.additional_price) < 0) {
         setFormError('Please fill in all price adjustment fields correctly.');
@@ -464,7 +425,7 @@ function Services() {
           additional_price: parseFloat(adj.additional_price) || 0
         }))
       });
-      
+
       showToast('Service added successfully!', 'success');
       setShowModal(false);
       resetForm();
@@ -478,16 +439,14 @@ function Services() {
     }
   };
 
-  // Update service with price adjustments
   const handleUpdateService = async (e) => {
     e.preventDefault();
-    
+
     if (!formData.service_name || !formData.description || !formData.price || !formData.duration_minutes) {
       setFormError('Please fill in all fields');
       return;
     }
 
-    // Validate price adjustments
     for (const adj of formData.price_adjustments) {
       if (!adj.hair_length || !adj.hair_thickness || parseFloat(adj.additional_price) < 0) {
         setFormError('Please fill in all price adjustment fields correctly.');
@@ -511,7 +470,7 @@ function Services() {
           additional_price: parseFloat(adj.additional_price) || 0
         }))
       });
-      
+
       showToast('Service updated successfully!', 'success');
       setShowModal(false);
       resetForm();
@@ -535,11 +494,7 @@ function Services() {
       is_multitaskable: false,
       reqHairColor: false,
       price_adjustments: [
-        {
-          hair_length: 'short',
-          hair_thickness: 'thin',
-          additional_price: '0'
-        }
+        { hair_length: 'short', hair_thickness: 'thin', additional_price: '0' }
       ]
     });
     setEditingService(null);
@@ -548,11 +503,10 @@ function Services() {
 
   const handleEdit = async (service) => {
     setEditingService(service);
-    
-    // Fetch price adjustments for this service
+
     try {
       const adjustments = await fetchServicePriceAdjustments(service.id);
-      
+
       let priceAdjustments = [];
       if (Array.isArray(adjustments) && adjustments.length > 0) {
         priceAdjustments = adjustments.map(adj => ({
@@ -561,14 +515,9 @@ function Services() {
           additional_price: adj.additional_price?.toString() || '0'
         }));
       } else {
-        // Default adjustment if none exist
-        priceAdjustments = [{
-          hair_length: 'short',
-          hair_thickness: 'thin',
-          additional_price: '0'
-        }];
+        priceAdjustments = [{ hair_length: 'short', hair_thickness: 'thin', additional_price: '0' }];
       }
-      
+
       setFormData({
         service_name: service.service_name,
         description: service.description,
@@ -581,7 +530,6 @@ function Services() {
       });
     } catch (error) {
       console.error('Error fetching price adjustments:', error);
-      // Fallback to default
       setFormData({
         service_name: service.service_name,
         description: service.description,
@@ -590,14 +538,10 @@ function Services() {
         service_status: service.service_status,
         is_multitaskable: service.is_multitaskable || false,
         reqHairColor: service.reqHairColor || false,
-        price_adjustments: [{
-          hair_length: 'short',
-          hair_thickness: 'thin',
-          additional_price: '0'
-        }]
+        price_adjustments: [{ hair_length: 'short', hair_thickness: 'thin', additional_price: '0' }]
       });
     }
-    
+
     setShowModal(true);
   };
 
@@ -614,16 +558,7 @@ function Services() {
       specialty_id: ''
     });
     setProductSearchTerm('');
-    setSelectedHairColors([]);
-    setServiceHairColors([]);
-    
-    // Load existing hair colors for this service from the master list
-    if (service.reqHairColor) {
-      // If we have a way to get assigned colors, use it
-      // For now, we'll just show the master list and let the user select
-      await fetchHairColors();
-    }
-    
+
     await fetchProductUsages(service.id);
     setShowUsageModal(true);
   };
@@ -636,7 +571,6 @@ function Services() {
     }
   };
 
-  // Filter services based on search and status filter
   const filteredServices = services.filter(service => {
     if (searchTerm && !service.service_name.toLowerCase().includes(searchTerm.toLowerCase())) return false;
     if (statusFilter === 'active' && service.service_status !== 'active') return false;
@@ -644,7 +578,6 @@ function Services() {
     return true;
   });
 
-  // Format specialty name for display
   const formatSpecialtyName = (specialtyName) => {
     if (!specialtyName) return '';
     return specialtyName.split('_').map(word => 
@@ -652,7 +585,6 @@ function Services() {
     ).join(' ');
   };
 
-  // Get specialty icon
   const getSpecialtyIcon = (specialtyName) => {
     const name = specialtyName?.toLowerCase();
     if (name === 'stylist') return <Scissors size={10} />;
@@ -664,42 +596,25 @@ function Services() {
     return <Star size={10} />;
   };
 
-  // Get product name from service product usage
   const getProductNameFromUsage = (usage) => {
-    if (usage.product && usage.product.product_name) {
-      return usage.product.product_name;
-    }
-    if (usage.product_name) {
-      return usage.product_name;
-    }
+    if (usage.product && usage.product.product_name) return usage.product.product_name;
+    if (usage.product_name) return usage.product_name;
     const foundProduct = allProducts.find(p => p.id === usage.product_id);
-    if (foundProduct) {
-      return foundProduct.product_name;
-    }
+    if (foundProduct) return foundProduct.product_name;
     return `Product ID: ${usage.product_id}`;
   };
 
-  // Get product unit from service product usage
   const getProductUnit = (usage) => {
-    if (usage.product && usage.product.unit) {
-      return usage.product.unit;
-    }
+    if (usage.product && usage.product.unit) return usage.product.unit;
     const foundProduct = allProducts.find(p => p.id === usage.product_id);
-    if (foundProduct && foundProduct.unit) {
-      return foundProduct.unit;
-    }
+    if (foundProduct && foundProduct.unit) return foundProduct.unit;
     return '';
   };
 
-  // Get product unit size from service product usage
   const getProductUnitSize = (usage) => {
-    if (usage.product && usage.product.unit_size) {
-      return usage.product.unit_size;
-    }
+    if (usage.product && usage.product.unit_size) return usage.product.unit_size;
     const foundProduct = allProducts.find(p => p.id === usage.product_id);
-    if (foundProduct && foundProduct.unit_size) {
-      return foundProduct.unit_size;
-    }
+    if (foundProduct && foundProduct.unit_size) return foundProduct.unit_size;
     return '';
   };
 
@@ -724,11 +639,7 @@ function Services() {
             toast.type === 'warning' ? 'bg-yellow-500' :
             'bg-red-500'
           } text-white min-w-[300px]`}>
-            {toast.type === 'success' ? (
-              <CheckCircle size={20} />
-            ) : (
-              <AlertCircle size={20} />
-            )}
+            {toast.type === 'success' ? <CheckCircle size={20} /> : <AlertCircle size={20} />}
             <span>{toast.message}</span>
           </div>
         </div>
@@ -747,15 +658,122 @@ function Services() {
         ))}
       </div>
 
+      {/* ✅ Hair Colors Panel */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        <button
+          onClick={() => setHairColorsOpen(prev => !prev)}
+          className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-50 transition-colors"
+        >
+          <div className="flex items-center gap-2">
+            <div className="bg-purple-50 p-1.5 rounded-lg">
+              <Palette size={14} className="text-purple-500" />
+            </div>
+            <div className="text-left">
+              <h3 className="text-sm font-semibold text-gray-800">
+                Hair Colors
+                <span className="ml-2 text-xs font-normal text-gray-500">
+                  ({hairColors.length})
+                </span>
+              </h3>
+              <p className="text-[10px] text-gray-500 mt-0.5">
+                Master list of available hair colors
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <div
+              onClick={(e) => {
+                e.stopPropagation();
+                handleOpenHairColorModal();
+              }}
+              className="flex items-center gap-1 px-2.5 py-1.5 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-md transition-all text-[10px] font-semibold cursor-pointer"
+            >
+              <Plus size={12} />
+              <span>Add Color</span>
+            </div>
+            <ChevronDown
+              size={18}
+              className={`text-gray-400 transition-transform duration-200 ${hairColorsOpen ? 'rotate-180' : ''}`}
+            />
+          </div>
+        </button>
+
+        {hairColorsOpen && (
+          <div className="border-t border-gray-100 p-4">
+            {hairColors.length === 0 ? (
+              <div className="text-center py-8">
+                <Palette size={32} className="text-gray-300 mx-auto mb-2" />
+                <p className="text-xs text-gray-400">No hair colors yet</p>
+                <button
+                  onClick={() => handleOpenHairColorModal()}
+                  className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 bg-pink-500 text-white rounded-lg hover:bg-pink-600 transition-colors text-xs"
+                >
+                  <Plus size={12} />
+                  <span>Add Your First Color</span>
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                {hairColors.map((color) => {
+                  const isInactive = color.is_active === 0 || color.is_active === false;
+                  return (
+                    <div
+                      key={color.id}
+                      className={`relative rounded-lg border p-3 transition-all hover:shadow-md ${
+                        isInactive
+                          ? 'border-gray-200 bg-gray-50 opacity-60'
+                          : 'border-gray-100 bg-white'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 mb-2">
+                        <div
+                          className="w-8 h-8 rounded-full border-2 border-gray-200 flex-shrink-0"
+                          style={{ backgroundColor: color.color_code || '#808080' }}
+                        />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-semibold text-gray-800 truncate">
+                            {color.color_name}
+                          </p>
+                          <p className="text-[9px] text-gray-500 font-mono uppercase">
+                            {color.color_code}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between mt-2">
+                        <span
+                          className={`text-[9px] px-1.5 py-0.5 rounded-full ${
+                            isInactive
+                              ? 'bg-red-100 text-red-600'
+                              : 'bg-green-100 text-green-700'
+                          }`}
+                        >
+                          {isInactive ? 'Inactive' : 'Active'}
+                        </span>
+                        <button
+                          onClick={() => handleOpenHairColorModal(color)}
+                          className="p-1 rounded hover:bg-pink-50 transition-colors"
+                          title="Edit color"
+                        >
+                          <Edit size={12} className="text-pink-500" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
       {/* Controls Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div className="flex gap-2">
           <button 
             onClick={() => setViewMode('grid')}
             className={`px-3 py-1.5 rounded-lg font-medium transition-all duration-200 text-sm ${
-              viewMode === 'grid' 
-                ? 'bg-pink-500 text-white shadow-md' 
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              viewMode === 'grid' ? 'bg-pink-500 text-white shadow-md' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
             }`}
           >
             Grid View
@@ -763,9 +781,7 @@ function Services() {
           <button 
             onClick={() => setViewMode('list')}
             className={`px-3 py-1.5 rounded-lg font-medium transition-all duration-200 text-sm ${
-              viewMode === 'list' 
-                ? 'bg-pink-500 text-white shadow-md' 
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              viewMode === 'list' ? 'bg-pink-500 text-white shadow-md' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
             }`}
           >
             List View
@@ -793,6 +809,14 @@ function Services() {
             <option value="active">Active Only</option>
             <option value="inactive">Inactive Only</option>
           </select>
+
+          <button
+            onClick={() => handleOpenHairColorModal()}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-pink-500 text-pink-600 rounded-lg hover:bg-pink-50 transition-all duration-300 text-sm font-medium"
+          >
+            <Palette size={14} />
+            <span>Add Hair Color</span>
+          </button>
           
           <button 
             onClick={() => {
@@ -891,7 +915,7 @@ function Services() {
                         )}
                       </div>
                     ) : (
-                      <p className={`text-[10px] italic ${isInactive ? 'text-gray-400' : 'text-gray-400'}`}>No specialties</p>
+                      <p className="text-[10px] italic text-gray-400">No specialties</p>
                     )}
                   </div>
                   
@@ -1005,11 +1029,9 @@ function Services() {
                         </div>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
-                        <div className="flex items-center gap-0.5">
-                          <span className={`text-xs font-semibold ${isInactive ? 'text-gray-500' : 'text-gray-800'}`}>
-                            ₱{parseFloat(service.price).toFixed(2)}
-                          </span>
-                        </div>
+                        <span className={`text-xs font-semibold ${isInactive ? 'text-gray-500' : 'text-gray-800'}`}>
+                          ₱{parseFloat(service.price).toFixed(2)}
+                        </span>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
                         <span className={`px-1.5 py-0.5 text-[10px] rounded-full ${
@@ -1026,11 +1048,9 @@ function Services() {
                             e.stopPropagation();
                             handleEdit(service);
                           }}
-                          className={`p-1 rounded transition-colors ${
-                            isInactive ? 'hover:bg-gray-200' : 'hover:bg-gray-100'
-                          }`}
+                          className={`p-1 rounded transition-colors ${isInactive ? 'hover:bg-gray-200' : 'hover:bg-gray-100'}`}
                         >
-                          <Edit size={14} className={isInactive ? 'text-gray-500' : 'text-gray-500'} />
+                          <Edit size={14} className="text-gray-500" />
                         </button>
                       </td>
                     </tr>
@@ -1051,10 +1071,10 @@ function Services() {
               <div className="flex items-center gap-3">
                 <button 
                   onClick={handleSaveAllChanges}
-                  disabled={isSavingAll || isSavingHairColors}
+                  disabled={isSavingAll}
                   className="flex items-center gap-2 px-4 py-2 bg-white text-pink-600 rounded-lg hover:bg-pink-50 transition-colors text-sm font-medium disabled:opacity-50"
                 >
-                  {isSavingAll || isSavingHairColors ? (
+                  {isSavingAll ? (
                     <>
                       <div className="w-4 h-4 border-2 border-pink-600 border-t-transparent rounded-full animate-spin"></div>
                       Saving...
@@ -1071,8 +1091,6 @@ function Services() {
                     setShowUsageModal(false);
                     setSelectedService(null);
                     setSelectedServiceUsages([]);
-                    setServiceHairColors([]);
-                    setSelectedHairColors([]);
                   }}
                   className="text-white hover:bg-white/20 rounded-lg p-1 transition-colors"
                 >
@@ -1088,7 +1106,6 @@ function Services() {
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* LEFT COLUMN */}
                 <div>
-                  {/* Service Details */}
                   <div className="mb-6">
                     <h3 className="text-sm font-semibold text-gray-800 mb-3">Service Details</h3>
                     <div className="bg-gray-50 rounded-lg p-4 space-y-2">
@@ -1125,7 +1142,6 @@ function Services() {
                         </p>
                       </div>
                       
-                      {/* Price Adjustments */}
                       {selectedService.service_price_adjustments && selectedService.service_price_adjustments.length > 0 ? (
                         <div className="mt-2 pt-2 border-t border-gray-200">
                           <p className="text-sm text-gray-600 font-semibold">Price Adjustments:</p>
@@ -1145,7 +1161,6 @@ function Services() {
                         </div>
                       )}
                       
-                      {/* Specialties */}
                       {selectedService.service_specialties && selectedService.service_specialties.length > 0 && (
                         <div className="mt-2 pt-2 border-t border-gray-200">
                           <p className="text-sm text-gray-600 font-semibold">Specialties:</p>
@@ -1168,7 +1183,6 @@ function Services() {
                     </div>
                   </div>
 
-                  {/* Add Service Specialty Form */}
                   <div className="border-t border-gray-200 pt-4 mb-6">
                     <h3 className="text-sm font-semibold text-gray-800 mb-3">Add Service Specialty</h3>
                     <div>
@@ -1191,7 +1205,6 @@ function Services() {
                     </div>
                   </div>
 
-                  {/* Current Specialties List */}
                   {selectedService.service_specialties && selectedService.service_specialties.length > 0 && (
                     <div className="border-t border-gray-200 pt-4 mb-6">
                       <label className="block text-gray-700 text-xs font-semibold mb-2">
@@ -1217,7 +1230,6 @@ function Services() {
 
                 {/* RIGHT COLUMN */}
                 <div>
-                  {/* Product Usage List */}
                   <div className="mb-6">
                     <div className="flex items-center justify-between mb-3">
                       <h3 className="text-sm font-semibold text-gray-800">Product Usage</h3>
@@ -1232,8 +1244,7 @@ function Services() {
                       <div className="space-y-2 max-h-48 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
                         {selectedServiceUsages.map((usage, index) => {
                           const productUnit = getProductUnit(usage);
-                          const productUnitSize = getProductUnitSize(usage);
-                          const unitDisplay = productUnit && productUnitSize ? `${productUnit}` : productUnit ? productUnit : '';
+                          const unitDisplay = productUnit ? productUnit : '';
                           
                           return (
                             <div key={index} className="bg-gray-50 rounded-lg p-3 flex items-center justify-between">
@@ -1262,7 +1273,6 @@ function Services() {
                     )}
                   </div>
 
-                  {/* Add Product Usage Form */}
                   <div className="border-t border-gray-200 pt-4 mb-6">
                     <h3 className="text-sm font-semibold text-gray-800 mb-3">Add Product Usage</h3>
                     <input type="hidden" name="service_id" value={usageFormData.service_id} />
@@ -1295,7 +1305,7 @@ function Services() {
                           </div>
                           
                           {showProductDropdown && filteredProducts.length > 0 && (
-                            <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+                            <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
                               {filteredProducts.map(product => (
                                 <div
                                   key={product.id}
@@ -1336,64 +1346,29 @@ function Services() {
                     </div>
                   </div>
 
-                  {/* Hair Colors Section - Display master list with selection */}
-                  {selectedService.reqHairColor && hairColors.length > 0 && (
+                  {/* ✅ Hair color management note */}
+                  {selectedService.reqHairColor && (
                     <div className="border-t border-gray-200 pt-4">
-                      <h3 className="text-sm font-semibold text-gray-800 mb-3">Available Hair Colors</h3>
-                      <p className="text-xs text-gray-500 mb-3">
-                        Select hair colors to assign to this service. Click a color to toggle selection.
-                      </p>
-                      
-                      <div className="space-y-2 max-h-56 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
-                        {hairColors.map((color) => {
-                          const isSelected = selectedHairColors.includes(color.id);
-                          
-                          return (
-                            <div
-                              key={color.id}
-                              onClick={() => handleHairColorToggle(color.id)}
-                              className={`flex items-center gap-3 p-2.5 rounded-lg border cursor-pointer transition-all ${
-                                isSelected 
-                                  ? 'border-purple-500 bg-purple-50' 
-                                  : 'border-gray-200 hover:border-purple-200'
-                              }`}
-                            >
-                              <div 
-                                className="w-6 h-6 rounded-full border border-gray-200 flex-shrink-0"
-                                style={{ backgroundColor: color.color_code || '#808080' }}
-                              />
-                              <div className="flex-1">
-                                <p className={`text-sm font-medium ${
-                                  isSelected ? 'text-purple-700' : 'text-gray-800'
-                                }`}>
-                                  {color.color_name}
-                                  {isSelected && (
-                                    <span className="ml-2 text-xs text-purple-600">(Selected)</span>
-                                  )}
-                                </p>
-                              </div>
-                              {isSelected && (
-                                <CheckCircle size={18} className="text-purple-500 flex-shrink-0" />
-                              )}
-                              {!isSelected && (
-                                <div className="w-4 h-4 rounded-full border-2 border-gray-300 flex-shrink-0" />
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                      
-                      <div className="mt-3 text-center">
-                        <p className="text-xs text-gray-500">
-                          {selectedHairColors.length} color{selectedHairColors.length !== 1 ? 's' : ''} selected
-                        </p>
+                      <div className="bg-purple-50 rounded-lg p-4 border border-purple-200">
+                        <div className="flex items-start gap-3">
+                          <Palette size={18} className="text-purple-500 flex-shrink-0 mt-0.5" />
+                          <div>
+                            <p className="text-sm font-semibold text-purple-800">
+                              Hair colors are managed globally
+                            </p>
+                            <p className="text-xs text-purple-700 mt-1">
+                              When a customer books this service, they'll pick from the master
+                              list of active colors. To add or edit colors, use the
+                              <span className="font-semibold"> "Hair Colors"</span> panel above.
+                            </p>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   )}
                 </div>
               </div>
 
-              {/* Close Button at Bottom */}
               <div className="mt-6 pt-4 border-t border-gray-200 flex justify-end">
                 <button
                   type="button"
@@ -1401,8 +1376,6 @@ function Services() {
                     setShowUsageModal(false);
                     setSelectedService(null);
                     setSelectedServiceUsages([]);
-                    setServiceHairColors([]);
-                    setSelectedHairColors([]);
                   }}
                   className="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors text-sm font-medium"
                 >
@@ -1524,7 +1497,6 @@ function Services() {
                   </div>
                 </div>
 
-                {/* Price Adjustments Section */}
                 <div className="border-t border-gray-200 pt-4">
                   <div className="flex items-center justify-between mb-3">
                     <h3 className="text-sm font-semibold text-gray-800">Price Adjustments</h3>
@@ -1606,7 +1578,6 @@ function Services() {
                   </div>
                 </div>
 
-                {/* Options Section */}
                 <div className="border-t border-gray-200 pt-4">
                   <h3 className="text-sm font-semibold text-gray-800 mb-3">Options</h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -1637,7 +1608,7 @@ function Services() {
                     </label>
                   </div>
                   <p className="text-[10px] text-gray-500 mt-1 ml-6">
-                    Enable multi-tasking if this service can be performed simultaneously. Enable hair color if this service requires selecting a hair color.
+                    Enable multi-tasking if this service can be performed simultaneously. Enable hair color if this service requires selecting a hair color. The colors shown to customers come from the Hair Colors panel above.
                   </p>
                 </div>
 
@@ -1662,6 +1633,157 @@ function Services() {
                 </div>
               </form>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add/Edit Hair Color Modal */}
+      {showHairColorModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
+            <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-6 py-4 flex items-center justify-between">
+              <h2 className="text-xl font-bold text-white">
+                {editingHairColor ? 'Edit Hair Color' : 'Add Hair Color'}
+              </h2>
+              <button
+                onClick={() => {
+                  setShowHairColorModal(false);
+                  setEditingHairColor(null);
+                }}
+                className="text-white hover:bg-white/20 rounded-lg p-1 transition-colors"
+              >
+                <X size={24} />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveHairColor} className="p-6 space-y-4">
+              {hairColorError && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center gap-2">
+                  <AlertCircle size={16} className="text-red-500" />
+                  <p className="text-red-600 text-sm">{hairColorError}</p>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-gray-700 text-sm font-semibold mb-1">
+                  Color Name *
+                </label>
+                <input
+                  type="text"
+                  value={hairColorForm.color_name}
+                  onChange={(e) =>
+                    setHairColorForm(prev => ({ ...prev, color_name: e.target.value }))
+                  }
+                  placeholder="e.g. Ash Blonde, Burgundy"
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                  disabled={isSavingHairColor}
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-gray-700 text-sm font-semibold mb-1">
+                  Color Code *
+                </label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="color"
+                    value={hairColorForm.color_code}
+                    onChange={(e) =>
+                      setHairColorForm(prev => ({
+                        ...prev,
+                        color_code: e.target.value.toUpperCase(),
+                      }))
+                    }
+                    className="w-12 h-10 rounded-lg border border-gray-200 cursor-pointer"
+                    disabled={isSavingHairColor}
+                  />
+                  <input
+                    type="text"
+                    value={hairColorForm.color_code}
+                    onChange={(e) =>
+                      setHairColorForm(prev => ({
+                        ...prev,
+                        color_code: e.target.value.toUpperCase(),
+                      }))
+                    }
+                    placeholder="#000000"
+                    maxLength={7}
+                    className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 font-mono"
+                    disabled={isSavingHairColor}
+                  />
+                </div>
+                <p className="text-[10px] text-gray-500 mt-1">
+                  Pick from the color picker or paste a hex code (e.g. #FF5733).
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-gray-700 text-sm font-semibold mb-1">
+                  Preview
+                </label>
+                <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                  <div
+                    className="w-10 h-10 rounded-full border-2 border-gray-200"
+                    style={{ backgroundColor: hairColorForm.color_code }}
+                  />
+                  <div>
+                    <p className="text-sm font-semibold text-gray-800">
+                      {hairColorForm.color_name || 'Untitled Color'}
+                    </p>
+                    <p className="text-xs text-gray-500 font-mono">
+                      {hairColorForm.color_code}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={hairColorForm.is_active}
+                  onChange={(e) =>
+                    setHairColorForm(prev => ({ ...prev, is_active: e.target.checked }))
+                  }
+                  className="w-4 h-4 text-pink-500 border-gray-300 rounded focus:ring-pink-500"
+                  disabled={isSavingHairColor}
+                />
+                <span className="text-gray-700 text-sm font-semibold">
+                  Mark as active
+                </span>
+              </label>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowHairColorModal(false);
+                    setEditingHairColor(null);
+                  }}
+                  disabled={isSavingHairColor}
+                  className="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingHairColor}
+                  className="flex-1 px-4 py-2.5 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 text-sm font-medium disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {isSavingHairColor ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Palette size={16} />
+                      {editingHairColor ? 'Save Changes' : 'Add Color'}
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

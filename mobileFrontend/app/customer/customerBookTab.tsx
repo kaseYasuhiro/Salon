@@ -84,13 +84,6 @@ interface HairColor {
   is_active: number;
 }
 
-interface ServiceHairColor {
-  id: number;
-  service_id: number;
-  hair_color_id: number;
-  hair_colors: HairColor;
-}
-
 interface StaffMember {
   id: number;
   first_name: string;
@@ -158,24 +151,38 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
   const [selectedHairLength, setSelectedHairLength] = useState<string>('');
   const [selectedHairThickness, setSelectedHairThickness] = useState<string>('');
   const [selectedHairColor, setSelectedHairColor] = useState<number | null>(null);
-  const [availableHairColors, setAvailableHairColors] = useState<HairColor[]>([]);
+
+  // ✅ Hair color picker modal state
+  const [showHairColorModal, setShowHairColorModal] = useState(false);
+  const [hairColorSearch, setHairColorSearch] = useState('');
 
   // Local state for data from API
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [serviceSpecialties, setServiceSpecialties] = useState<any[]>([]);
-  const [serviceHairColors, setServiceHairColors] = useState<ServiceHairColor[]>([]);
+  const [masterHairColors, setMasterHairColors] = useState<HairColor[]>([]);
   const [businessSchedules, setBusinessSchedules] = useState<BusinessSchedule[]>([]);
   const [staffAssignments, setStaffAssignments] = useState<StaffAssignment[]>([]);
   const [staffFeedbacks, setStaffFeedbacks] = useState<StaffFeedback[]>([]);
   const [allAppointments, setAllAppointments] = useState<Appointment[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
+  // ✅ QR code + GCash state (fetched from the owner's config)
+  const [qrImageUrl, setQrImageUrl] = useState<string | null>(null);
+  const [gcashNumber, setGcashNumber] = useState<string | null>(null);
+  const [isLoadingQr, setIsLoadingQr] = useState(false);
+
   const MAX_APPOINTMENTS_PER_TIME = 3;
 
   const { user } = useAuth();
 
-  const qrCodeImage = require('@/assets/images/qr_code.png');
+  // ✅ Helper to build the full image URL from a stored path
+  const getImageUrl = (imagePath: string | null | undefined) => {
+    if (!imagePath) return null;
+    if (imagePath.startsWith('http')) return imagePath;
+    if (imagePath.startsWith('/storage/')) return `http://192.168.100.73:8000${imagePath}`;
+    return `http://192.168.100.73:8000/storage/${imagePath}`;
+  };
 
   // ── Fetchers ──
   const fetchStaff = async () => {
@@ -305,15 +312,22 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     }
   };
 
-  const fetchServiceHairColors = async () => {
+  // ✅ Fetch the master list of active hair colors
+  const fetchHairColors = async () => {
     try {
-      const response = await api.get('/service/haircolors');
-      let hairColorsData: ServiceHairColor[] = [];
-      if (Array.isArray(response.data)) hairColorsData = response.data;
-      setServiceHairColors(hairColorsData);
-      return hairColorsData;
+      const response = await api.get('/haircolors');
+      let colorsData: HairColor[] = [];
+      if (Array.isArray(response.data)) {
+        colorsData = response.data
+          .filter((c: any) => c.is_active === 1 || c.is_active === true)
+          .sort((a: HairColor, b: HairColor) =>
+            (a.color_name || '').localeCompare(b.color_name || '')
+          );
+      }
+      setMasterHairColors(colorsData);
+      return colorsData;
     } catch (error) {
-      console.error('Error fetching service hair colors:', error);
+      console.error('Error fetching hair colors:', error);
       return [];
     }
   };
@@ -344,6 +358,25 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     }
   };
 
+  // ✅ Fetch the owner-configured QR + GCash number
+  const fetchQrCode = async () => {
+    setIsLoadingQr(true);
+    try {
+      const response = await api.get('/qr-code');
+      const data = response.data;
+      setQrImageUrl(getImageUrl(data?.qr_image || data?.qr_image_path) || null);
+      setGcashNumber(data?.gcash_number || null);
+      return data;
+    } catch (error) {
+      console.log("Error fetching QR code:", error);
+      setQrImageUrl(null);
+      setGcashNumber(null);
+      return null;
+    } finally {
+      setIsLoadingQr(false);
+    }
+  };
+
   const completeBooking = async (formData: FormData) => {
     try {
       const response = await api.post("/booking/complete", formData, {
@@ -369,28 +402,11 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
       fetchStaffAssignments(),
       fetchStaffFeedbacks(),
       fetchAllAppointments(),
-      fetchServiceHairColors(),
-      fetchServicePriceAdjustments()
+      fetchHairColors(),
+      fetchServicePriceAdjustments(),
+      fetchQrCode(),
     ]).finally(() => setIsLoading(false));
   }, []);
-
-  useEffect(() => {
-    if (selectedServiceIds.length === 0) {
-      setAvailableHairColors([]);
-      return;
-    }
-
-    const allHairColors: HairColor[] = [];
-    selectedServiceIds.forEach((id: number) => {
-      const colors = getHairColorsForService(id);
-      colors.forEach((color: HairColor) => {
-        if (!allHairColors.find((c: HairColor) => c.id === color.id)) {
-          allHairColors.push(color);
-        }
-      });
-    });
-    setAvailableHairColors(allHairColors);
-  }, [selectedServiceIds, serviceHairColors]);
 
   const getScheduleForDate = (dateStr: string): BusinessSchedule | null => {
     return businessSchedules.find(schedule => schedule.business_date === dateStr) || null;
@@ -450,11 +466,6 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
 
   const getServiceSpecialties = (serviceId: number) => {
     return serviceSpecialties.filter(item => item.service_id === serviceId);
-  };
-
-  const getHairColorsForService = (serviceId: number): HairColor[] => {
-    const serviceHairColorsFiltered = serviceHairColors.filter((item: ServiceHairColor) => item.service_id === serviceId);
-    return serviceHairColorsFiltered.map((item: ServiceHairColor) => item.hair_colors);
   };
 
   const doesServiceRequireHairColor = (serviceId: number): boolean => {
@@ -601,23 +612,6 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
 
   const getAppointmentCountForTimeRange = (date: Date, time: string, durationMinutes: number): number => {
     return getAppointmentsForTimeRange(date, time, durationMinutes).length;
-  };
-
-  const getAppointmentsForDateTime = (date: Date, time: string): Appointment[] => {
-    const dateStr = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
-    const timeStr = time + ':00';
-
-    return allAppointments.filter(app => {
-      if (app.status === 'cancelled') return false;
-      if (app.appointment_date !== dateStr) return false;
-      const appTime = app.appointment_time;
-      if (appTime === timeStr || appTime === time) return true;
-      return false;
-    });
-  };
-
-  const getAppointmentCountForDateTime = (date: Date, time: string): number => {
-    return getAppointmentsForDateTime(date, time).length;
   };
 
   const isTimeSlotAvailable = (date: Date, time: string): boolean => {
@@ -838,7 +832,7 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
       if (selectedHairLength) formData.append('hair_length', selectedHairLength);
       if (selectedHairThickness) formData.append('hair_thickness', selectedHairThickness);
       if (selectedHairColor) {
-        const color = availableHairColors.find((c: HairColor) => c.id === selectedHairColor);
+        const color = masterHairColors.find((c: HairColor) => c.id === selectedHairColor);
         if (color) formData.append('preferred_color', color.color_name);
       }
 
@@ -849,9 +843,6 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
           type: paymentProof.type,
         } as any);
       }
-
-      console.log("Booking — Total:", totalAmount, "Downpayment:", downpaymentAmount);
-      console.log("Hair Length:", selectedHairLength, "Thickness:", selectedHairThickness, "Color:", selectedHairColor);
 
       const result = await completeBooking(formData);
       console.log("Booking response:", result);
@@ -955,6 +946,11 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     return selectedServices.map(s => s.service_name).join(' + ');
   };
 
+  const getSelectedHairColorObject = (): HairColor | null => {
+    if (!selectedHairColor) return null;
+    return masterHairColors.find(c => c.id === selectedHairColor) || null;
+  };
+
   const generateReceiptNumber = () => {
     const date = new Date();
     const year = date.getFullYear();
@@ -999,6 +995,163 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
       stars.push(<Ionicons key={`empty-star-${i}`} name="star-outline" size={14} color="#d1d5db" />);
     }
     return stars;
+  };
+
+  // ✅ Filtered hair colors based on search
+  const filteredHairColors = masterHairColors.filter(color => {
+    if (!hairColorSearch.trim()) return true;
+    const term = hairColorSearch.toLowerCase();
+    return (
+      (color.color_name || '').toLowerCase().includes(term) ||
+      (color.color_code || '').toLowerCase().includes(term)
+    );
+  });
+
+  // ── Hair Color Picker Modal ──
+  const HairColorPickerModal = () => {
+    if (!showHairColorModal) return null;
+
+    return (
+      <Modal
+        transparent={true}
+        animationType="slide"
+        visible={showHairColorModal}
+        onRequestClose={() => {
+          setShowHairColorModal(false);
+          setHairColorSearch('');
+        }}
+      >
+        <View className="flex-1 justify-end bg-black/50">
+          <View className="bg-white rounded-t-3xl" style={{ maxHeight: '85%' }}>
+            {/* Header */}
+            <View className="px-6 pt-5 pb-3 border-b border-gray-100 flex-row justify-between items-center">
+              <View className="flex-1">
+                <Text className="text-lg font-bold text-gray-800">Select Hair Color</Text>
+                <Text className="text-xs text-gray-500 mt-0.5">
+                  {masterHairColors.length} color{masterHairColors.length !== 1 ? 's' : ''} available
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => {
+                  setShowHairColorModal(false);
+                  setHairColorSearch('');
+                }}
+                className="p-1"
+              >
+                <Ionicons name="close" size={24} color="#9ca3af" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Search bar */}
+            <View className="px-6 pt-4 pb-2">
+              <View className="flex-row items-center bg-gray-50 rounded-xl px-3 py-2 border border-gray-200">
+                <Ionicons name="search" size={18} color="#9ca3af" />
+                <TextInput
+                  value={hairColorSearch}
+                  onChangeText={setHairColorSearch}
+                  placeholder="Search color by name or hex..."
+                  placeholderTextColor="#9ca3af"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  className="flex-1 ml-2 text-sm text-gray-800"
+                />
+                {hairColorSearch.length > 0 && (
+                  <TouchableOpacity onPress={() => setHairColorSearch('')}>
+                    <Ionicons name="close-circle" size={18} color="#9ca3af" />
+                  </TouchableOpacity>
+                )}
+              </View>
+            </View>
+
+            {/* List of colors */}
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 12, paddingBottom: 20 }}
+              style={{ maxHeight: 460 }}
+              keyboardShouldPersistTaps="handled"
+            >
+              {filteredHairColors.length === 0 ? (
+                <View className="py-12 items-center">
+                  <Ionicons name="color-palette-outline" size={48} color="#d1d5db" />
+                  <Text className="text-gray-500 text-center mt-3">
+                    {masterHairColors.length === 0
+                      ? 'No colors available right now'
+                      : 'No colors match your search'}
+                  </Text>
+                </View>
+              ) : (
+                <View className="flex-row flex-wrap" style={{ marginHorizontal: -6 }}>
+                  {filteredHairColors.map((color) => {
+                    const isSelected = selectedHairColor === color.id;
+                    return (
+                      <View key={color.id} style={{ width: '50%', paddingHorizontal: 6, marginBottom: 12 }}>
+                        <TouchableOpacity
+                          onPress={() => setSelectedHairColor(color.id)}
+                          activeOpacity={0.8}
+                          className={`rounded-2xl p-3 border-2 ${
+                            isSelected ? 'border-pink-500 bg-pink-50' : 'border-gray-200 bg-white'
+                          }`}
+                        >
+                          <View className="items-center mb-2">
+                            <View
+                              className={`w-14 h-14 rounded-full border-2 ${
+                                isSelected ? 'border-pink-500' : 'border-gray-200'
+                              }`}
+                              style={{ backgroundColor: color.color_code || '#808080' }}
+                            />
+                          </View>
+                          <Text
+                            className={`text-xs font-semibold text-center ${
+                              isSelected ? 'text-pink-600' : 'text-gray-800'
+                            }`}
+                            numberOfLines={1}
+                          >
+                            {color.color_name}
+                          </Text>
+                          <Text className="text-[10px] text-gray-400 text-center font-mono mt-0.5">
+                            {color.color_code}
+                          </Text>
+                          {isSelected && (
+                            <View className="items-center mt-1">
+                              <Ionicons name="checkmark-circle" size={16} color="#ec4899" />
+                            </View>
+                          )}
+                        </TouchableOpacity>
+                      </View>
+                    );
+                  })}
+                </View>
+              )}
+            </ScrollView>
+
+            {/* Footer */}
+            <View className="px-6 py-4 border-t border-gray-100">
+              <TouchableOpacity
+                onPress={() => {
+                  setShowHairColorModal(false);
+                  setHairColorSearch('');
+                }}
+                className="py-3 rounded-xl bg-pink-500"
+              >
+                <Text className="text-white text-center font-semibold">
+                  {selectedHairColor ? 'Done' : 'Choose a color'}
+                </Text>
+              </TouchableOpacity>
+              {selectedHairColor && (
+                <TouchableOpacity
+                  onPress={() => setSelectedHairColor(null)}
+                  className="py-2 mt-2"
+                >
+                  <Text className="text-gray-500 text-center text-xs font-semibold">
+                    Clear selection
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+        </View>
+      </Modal>
+    );
   };
 
   // ── Time Picker Modal ──
@@ -1140,7 +1293,6 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
   };
 
   // ── Receipt Modal ──
-  // ✅ Solid pink header (gradient doesn't render on native)
   const ReceiptModal = () => {
     if (!receiptData) return null;
 
@@ -1154,7 +1306,6 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
         <View className="flex-1 justify-center items-center bg-black/50 p-4">
           <ScrollView className="max-h-[90%]" showsVerticalScrollIndicator={false}>
             <View className="bg-white rounded-2xl overflow-hidden w-full" style={{ minWidth: 320 }}>
-              {/* ✅ FIXED: solid pink header instead of gradient */}
               <View
                 className="px-6 py-4 items-center"
                 style={{ backgroundColor: '#ec4899' }}
@@ -1274,6 +1425,7 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     const downpaymentAmount = totalPrice / 2;
     const servicesForStaff = getServicesForStaff();
     const selectedStaff = selectedStaffId ? staff.find(s => s.id === selectedStaffId) : null;
+    const selectedColorObj = getSelectedHairColorObject();
 
     return (
       <View className="flex-1">
@@ -1335,7 +1487,7 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                         const ratingData = getStaffRating(staffMember.id);
                         const { average, count } = ratingData;
                         const specialties = getStaffSpecialties(staffMember.id);
-                        const profileImage = (staffMember as any).profile_image;
+                        const profileImage = getImageUrl((staffMember as any).profile_image);
 
                         return (
                           <TouchableOpacity
@@ -1348,9 +1500,19 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                             <View className="bg-white rounded-2xl shadow-lg overflow-hidden" style={{ elevation: 4 }}>
                               <View className="relative">
                                 {profileImage ? (
-                                  <Image source={{ uri: profileImage }} className="w-full h-48" resizeMode="cover" />
+                                  <Image
+                                    source={{ uri: profileImage }}
+                                    className="w-full h-48"
+                                    resizeMode="cover"
+                                    onError={(e) =>
+                                      console.log(
+                                        "Staff image failed:",
+                                        profileImage,
+                                        e.nativeEvent.error
+                                      )
+                                    }
+                                  />
                                 ) : (
-                                  // ✅ FIXED: solid pink fallback instead of gradient
                                   <View
                                     className="w-full h-48 items-center justify-center"
                                     style={{ backgroundColor: '#ec4899' }}
@@ -1654,35 +1816,58 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
 
                       {requiresHairColor && (
                         <>
-                          <Text className="text-lg font-semibold text-gray-800 mb-2">Select Hair Color</Text>
-                          <Text className="text-gray-500 text-sm mb-4">
-                            Choose your preferred hair color for the service.
-                          </Text>
+                          <View className={hasPriceAdjustments ? 'border-t border-gray-200 pt-4' : ''}>
+                            <Text className="text-lg font-semibold text-gray-800 mb-2">Select Hair Color</Text>
+                            <Text className="text-gray-500 text-sm mb-4">
+                              Choose your preferred hair color. Tap to browse all available shades.
+                            </Text>
 
-                          {availableHairColors.length === 0 ? (
-                            <View className="bg-yellow-50 rounded-xl p-4 mb-4">
-                              <Text className="text-yellow-700 text-sm text-center">
-                                No hair colors available for the selected service(s).
-                              </Text>
-                            </View>
-                          ) : (
-                            <View className="flex-row flex-wrap gap-2 mb-4">
-                              {availableHairColors.map((color: HairColor) => (
-                                <TouchableOpacity
-                                  key={color.id}
-                                  className={`px-4 py-2 rounded-xl border-2 flex-row items-center ${
-                                    selectedHairColor === color.id ? 'border-pink-500 bg-pink-50' : 'border-gray-200 bg-white'
-                                  }`}
-                                  onPress={() => setSelectedHairColor(color.id)}
-                                >
-                                  <View className="w-4 h-4 rounded-full mr-2" style={{ backgroundColor: color.color_code }} />
-                                  <Text className={`${selectedHairColor === color.id ? 'text-pink-600 font-semibold' : 'text-gray-700'}`}>
-                                    {color.color_name}
-                                  </Text>
-                                </TouchableOpacity>
-                              ))}
-                            </View>
-                          )}
+                            {/* ✅ Tappable row that opens the modal */}
+                            <TouchableOpacity
+                              onPress={() => setShowHairColorModal(true)}
+                              activeOpacity={0.8}
+                              className={`rounded-2xl p-4 border-2 flex-row items-center ${
+                                selectedColorObj ? 'border-pink-500 bg-pink-50' : 'border-gray-200 bg-white'
+                              }`}
+                            >
+                              {selectedColorObj ? (
+                                <>
+                                  <View
+                                    className="w-12 h-12 rounded-full border-2 border-pink-500"
+                                    style={{ backgroundColor: selectedColorObj.color_code || '#808080' }}
+                                  />
+                                  <View className="ml-3 flex-1">
+                                    <Text className="text-xs text-gray-500">Selected color</Text>
+                                    <Text className="text-base font-semibold text-gray-800">
+                                      {selectedColorObj.color_name}
+                                    </Text>
+                                    <Text className="text-[10px] text-gray-400 font-mono">
+                                      {selectedColorObj.color_code}
+                                    </Text>
+                                  </View>
+                                  <View className="flex-row items-center">
+                                    <Text className="text-pink-500 text-xs font-semibold mr-1">Change</Text>
+                                    <Ionicons name="chevron-forward" size={18} color="#ec4899" />
+                                  </View>
+                                </>
+                              ) : (
+                                <>
+                                  <View className="w-12 h-12 rounded-full bg-gray-100 border-2 border-dashed border-gray-300 items-center justify-center">
+                                    <Ionicons name="color-palette-outline" size={22} color="#9ca3af" />
+                                  </View>
+                                  <View className="ml-3 flex-1">
+                                    <Text className="text-base font-semibold text-gray-800">
+                                      Select a hair color
+                                    </Text>
+                                    <Text className="text-xs text-gray-500 mt-0.5">
+                                      {masterHairColors.length} shade{masterHairColors.length !== 1 ? 's' : ''} available
+                                    </Text>
+                                  </View>
+                                  <Ionicons name="chevron-forward" size={18} color="#9ca3af" />
+                                </>
+                              )}
+                            </TouchableOpacity>
+                          </View>
                         </>
                       )}
                     </>
@@ -1715,7 +1900,7 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                   {selectedHairLength && selectedHairThickness && (
                     <Text className="text-gray-500 text-xs mt-1">
                       Hair: {selectedHairLength} / {selectedHairThickness}
-                      {selectedHairColor && ` • Color: ${availableHairColors.find((c: HairColor) => c.id === selectedHairColor)?.color_name}`}
+                      {selectedColorObj && ` • Color: ${selectedColorObj.color_name}`}
                     </Text>
                   )}
                 </View>
@@ -1882,7 +2067,7 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                       <Text className="text-gray-500 text-sm">Hair Details:</Text>
                       <Text className="text-gray-700 text-sm">
                         {selectedHairLength} / {selectedHairThickness}
-                        {selectedHairColor && ` • ${availableHairColors.find((c: HairColor) => c.id === selectedHairColor)?.color_name}`}
+                        {selectedColorObj && ` • ${selectedColorObj.color_name}`}
                       </Text>
                     </View>
                   )}
@@ -1900,14 +2085,46 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                   </View>
                 </View>
 
+                {/* ✅ QR code + GCash number */}
                 <View className="items-center mb-4">
                   <Text className="text-gray-700 font-semibold text-base mb-2">Scan to Pay with GCash</Text>
-                  <View className="bg-white rounded-xl p-3 border-2 border-pink-200 shadow-md">
-                    <Image source={qrCodeImage} className="w-40 h-40" resizeMode="contain" />
-                  </View>
+
+                  {isLoadingQr ? (
+                    <View className="bg-white rounded-xl p-3 border-2 border-pink-200 shadow-md w-40 h-40 items-center justify-center">
+                      <ActivityIndicator size="large" color="#ec4899" />
+                    </View>
+                  ) : qrImageUrl ? (
+                    <View className="bg-white rounded-xl p-3 border-2 border-pink-200 shadow-md">
+                      <Image
+                        source={{ uri: qrImageUrl }}
+                        className="w-40 h-40"
+                        resizeMode="contain"
+                        onError={(e) =>
+                          console.log("QR image failed:", qrImageUrl, e.nativeEvent.error)
+                        }
+                      />
+                    </View>
+                  ) : (
+                    <View className="bg-gray-100 rounded-xl p-6 w-40 h-40 items-center justify-center border-2 border-dashed border-gray-300">
+                      <Ionicons name="qr-code-outline" size={48} color="#9ca3af" />
+                      <Text className="text-gray-400 text-xs text-center mt-2">
+                        QR code not available
+                      </Text>
+                    </View>
+                  )}
+
                   <Text className="text-gray-500 text-sm mt-2 text-center">
                     Amount to pay: <Text className="font-bold text-blue-600">₱{downpaymentAmount.toLocaleString()}</Text>
                   </Text>
+
+                  {gcashNumber ? (
+                    <View className="mt-3 bg-blue-50 rounded-xl px-4 py-2 border border-blue-200">
+                      <Text className="text-[10px] text-gray-500 text-center">GCash Number</Text>
+                      <Text className="text-sm font-bold text-gray-800 tracking-wide text-center">
+                        {gcashNumber}
+                      </Text>
+                    </View>
+                  ) : null}
                 </View>
 
                 <View className="bg-blue-50 rounded-xl p-3 mb-4">
@@ -2003,6 +2220,7 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
         </ScrollView>
 
         <TimePickerModal />
+        <HairColorPickerModal />
         <ReceiptModal />
       </View>
     );

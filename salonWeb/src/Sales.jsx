@@ -103,8 +103,21 @@ function Sales() {
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   };
 
+  // ✅ Full date label for the daily bucket, e.g. "Sep 18, 2026"
+  const formatDailyLabel = (dateStr) => {
+    if (!dateStr) return 'N/A';
+    const date = new Date(dateStr + 'T00:00:00');
+    if (isNaN(date.getTime())) return dateStr;
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  };
+
+  // ✅ No peso sign — the currency symbol lives in the table header instead.
+  //    Keeps the numeric string cleaner and lets the column header carry the unit.
   const formatCurrency = (amount) =>
-    `${parseFloat(amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₱`;
+    parseFloat(amount || 0).toLocaleString('en-US', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    });
 
   const formatNumber = (num) => num.toLocaleString();
 
@@ -112,22 +125,6 @@ function Sales() {
   // REVENUE HELPERS
   // ============================================================
 
-  /**
-   * Group transactions by appointment_id so we don't double-count the billing total.
-   *
-   * `/all-appointments` returns one row per transaction (per service). For a single
-   * appointment with 3 services, there are 3 rows — each carrying the SAME
-   * `billing_total_amount`. If we just summed across rows we'd count the appointment
-   * total 3×. So we dedupe by appointment_id first.
-   *
-   * Result: an array of unique appointments, each with:
-   *   - representative row data (date, assigned_employee_id, status)
-   *   - billing_total_amount (grand total for the appointment)
-   *   - billing_paid_amount (how much has been paid)
-   *   - billing_balance
-   *   - services: [{ service_id, price, service_name }]
-   *   - priceSum: sum of base prices (for commissions and fallbacks)
-   */
   const groupByAppointment = (transactions) => {
     const map = new Map();
 
@@ -144,7 +141,6 @@ function Sales() {
           status: tx.status,
           assigned_employee_id: tx.assigned_employee_id,
           customer_name: tx.customer_name,
-          // Billing fields from the row (they're identical across the appointment's rows)
           billing_total_amount: tx.billing_total_amount != null
             ? parseFloat(tx.billing_total_amount)
             : null,
@@ -155,7 +151,6 @@ function Sales() {
             ? parseFloat(tx.billing_balance)
             : null,
           billing_payment_type: tx.billing_payment_type ?? null,
-          // Per-service info used for commission and other calcs
           services: [],
           priceSum: 0
         });
@@ -173,10 +168,6 @@ function Sales() {
     return Array.from(map.values());
   };
 
-  /**
-   * Return the "revenue" value for an appointment — prefer the billing total
-   * (base + adjustments); fall back to the sum of base prices for legacy rows.
-   */
   const getAppointmentRevenue = (appointment) => {
     if (appointment.billing_total_amount != null && appointment.billing_total_amount > 0) {
       return appointment.billing_total_amount;
@@ -250,11 +241,6 @@ function Sales() {
     return c ? parseFloat(c.commission_amount) : 0;
   };
 
-  /**
-   * Commission is calculated per-SERVICE using the base `price` (not the billing total).
-   * Reasoning: the service-price adjustments (hair length/thickness) aren't stored per
-   * service in a way that we can attribute — so commissions stay based on base price.
-   */
   const calculateCommissionsForGroupedAppointments = (appointments) => {
     let total = 0;
     appointments.forEach(appt => {
@@ -268,7 +254,6 @@ function Sales() {
     return total;
   };
 
-  // staffValue is "all" or a numeric string. Matches on assigned_employee_id (users.id).
   const applyStaffFilter = (appointments, staffValue) => {
     if (!staffValue || staffValue === 'all') return appointments;
     const target = parseInt(staffValue, 10);
@@ -292,7 +277,9 @@ function Sales() {
       d.setDate(d.getDate() - i);
       const key = getLocalDateString(d);
       map[key] = {
-        key, date: key, label: key,
+        key, date: key,
+        // ✅ Full date label instead of the raw YYYY-MM-DD
+        label: formatDailyLabel(key),
         revenue: 0, count: 0, writtenOff: 0, expenses: 0,
         commissions: 0, grossProfit: 0, netProfit: 0, appointments: []
       };
@@ -303,12 +290,12 @@ function Sales() {
       if (!dateStr) return;
       if (!map[dateStr]) {
         map[dateStr] = {
-          key: dateStr, date: dateStr, label: dateStr,
+          key: dateStr, date: dateStr,
+          label: formatDailyLabel(dateStr),
           revenue: 0, count: 0, writtenOff: 0, expenses: 0,
           commissions: 0, grossProfit: 0, netProfit: 0, appointments: []
         };
       }
-      // ✅ Use the appointment's revenue (billing total when available)
       map[dateStr].revenue += getAppointmentRevenue(appt);
       map[dateStr].count += 1;
       map[dateStr].appointments.push(appt);
@@ -329,7 +316,14 @@ function Sales() {
       b.netProfit = isAllStaff ? b.revenue - w - e - c : b.revenue - w - c;
     });
 
-    return Object.values(map).sort((a, b) => a.date.localeCompare(b.date));
+    let buckets = Object.values(map).sort((a, b) => a.date.localeCompare(b.date));
+
+    // ✅ When filtering to a specific staff, hide buckets with no completed appointments
+    if (!isAllStaff) {
+      buckets = buckets.filter(b => b.count > 0);
+    }
+
+    return buckets;
   };
 
   const buildWeeklyBuckets = (appointments, weeksBack = 7, isAllStaff = true) => {
@@ -385,7 +379,13 @@ function Sales() {
       b.netProfit = isAllStaff ? b.revenue - w - e - c : b.revenue - w - c;
     });
 
-    return Object.values(map).sort((a, b) => a.key.localeCompare(b.key));
+    let buckets = Object.values(map).sort((a, b) => a.key.localeCompare(b.key));
+
+    if (!isAllStaff) {
+      buckets = buckets.filter(b => b.count > 0);
+    }
+
+    return buckets;
   };
 
   const buildMonthlyBuckets = (appointments, monthsBack = 6, isAllStaff = true) => {
@@ -442,7 +442,13 @@ function Sales() {
       b.netProfit = isAllStaff ? b.revenue - w - e - c : b.revenue - w - c;
     });
 
-    return Object.values(map).sort((a, b) => a.key.localeCompare(b.key));
+    let buckets = Object.values(map).sort((a, b) => a.key.localeCompare(b.key));
+
+    if (!isAllStaff) {
+      buckets = buckets.filter(b => b.count > 0);
+    }
+
+    return buckets;
   };
 
   // ============================================================
@@ -457,7 +463,6 @@ function Sales() {
     try {
       const response = await api.get('/all-appointments');
       if (Array.isArray(response.data)) {
-        // ✅ Group transactions into unique appointments FIRST
         const allCompletedGrouped = groupByAppointment(
           response.data.filter(app => app.status === 'completed')
         );
@@ -481,7 +486,6 @@ function Sales() {
           );
         }
 
-        // ✅ Revenue from billing_total_amount (deduped)
         const totalRevenue = filtered.reduce((s, a) => s + getAppointmentRevenue(a), 0);
         const totalAppointments = filtered.length;
         const averageRevenue = totalAppointments > 0 ? totalRevenue / totalAppointments : 0;
@@ -677,16 +681,16 @@ function Sales() {
 
     let profitRows = '';
     profitData.forEach(item => {
-      const label = item.weekRange || item.month || item.date || item.week;
+      const label = item.weekRange || item.month || item.label || item.date || item.week;
       profitRows += `
         <tr>
           <td>${label}</td>
-          <td class="currency">${formatCurrency(item.revenue)}</td>
+          <td class="currency">₱${formatCurrency(item.revenue)}</td>
           <td class="currency">${item.count}</td>
-          <td class="currency">${formatCurrency(item.writtenOff || 0)}</td>
-          <td class="currency">${formatCurrency(item.expenses || 0)}</td>
-          <td class="currency">${formatCurrency(item.commissions || 0)}</td>
-          <td class="currency">${formatCurrency(item.netProfit || 0)}</td>
+          <td class="currency">₱${formatCurrency(item.writtenOff || 0)}</td>
+          <td class="currency">₱${formatCurrency(item.expenses || 0)}</td>
+          <td class="currency">₱${formatCurrency(item.commissions || 0)}</td>
+          <td class="currency">₱${formatCurrency(item.netProfit || 0)}</td>
         </tr>
       `;
     });
@@ -703,12 +707,12 @@ function Sales() {
               <p>Staff: ${getSelectedStaffName()}</p>
             </div>
             <div class="summary-box">
-              <div class="summary-item"><div class="label">Total Revenue</div><div class="value">${formatCurrency(salesData.totalRevenue)}</div></div>
+              <div class="summary-item"><div class="label">Total Revenue</div><div class="value">₱${formatCurrency(salesData.totalRevenue)}</div></div>
               <div class="summary-item"><div class="label">Total Appointments</div><div class="value">${formatNumber(salesData.totalAppointments)}</div></div>
-              <div class="summary-item"><div class="label">Incidents</div><div class="value">${formatCurrency(salesData.totalWrittenOff)}</div></div>
-              <div class="summary-item"><div class="label">Total Expenses</div><div class="value">${formatCurrency(salesData.totalExpenses)}</div></div>
-              <div class="summary-item"><div class="label">Commissions</div><div class="value">${formatCurrency(salesData.totalCommissions)}</div></div>
-              <div class="summary-item"><div class="label">Net Profit</div><div class="value">${formatCurrency(salesData.netProfit)}</div></div>
+              <div class="summary-item"><div class="label">Incidents</div><div class="value">₱${formatCurrency(salesData.totalWrittenOff)}</div></div>
+              <div class="summary-item"><div class="label">Total Expenses</div><div class="value">₱${formatCurrency(salesData.totalExpenses)}</div></div>
+              <div class="summary-item"><div class="label">Commissions</div><div class="value">₱${formatCurrency(salesData.totalCommissions)}</div></div>
+              <div class="summary-item"><div class="label">Net Profit</div><div class="value">₱${formatCurrency(salesData.netProfit)}</div></div>
             </div>
             <div class="section">
               <h2>Profit Report (${profitFilter.charAt(0).toUpperCase() + profitFilter.slice(1)})</h2>
@@ -716,12 +720,12 @@ function Sales() {
                 <thead>
                   <tr>
                     <th>Period</th>
-                    <th>Revenue</th>
-                    <th>Appointments</th>
-                    <th>Incidents</th>
-                    <th>Expenses</th>
-                    <th>Commissions</th>
-                    <th>Net Profit</th>
+                    <th style="text-align:right;">Revenue (₱)</th>
+                    <th style="text-align:right;">Appointments</th>
+                    <th style="text-align:right;">Incidents (₱)</th>
+                    <th style="text-align:right;">Expenses (₱)</th>
+                    <th style="text-align:right;">Commissions (₱)</th>
+                    <th style="text-align:right;">Net Profit (₱)</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -730,12 +734,12 @@ function Sales() {
                 <tfoot>
                   <tr class="total-row">
                     <td>Total</td>
-                    <td class="currency">${formatCurrency(salesData.totalRevenue)}</td>
+                    <td class="currency">₱${formatCurrency(salesData.totalRevenue)}</td>
                     <td class="currency">${formatNumber(salesData.totalAppointments)}</td>
-                    <td class="currency">${formatCurrency(salesData.totalWrittenOff)}</td>
-                    <td class="currency">${formatCurrency(salesData.totalExpenses)}</td>
-                    <td class="currency">${formatCurrency(salesData.totalCommissions)}</td>
-                    <td class="currency">${formatCurrency(salesData.netProfit)}</td>
+                    <td class="currency">₱${formatCurrency(salesData.totalWrittenOff)}</td>
+                    <td class="currency">₱${formatCurrency(salesData.totalExpenses)}</td>
+                    <td class="currency">₱${formatCurrency(salesData.totalCommissions)}</td>
+                    <td class="currency">₱${formatCurrency(salesData.netProfit)}</td>
                   </tr>
                 </tfoot>
               </table>
@@ -768,17 +772,17 @@ function Sales() {
     csv += `"Staff:",${getSelectedStaffName()}\n`;
     csv += `\n`;
     csv += `"=== SUMMARY ===\n"`;
-    csv += `"Total Revenue","${formatCurrency(salesData.totalRevenue)}"\n`;
+    csv += `"Total Revenue","₱${formatCurrency(salesData.totalRevenue)}"\n`;
     csv += `"Total Appointments","${formatNumber(salesData.totalAppointments)}"\n`;
-    csv += `"Total Incidents","${formatCurrency(salesData.totalWrittenOff)}"\n`;
-    csv += `"Total Expenses","${formatCurrency(salesData.totalExpenses)}"\n`;
-    csv += `"Commissions","${formatCurrency(salesData.totalCommissions)}"\n`;
-    csv += `"Net Profit","${formatCurrency(salesData.netProfit)}"\n`;
+    csv += `"Total Incidents","₱${formatCurrency(salesData.totalWrittenOff)}"\n`;
+    csv += `"Total Expenses","₱${formatCurrency(salesData.totalExpenses)}"\n`;
+    csv += `"Commissions","₱${formatCurrency(salesData.totalCommissions)}"\n`;
+    csv += `"Net Profit","₱${formatCurrency(salesData.netProfit)}"\n`;
     csv += `\n`;
     csv += `"=== PROFIT REPORT (${profitFilter.charAt(0).toUpperCase() + profitFilter.slice(1)}) ===\n"`;
     csv += `"Period","Revenue","Appointments","Incidents","Expenses","Commissions","Net Profit"\n`;
     profitData.forEach(item => {
-      const label = item.weekRange || item.month || item.date || item.week;
+      const label = item.weekRange || item.month || item.label || item.date || item.week;
       csv += `"${label}","${item.revenue}","${item.count}","${item.writtenOff || 0}","${item.expenses || 0}","${item.commissions || 0}","${item.netProfit || 0}"\n`;
     });
     csv += `"TOTAL","${salesData.totalRevenue}","${formatNumber(salesData.totalAppointments)}","${salesData.totalWrittenOff}","${salesData.totalExpenses}","${salesData.totalCommissions}","${salesData.netProfit}"\n`;
@@ -955,26 +959,28 @@ function Sales() {
                 <thead className="bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Period</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Revenue</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Appointments</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Incidents</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Expenses</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Commissions</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Net Profit</th>
+                    {/* ✅ Peso sign in header only, right-aligned so decimals line up */}
+                    <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">Revenue (₱)</th>
+                    <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">Appointments</th>
+                    <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">Incidents (₱)</th>
+                    <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">Costs (₱)</th>
+                    <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">Commissions (₱)</th>
+                    <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">Net Profit (₱)</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {getProfitData().map((item, index) => {
-                    const label = item.weekRange || item.month || item.date || item.week;
+                    const label = item.weekRange || item.month || item.label || item.date || item.week;
                     return (
                       <tr key={index} className="hover:bg-gray-50/50 transition-colors">
                         <td className="px-4 py-3 text-sm font-medium text-black">{label}</td>
-                        <td className="px-4 py-3 text-sm font-semibold text-black">{formatCurrency(item.revenue)}</td>
-                        <td className="px-4 py-3 text-sm text-black">{item.count}</td>
-                        <td className="px-4 py-3 text-sm font-semibold text-black">{formatCurrency(item.writtenOff || 0)}</td>
-                        <td className="px-4 py-3 text-sm text-black">{formatCurrency(item.expenses || 0)}</td>
-                        <td className="px-4 py-3 text-sm text-black">{formatCurrency(item.commissions || 0)}</td>
-                        <td className="px-4 py-3 text-sm font-bold text-black">{formatCurrency(item.netProfit || 0)}</td>
+                        {/* ✅ Right-aligned numbers, no peso sign */}
+                        <td className="px-4 py-3 text-sm font-semibold text-black text-right tabular-nums">{formatCurrency(item.revenue)}</td>
+                        <td className="px-4 py-3 text-sm text-black text-right tabular-nums">{item.count}</td>
+                        <td className="px-4 py-3 text-sm font-semibold text-black text-right tabular-nums">{formatCurrency(item.writtenOff || 0)}</td>
+                        <td className="px-4 py-3 text-sm text-black text-right tabular-nums">{formatCurrency(item.expenses || 0)}</td>
+                        <td className="px-4 py-3 text-sm text-black text-right tabular-nums">{formatCurrency(item.commissions || 0)}</td>
+                        <td className="px-4 py-3 text-sm font-bold text-black text-right tabular-nums">{formatCurrency(item.netProfit || 0)}</td>
                       </tr>
                     );
                   })}
@@ -982,12 +988,12 @@ function Sales() {
                 <tfoot className="bg-gray-50 border-t border-gray-200">
                   <tr>
                     <td className="px-4 py-3 text-sm font-bold text-black">Total</td>
-                    <td className="px-4 py-3 text-sm font-bold text-black">{formatCurrency(salesData.totalRevenue)}</td>
-                    <td className="px-4 py-3 text-sm font-bold text-black">{formatNumber(salesData.totalAppointments)}</td>
-                    <td className="px-4 py-3 text-sm font-bold text-black">{formatCurrency(salesData.totalWrittenOff)}</td>
-                    <td className="px-4 py-3 text-sm font-bold text-black">{formatCurrency(salesData.totalExpenses)}</td>
-                    <td className="px-4 py-3 text-sm font-bold text-black">{formatCurrency(salesData.totalCommissions)}</td>
-                    <td className="px-4 py-3 text-sm font-bold text-black">{formatCurrency(salesData.netProfit)}</td>
+                    <td className="px-4 py-3 text-sm font-bold text-black text-right tabular-nums">{formatCurrency(salesData.totalRevenue)}</td>
+                    <td className="px-4 py-3 text-sm font-bold text-black text-right tabular-nums">{formatNumber(salesData.totalAppointments)}</td>
+                    <td className="px-4 py-3 text-sm font-bold text-black text-right tabular-nums">{formatCurrency(salesData.totalWrittenOff)}</td>
+                    <td className="px-4 py-3 text-sm font-bold text-black text-right tabular-nums">{formatCurrency(salesData.totalExpenses)}</td>
+                    <td className="px-4 py-3 text-sm font-bold text-black text-right tabular-nums">{formatCurrency(salesData.totalCommissions)}</td>
+                    <td className="px-4 py-3 text-sm font-bold text-black text-right tabular-nums">{formatCurrency(salesData.netProfit)}</td>
                   </tr>
                 </tfoot>
               </table>

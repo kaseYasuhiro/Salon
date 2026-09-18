@@ -10,14 +10,14 @@ import api from '../api/axios';
 function InventoryReports() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
-  const [transactionSearchTerm, setTransactionSearchTerm] = useState('');
-  const [transactionFilterType, setTransactionFilterType] = useState('all');
-  const [dateRange, setDateRange] = useState({ startDate: '', endDate: '' });
-  const [showDateFilter, setShowDateFilter] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingTransactions, setIsLoadingTransactions] = useState(true);
   const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
   const [lastUpdated, setLastUpdated] = useState(new Date());
+
+  // Per-product transactions modal state
+  const [showTransactionsModal, setShowTransactionsModal] = useState(false);
+  const [selectedInventoryItem, setSelectedInventoryItem] = useState(null);
 
   // Data states
   const [inventory, setInventory] = useState([]);
@@ -64,31 +64,18 @@ function InventoryReports() {
   };
 
   /**
-   * ✅ CORRECT total remaining usages.
-   *
-   * Model:
-   *   - `product_quantity` = total bottles on hand, INCLUDING the currently open one.
-   *   - `current_usages`    = usages left in the currently open bottle.
-   *
-   * Therefore:
+   * Correct total remaining usages.
    *   remaining = (product_quantity - 1) * estimated_usages_per_unit + current_usages
-   *
-   * Example: 20 bottles @ 30 uses, 29 left in open bottle
-   *   → (20 - 1) * 30 + 29 = 570 + 29 = 599
    */
   const getRemainingUsages = (item) => {
     const bottles = parseInt(item.product_quantity, 10) || 0;
     const perUnit = parseInt(item.estimated_usages_per_unit, 10) || 0;
     const openUsages = parseInt(item.current_usages, 10) || 0;
 
-    if (bottles <= 0) {
-      // No bottles on hand; nothing usable (openUsages should be 0 in this case)
-      return 0;
-    }
+    if (bottles <= 0) return 0;
     return Math.max(0, (bottles - 1) * perUnit + openUsages);
   };
 
-  // ✅ Status based on corrected total remaining
   const getItemStatus = (item) => {
     const remainingUsages = getRemainingUsages(item);
     const reorderPoint = parseInt(item.reorder_level, 10) || 0;
@@ -124,7 +111,6 @@ function InventoryReports() {
         const sortedData = sortInventoryByRecent(transformedData);
         setInventory(sortedData);
 
-        // Summary filters use the corrected total remaining
         const lowStockItems = sortedData.filter(item => {
           const remaining = getRemainingUsages(item);
           const reorder = parseInt(item.reorder_level, 10) || 0;
@@ -196,7 +182,7 @@ function InventoryReports() {
     }
   };
 
-  // Fetch expenses (Costs)
+  // Fetch expenses
   const fetchExpenses = async () => {
     setIsLoadingExpenses(true);
     try {
@@ -267,41 +253,6 @@ function InventoryReports() {
     if (searchTerm && !(item.product_name || '').toLowerCase().includes(searchTerm.toLowerCase())) return false;
     if (filterStatus !== 'all' && item.status !== filterStatus) return false;
     return true;
-  });
-
-  const filteredTransactions = transactions.filter(transaction => {
-    if (transactionSearchTerm) {
-      const term = transactionSearchTerm.toLowerCase();
-      const productName = getProductName(transaction.inventory_id).toLowerCase();
-      const transactionId = transaction.transaction_id?.toString() || '';
-      const appointmentId = transaction.transaction?.appointment_id?.toString() || '';
-
-      if (!productName.includes(term) &&
-          !transactionId.includes(term) &&
-          !appointmentId.includes(term)) {
-        return false;
-      }
-    }
-
-    if (transactionFilterType !== 'all') {
-      const type = transaction.transaction_type || (transaction.quantity_change > 0 ? 'restock' : 'usage');
-      if (type !== transactionFilterType) return false;
-    }
-
-    if (dateRange.startDate && transaction.created_at) {
-      const transDate = transaction.created_at.split('T')[0];
-      if (transDate < dateRange.startDate) return false;
-    }
-    if (dateRange.endDate && transaction.created_at) {
-      const transDate = transaction.created_at.split('T')[0];
-      if (transDate > dateRange.endDate) return false;
-    }
-
-    return true;
-  });
-
-  const sortedTransactions = [...filteredTransactions].sort((a, b) => {
-    return new Date(b.created_at) - new Date(a.created_at);
   });
 
   const filteredExpenses = expenses.filter(expense => {
@@ -420,6 +371,20 @@ function InventoryReports() {
     showToast('Data refreshed successfully!', 'success');
   };
 
+  // Open per-product transaction history
+  const handleOpenTransactionsModal = (item) => {
+    setSelectedInventoryItem(item);
+    setShowTransactionsModal(true);
+  };
+
+  // Transactions for the currently selected item
+  const getItemTransactions = () => {
+    if (!selectedInventoryItem) return [];
+    return transactions
+      .filter(t => t.inventory_id === selectedInventoryItem.id)
+      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  };
+
   const handleExportCSV = () => {
     let csv = '';
 
@@ -430,15 +395,6 @@ function InventoryReports() {
     csv += `"Product Name","Unit","Unit Size","Quantity","Usage Left","Reorder Level","Status"\n`;
     filteredInventory.forEach(item => {
       csv += `"${item.product_name}","${item.unit}","${item.unit_size}","${item.product_quantity}","${getRemainingUsages(item)}","${item.reorder_level}","${item.status}"\n`;
-    });
-
-    csv += `\n\n`;
-
-    csv += `"=== TRANSACTION HISTORY ==="\n`;
-    csv += `"Date","Product","Type","Quantity Change","Transaction ID","Appointment ID"\n`;
-    sortedTransactions.forEach(t => {
-      const type = t.transaction_type || (t.quantity_change > 0 ? 'restock' : 'usage');
-      csv += `"${formatDateTime(t.created_at)}","${getProductName(t.inventory_id)}","${type}","${t.quantity_change}","${t.transaction_id || 'N/A'}","${t.transaction?.appointment_id || 'N/A'}"\n`;
     });
 
     csv += `\n\n`;
@@ -484,21 +440,6 @@ function InventoryReports() {
           <td class="currency">${getRemainingUsages(item)}</td>
           <td class="currency">${item.reorder_level}</td>
           <td>${item.status.replace('_', ' ').toUpperCase()}</td>
-        </tr>
-      `;
-    });
-
-    let transactionRows = '';
-    sortedTransactions.forEach(t => {
-      const type = t.transaction_type || (t.quantity_change > 0 ? 'restock' : 'usage');
-      transactionRows += `
-        <tr>
-          <td>${formatDateTime(t.created_at)}</td>
-          <td>${getProductName(t.inventory_id)}</td>
-          <td>${type.charAt(0).toUpperCase() + type.slice(1)}</td>
-          <td class="currency">${t.quantity_change > 0 ? '+' : ''}${t.quantity_change}</td>
-          <td>#${t.transaction_id || 'N/A'}</td>
-          <td>#${t.transaction?.appointment_id || 'N/A'}</td>
         </tr>
       `;
     });
@@ -560,27 +501,6 @@ function InventoryReports() {
               </thead>
               <tbody>
                 ${inventoryRows || '<tr><td colspan="6" style="text-align:center;color:#999;">No inventory data available</td></tr>'}
-              </tbody>
-            </table>
-          </div>
-
-          <div class="page-break"></div>
-
-          <div class="section">
-            <h2>Transaction History (${sortedTransactions.length} transactions)</h2>
-            <table>
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Product</th>
-                  <th>Type</th>
-                  <th>Quantity Change</th>
-                  <th>Transaction ID</th>
-                  <th>Appointment ID</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${transactionRows || '<tr><td colspan="6" style="text-align:center;color:#999;">No transaction data available</td></tr>'}
               </tbody>
             </table>
           </div>
@@ -835,19 +755,21 @@ function InventoryReports() {
                 <th className="px-4 py-3 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Usage Left</th>
                 <th className="px-4 py-3 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Reorder Level</th>
                 <th className="px-4 py-3 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Status</th>
+                {/* ✅ New Actions column */}
+                <th className="px-4 py-3 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {isLoading ? (
                 <tr>
-                  <td colSpan="6" className="px-4 py-12 text-center">
+                  <td colSpan="7" className="px-4 py-12 text-center">
                     <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
                     <p className="text-sm text-gray-500">Loading inventory...</p>
                   </td>
                 </tr>
               ) : filteredInventory.length === 0 ? (
                 <tr>
-                  <td colSpan="6" className="px-4 py-12 text-center">
+                  <td colSpan="7" className="px-4 py-12 text-center">
                     <Package size={40} className="text-gray-300 mx-auto mb-2" />
                     <p className="text-sm text-gray-500">No inventory data found</p>
                     <p className="text-xs text-gray-400 mt-1">Try adjusting your filters</p>
@@ -893,6 +815,17 @@ function InventoryReports() {
                     <td className="px-4 py-3">
                       {getStatusBadge(item.status)}
                     </td>
+                    {/* ✅ Per-product history button */}
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <button
+                        onClick={() => handleOpenTransactionsModal(item)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-purple-50 text-purple-600 rounded-lg hover:bg-purple-100 transition-colors text-xs font-medium"
+                        title="View transaction history"
+                      >
+                        <History size={12} />
+                        <span>History</span>
+                      </button>
+                    </td>
                   </tr>
                 ))
               )}
@@ -906,206 +839,16 @@ function InventoryReports() {
                   <td className="px-4 py-3 text-sm font-bold text-black">
                     {filteredInventory.reduce((sum, i) => sum + (i.product_quantity || 0), 0)}
                   </td>
-                  <td colSpan="3" className="px-4 py-3"></td>
+                  <td colSpan="4" className="px-4 py-3"></td>
                 </tr>
               </tfoot>
             )}
           </table>
         </div>
-      </div>
-
-      {/* ===== TRANSACTION HISTORY TABLE ===== */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="px-5 py-3 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <div>
-            <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
-              <History size={16} className="text-purple-500" />
-              Transaction History
-            </h3>
-            <p className="text-[10px] text-gray-500 mt-0.5">
-              {sortedTransactions.length} of {transactions.length} transactions
-            </p>
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            <div className="relative">
-              <Search size={14} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-              <input
-                type="text"
-                placeholder="Search by product or ID..."
-                value={transactionSearchTerm}
-                onChange={(e) => setTransactionSearchTerm(e.target.value)}
-                className="pl-9 pr-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 w-52"
-              />
-            </div>
-
-            <select
-              value={transactionFilterType}
-              onChange={(e) => setTransactionFilterType(e.target.value)}
-              className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white"
-            >
-              <option value="all">All Types</option>
-              <option value="restock">Restock</option>
-              <option value="usage">Usage</option>
-            </select>
-
-            <button
-              onClick={() => setShowDateFilter(!showDateFilter)}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
-            >
-              <Calendar size={14} />
-              <span>Date Range</span>
-              {(dateRange.startDate || dateRange.endDate) && (
-                <span className="w-2 h-2 bg-purple-500 rounded-full"></span>
-              )}
-            </button>
-          </div>
-        </div>
-
-        {showDateFilter && (
-          <div className="px-5 py-3 bg-gray-50 border-b border-gray-200 flex items-center gap-3 flex-wrap">
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-gray-600">From:</span>
-              <input
-                type="date"
-                value={dateRange.startDate}
-                onChange={(e) => setDateRange(prev => ({ ...prev, startDate: e.target.value }))}
-                className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-gray-600">To:</span>
-              <input
-                type="date"
-                value={dateRange.endDate}
-                onChange={(e) => setDateRange(prev => ({ ...prev, endDate: e.target.value }))}
-                className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-              />
-            </div>
-            <button
-              onClick={() => {
-                setDateRange({ startDate: '', endDate: '' });
-                setShowDateFilter(false);
-              }}
-              className="px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 rounded-lg transition-colors flex items-center gap-1"
-            >
-              <X size={12} />
-              Clear
-            </button>
-          </div>
-        )}
-
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
-              <tr>
-                <th className="px-4 py-3 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Date & Time</th>
-                <th className="px-4 py-3 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Product</th>
-                <th className="px-4 py-3 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Type</th>
-                <th className="px-4 py-3 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Quantity</th>
-                <th className="px-4 py-3 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Transaction ID</th>
-                <th className="px-4 py-3 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Appointment ID</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {isLoadingTransactions ? (
-                <tr>
-                  <td colSpan="6" className="px-4 py-12 text-center">
-                    <div className="w-8 h-8 border-4 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
-                    <p className="text-sm text-gray-500">Loading transactions...</p>
-                  </td>
-                </tr>
-              ) : sortedTransactions.length === 0 ? (
-                <tr>
-                  <td colSpan="6" className="px-4 py-12 text-center">
-                    <History size={40} className="text-gray-300 mx-auto mb-2" />
-                    <p className="text-sm text-gray-500">No transaction records found</p>
-                    <p className="text-xs text-gray-400 mt-1">
-                      {transactions.length === 0 
-                        ? 'Transactions will appear here once products are used or restocked' 
-                        : 'Try adjusting your filters'}
-                    </p>
-                  </td>
-                </tr>
-              ) : (
-                sortedTransactions.map((transaction) => {
-                  const type = transaction.transaction_type || 
-                    (transaction.quantity_change > 0 ? 'restock' : 'usage');
-                  const isUsage = type === 'usage' || transaction.quantity_change < 0;
-                  
-                  return (
-                    <tr
-                      key={transaction.id}
-                      className="hover:bg-purple-50/30 transition-colors duration-200"
-                    >
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <div className="flex items-center gap-2">
-                          <Calendar size={12} className="text-gray-400" />
-                          <div>
-                            <p className="text-sm font-medium text-black">
-                              {formatDate(transaction.created_at)}
-                            </p>
-                            <p className="text-[10px] text-black">
-                              {transaction.created_at 
-                                ? new Date(transaction.created_at).toLocaleTimeString('en-US', {
-                                    hour: 'numeric',
-                                    minute: '2-digit',
-                                    hour12: true
-                                  })
-                                : ''}
-                            </p>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                            isUsage ? 'bg-red-50' : 'bg-green-50'
-                          }`}>
-                            <Package size={12} className={isUsage ? 'text-red-500' : 'text-green-500'} />
-                          </div>
-                          <div className="min-w-0">
-                            <p className="text-sm font-medium text-black truncate max-w-[200px]">
-                              {getProductName(transaction.inventory_id)}
-                            </p>
-                            {getProductUnit(transaction.inventory_id) && (
-                              <p className="text-[10px] text-black">
-                                Unit: {getProductUnit(transaction.inventory_id)}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        {getTransactionTypeBadge(transaction)}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <span className="text-sm font-bold text-black">
-                          {transaction.quantity_change > 0 ? '+' : ''}
-                          {transaction.quantity_change}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <span className="text-sm text-black">
-                          #{transaction.transaction_id || 'N/A'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <span className="text-sm text-black">
-                          #{transaction.transaction?.appointment_id || 'N/A'}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
 
         <div className="px-4 py-3 border-t border-gray-100 bg-gray-50/50 flex items-center justify-between flex-wrap gap-3">
           <p className="text-xs text-gray-500">
-            Showing {sortedTransactions.length} of {transactions.length} transactions
+            Showing {filteredInventory.length} of {inventory.length} products
           </p>
           <p className="text-[10px] text-gray-400">
             Last updated: {lastUpdated.toLocaleTimeString('en-US', { 
@@ -1293,6 +1036,130 @@ function InventoryReports() {
           </p>
         </div>
       </div>
+
+      {/* ===== PER-PRODUCT TRANSACTIONS MODAL ===== */}
+      {showTransactionsModal && selectedInventoryItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl mx-4 overflow-hidden max-h-[85vh]">
+            <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-6 py-4 flex items-center justify-between sticky top-0 z-10">
+              <div>
+                <h2 className="text-lg font-bold text-white">Transaction History</h2>
+                <p className="text-pink-100 text-sm mt-0.5">
+                  {selectedInventoryItem.product_name}
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setShowTransactionsModal(false);
+                  setSelectedInventoryItem(null);
+                }}
+                className="text-white hover:bg-white/20 rounded-lg p-1 transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div
+              className="p-6 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+              style={{ maxHeight: 'calc(85vh - 72px)' }}
+            >
+              {/* Product Info Summary */}
+              <div className="grid grid-cols-4 gap-3 mb-4">
+                <div className="bg-gray-50 rounded-lg p-3 text-center border border-gray-200">
+                  <p className="text-[10px] text-gray-400">Current Quantity</p>
+                  <p className="text-sm font-semibold text-gray-800">
+                    {selectedInventoryItem.product_quantity}
+                  </p>
+                </div>
+                <div className="bg-gray-50 rounded-lg p-3 text-center border border-gray-200">
+                  <p className="text-[10px] text-gray-400">Usage Left</p>
+                  <p className="text-sm font-semibold text-gray-800">
+                    {getRemainingUsages(selectedInventoryItem)}
+                  </p>
+                </div>
+                <div className="bg-gray-50 rounded-lg p-3 text-center border border-gray-200">
+                  <p className="text-[10px] text-gray-400">Reorder Level</p>
+                  <p className="text-sm font-semibold text-gray-800">
+                    {selectedInventoryItem.reorder_level}
+                  </p>
+                </div>
+                <div className="bg-gray-50 rounded-lg p-3 text-center border border-gray-200">
+                  <p className="text-[10px] text-gray-400">Unit</p>
+                  <p className="text-sm font-semibold text-gray-800">
+                    {selectedInventoryItem.unit}
+                  </p>
+                </div>
+              </div>
+
+              {/* Transactions Table */}
+              {isLoadingTransactions ? (
+                <div className="flex items-center justify-center h-32">
+                  <div className="w-8 h-8 border-4 border-pink-500 border-t-transparent rounded-full animate-spin"></div>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-gray-50 border-b border-gray-200">
+                      <tr>
+                        <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Type</th>
+                        <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Quantity</th>
+                        <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Transaction ID</th>
+                        <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Date</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {getItemTransactions().length === 0 ? (
+                        <tr>
+                          <td colSpan="4" className="px-4 py-6 text-center text-gray-500 text-sm">
+                            No transactions found for this product
+                          </td>
+                        </tr>
+                      ) : (
+                        getItemTransactions().map((transaction) => (
+                          <tr
+                            key={transaction.id}
+                            className="hover:bg-gray-50/50 transition-colors duration-200"
+                          >
+                            <td className="px-4 py-2.5 whitespace-nowrap">
+                              {getTransactionTypeBadge(transaction)}
+                            </td>
+                            <td className="px-4 py-2.5 whitespace-nowrap">
+                              <span className={`text-sm font-semibold ${
+                                transaction.quantity_change < 0 ? 'text-red-600' : 'text-green-600'
+                              }`}>
+                                {transaction.quantity_change > 0 ? '+' : ''}
+                                {transaction.quantity_change}
+                              </span>
+                            </td>
+                            <td className="px-4 py-2.5 whitespace-nowrap text-sm text-gray-600">
+                              #{transaction.transaction_id || transaction.id || 'N/A'}
+                            </td>
+                            <td className="px-4 py-2.5 whitespace-nowrap text-sm text-gray-600">
+                              {formatDateTime(transaction.created_at)}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              <div className="mt-4 flex justify-end">
+                <button
+                  onClick={() => {
+                    setShowTransactionsModal(false);
+                    setSelectedInventoryItem(null);
+                  }}
+                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors text-sm font-medium"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

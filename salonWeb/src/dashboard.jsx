@@ -1,17 +1,21 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, Link, Outlet, useLocation } from 'react-router-dom';
 import { getToken } from '../services/auth-storage';
 
 import { 
   Calendar, Scissors, Package, Users, 
   TrendingUp, CheckCircle, Clock, XCircle,
-  Eye, LogOut, Menu, X, DollarSign,
+  Eye, LogOut, Menu, X, 
   User, Phone, MapPin, Star, Award,
   ChevronRight, ChevronDown, Activity, PieChart,
   AlertCircle, Bell, Search, Crown,
   FileText,
   Box,
-  BarChart3
+  BarChart3,
+  Image as ImageIcon,
+  Upload,
+  CloudUpload,
+  Loader
 } from 'lucide-react';
 import { useAuth } from "../contexts/auth-context";
 import api from '../api/axios';
@@ -20,14 +24,6 @@ import api from '../api/axios';
 // Helpers: group /all-appointments rows into one entry per appointment
 // ─────────────────────────────────────────────────────────────
 
-/**
- * Deduplicate /all-appointments rows into one entry per appointment.
- *
- * `/all-appointments` returns one row per transaction (per service). Each row
- * for the same appointment carries the same `billing_total_amount`. If we sum
- * across rows we'd double-count the appointment total and inflate appointment
- * counts. So we group first, then compute.
- */
 const groupByAppointment = (transactions) => {
   const map = new Map();
   transactions.forEach(tx => {
@@ -44,7 +40,6 @@ const groupByAppointment = (transactions) => {
         appointment_time: tx.appointment_time,
         status: tx.status,
         assigned_employee_id: tx.assigned_employee_id,
-        // Billing fields (identical across rows of the same appointment)
         billing_total_amount: tx.billing_total_amount != null
           ? parseFloat(tx.billing_total_amount) : null,
         billing_paid_amount: tx.billing_paid_amount != null
@@ -52,7 +47,6 @@ const groupByAppointment = (transactions) => {
         billing_balance: tx.billing_balance != null
           ? parseFloat(tx.billing_balance) : null,
         billing_payment_type: tx.billing_payment_type ?? null,
-        // Per-service info
         services: [],
         priceSum: 0,
         durationSum: 0,
@@ -71,9 +65,6 @@ const groupByAppointment = (transactions) => {
   return Array.from(map.values());
 };
 
-/**
- * Appointment-level revenue: billing total when available, else the base sum.
- */
 const getAppointmentRevenue = (appt) => {
   if (appt.billing_total_amount != null && appt.billing_total_amount > 0) {
     return appt.billing_total_amount;
@@ -81,6 +72,240 @@ const getAppointmentRevenue = (appt) => {
   return appt.priceSum || 0;
 };
 
+// ─────────────────────────────────────────────────────────────
+// Toast — minimal, no dependencies. Auto-dismisses after 3s.
+// ─────────────────────────────────────────────────────────────
+function Toast({ message, type = 'success', onClose }) {
+  useEffect(() => {
+    const t = setTimeout(onClose, 3000);
+    return () => clearTimeout(t);
+  }, [onClose]);
+
+  const styles =
+    type === 'success'
+      ? 'bg-green-50 border-green-200 text-green-800'
+      : type === 'error'
+      ? 'bg-red-50 border-red-200 text-red-800'
+      : 'bg-blue-50 border-blue-200 text-blue-800';
+
+  const Icon = type === 'success' ? CheckCircle : type === 'error' ? XCircle : AlertCircle;
+
+  return (
+    <div className="fixed top-6 right-6 z-[100]">
+      <div className={`flex items-start gap-3 min-w-[280px] max-w-md px-4 py-3 border rounded-xl shadow-lg ${styles}`}>
+        <Icon size={18} className="flex-shrink-0 mt-0.5" />
+        <p className="text-sm font-medium flex-1">{message}</p>
+        <button onClick={onClose} className="opacity-60 hover:opacity-100 flex-shrink-0">
+          <X size={16} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// QR Code Modal — extracted so its internal form state
+// doesn't re-render the whole Dashboard on every keystroke.
+// ─────────────────────────────────────────────────────────────
+function QrCodeModal({ open, qrData, onClose, onUploaded }) {
+  const [file, setFile] = useState(null);
+  const [previewUrl, setPreviewUrl] = useState(null);
+  const [gcashNumber, setGcashNumber] = useState('');
+  const [isUploading, setIsUploading] = useState(false);
+
+  // Seed the GCash number from existing data whenever the modal opens
+  useEffect(() => {
+    if (open) {
+      setFile(null);
+      setPreviewUrl(null);
+      setGcashNumber(qrData?.gcash_number || '');
+      setIsUploading(false);
+    }
+  }, [open, qrData?.gcash_number]);
+
+  // Revoke blob URL on cleanup
+  useEffect(() => {
+    return () => {
+      if (previewUrl && previewUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(previewUrl);
+      }
+    };
+  }, [previewUrl]);
+
+  if (!open) return null;
+
+  const handlePickImage = (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+
+    const allowed = ['image/png', 'image/jpeg', 'image/jpg'];
+    if (!allowed.includes(f.type)) {
+      alert('Please upload a PNG or JPG image.');
+      return;
+    }
+    if (f.size > 4 * 1024 * 1024) {
+      alert('Image must be 4MB or smaller.');
+      return;
+    }
+
+    if (previewUrl && previewUrl.startsWith('blob:')) {
+      URL.revokeObjectURL(previewUrl);
+    }
+    setFile(f);
+    setPreviewUrl(URL.createObjectURL(f));
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+
+    if (!file) {
+      alert('Please select a QR code image.');
+      return;
+    }
+    if (!/^09\d{9}$/.test(gcashNumber.trim())) {
+      alert('GCash number must be 11 digits starting with 09 (e.g. 09171234567).');
+      return;
+    }
+
+    setIsUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('qr_image', file);
+      formData.append('gcash_number', gcashNumber.trim());
+
+      await api.post('/qr-code', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+
+      onUploaded?.();
+    } catch (error) {
+      console.error('Error uploading QR code:', error);
+      const msg = error.response?.data?.errors
+        ? Object.values(error.response.data.errors).flat().join('\n')
+        : error.response?.data?.message || 'Failed to upload QR code. Please try again.';
+      alert(msg);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden">
+        <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-5 py-3 flex items-center justify-between">
+          <h2 className="text-lg font-bold text-white">
+            {qrData?.qr_image ? 'Update Payment QR' : 'Upload Payment QR'}
+          </h2>
+          <button
+            onClick={onClose}
+            className="text-white hover:bg-white/20 rounded-lg p-1"
+            disabled={isUploading}
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-5">
+          <div className="mb-5">
+            <label className="block text-sm font-semibold text-gray-700 mb-2">
+              QR Code Image <span className="text-pink-500">*</span>
+            </label>
+
+            <label className="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed border-pink-300 rounded-xl bg-pink-50 cursor-pointer hover:bg-pink-100 transition-colors">
+              {previewUrl ? (
+                <img
+                  src={previewUrl}
+                  alt="QR preview"
+                  className="w-full h-full object-contain rounded-xl p-2"
+                />
+              ) : (
+                <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                  <CloudUpload size={32} className="text-pink-500 mb-2" />
+                  <p className="text-sm font-medium text-pink-600">Click to upload</p>
+                  <p className="text-xs text-gray-500 mt-1">PNG or JPG, max 4MB</p>
+                </div>
+              )}
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/jpg"
+                className="hidden"
+                onChange={handlePickImage}
+                disabled={isUploading}
+              />
+            </label>
+
+            {file && (
+              <p className="text-xs text-gray-500 mt-2">
+                Selected: <span className="font-medium">{file.name}</span>
+              </p>
+            )}
+          </div>
+
+          <div className="mb-5">
+            <label className="block text-sm font-semibold text-gray-700 mb-2">
+              GCash Number <span className="text-pink-500">*</span>
+            </label>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={gcashNumber}
+              onChange={(e) =>
+                setGcashNumber(e.target.value.replace(/\D/g, '').slice(0, 11))
+              }
+              placeholder="09171234567"
+              maxLength={11}
+              autoComplete="off"
+              className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent"
+              disabled={isUploading}
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              11 digits, must start with 09
+            </p>
+          </div>
+
+          <div className="bg-blue-50 rounded-lg p-3 mb-5">
+            <p className="text-xs text-blue-700">
+              This QR code and GCash number will be shown to customers when they pay
+              their downpayment or remaining balance.
+            </p>
+          </div>
+
+          <div className="flex gap-2 justify-end">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={isUploading}
+              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isUploading || !file}
+              className="px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-pink-500 to-pink-600 rounded-lg hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            >
+              {isUploading ? (
+                <>
+                  <Loader size={14} className="animate-spin" />
+                  Uploading...
+                </>
+              ) : (
+                <>
+                  <Upload size={14} />
+                  {qrData?.qr_image ? 'Update QR' : 'Upload QR'}
+                </>
+              )}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Main Dashboard
+// ─────────────────────────────────────────────────────────────
 function Dashboard() {
   const { logout } = useAuth();
   const navigate = useNavigate();
@@ -101,7 +326,7 @@ function Dashboard() {
   const [feedbacks, setFeedbacks] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Appointment status counts - using real data
+  // Appointment status counts
   const [appointmentStatusCounts, setAppointmentStatusCounts] = useState({
     confirmed: 0,
     pending: 0,
@@ -109,7 +334,7 @@ function Dashboard() {
     cancelled: 0
   });
 
-  // Remittance states
+  // Remittance states (kept — still used elsewhere in the app)
   const [remittances, setRemittances] = useState([]);
   const [weeklyRemittanceData, setWeeklyRemittanceData] = useState([]);
   const [totalWeeklyRemittance, setTotalWeeklyRemittance] = useState(0);
@@ -121,6 +346,12 @@ function Dashboard() {
   const [staffList, setStaffList] = useState([]);
   const [commissionsData, setCommissionsData] = useState([]);
   const [isLoadingPerformance, setIsLoadingPerformance] = useState(true);
+
+  // ── QR Code / GCash state ──
+  const [qrData, setQrData] = useState(null);
+  const [isLoadingQr, setIsLoadingQr] = useState(false);
+  const [isQrModalOpen, setIsQrModalOpen] = useState(false);
+  const [toast, setToast] = useState(null);   // { message, type } | null
 
   useEffect(() => {
     const storedToken = getToken();
@@ -161,11 +392,9 @@ function Dashboard() {
       console.log('All appointments (raw):', response.data);
 
       if (Array.isArray(response.data)) {
-        // ✅ Group by appointment so counts reflect appointments, not transactions
         const grouped = groupByAppointment(response.data);
         console.log('Grouped appointments:', grouped);
 
-        // Status counts — per appointment
         const counts = { confirmed: 0, pending: 0, completed: 0, cancelled: 0 };
         grouped.forEach(appt => {
           if (appt.status === 'confirmed') counts.confirmed++;
@@ -175,13 +404,12 @@ function Dashboard() {
         });
         setAppointmentStatusCounts(counts);
 
-        // Recent completed — grouped, one per appointment
         const completed = grouped.filter(a => a.status === 'completed');
         setRecentCompletedAppointments(completed.slice(0, 5));
 
         setDashboardStats(prev => ({
           ...prev,
-          totalAppointments: grouped.length,   // ✅ real appointment count
+          totalAppointments: grouped.length,
         }));
 
         return grouped;
@@ -290,12 +518,29 @@ function Dashboard() {
     }
   };
 
+  // ── QR Code fetcher ──
+  const fetchQrCode = async () => {
+    setIsLoadingQr(true);
+    try {
+      const response = await api.get('/qr-code');
+      console.log('QR code:', response.data);
+      setQrData(response.data);
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching QR code:', error);
+      setQrData(null);
+      return null;
+    } finally {
+      setIsLoadingQr(false);
+    }
+  };
+
   const getEmployeeCommissionRate = (employeeId) => {
     const commission = commissionsData.find(c => c.employee_id === employeeId);
     return commission ? parseFloat(commission.commission_amount) : 0;
   };
 
-  // ── Staff performance — grouped, grand total revenue, per-service commission ──
+  // ── Staff performance ──
   const calculateStaffPerformance = (groupedAppointments) => {
     const staffMap = {};
 
@@ -315,11 +560,9 @@ function Dashboard() {
         };
       }
 
-      // ✅ Revenue = appointment's grand total (base + adjustments)
       staffMap[staffId].totalRevenue += getAppointmentRevenue(appt);
-      staffMap[staffId].appointmentCount += 1;   // ✅ one per appointment
+      staffMap[staffId].appointmentCount += 1;
 
-      // ✅ Commission stays per-service based on base price
       const rate = staffMap[staffId].commissionRate;
       appt.services.forEach(svc => {
         staffMap[staffId].totalCommission += (svc.price || 0) * rate;
@@ -329,7 +572,7 @@ function Dashboard() {
     return Object.values(staffMap).sort((a, b) => b.totalRevenue - a.totalRevenue);
   };
 
-  // ── Service performance — operates on flattened { service_name, price } rows ──
+  // ── Service performance ──
   const calculateServicePerformance = (serviceRows) => {
     const serviceMap = {};
 
@@ -350,7 +593,6 @@ function Dashboard() {
       .sort((a, b) => b.totalRevenue - a.totalRevenue);
   };
 
-  // ── Fetch performance data ──
   const fetchPerformanceData = async () => {
     setIsLoadingPerformance(true);
     try {
@@ -360,10 +602,8 @@ function Dashboard() {
         const grouped = groupByAppointment(response.data);
         const completedGrouped = grouped.filter(a => a.status === 'completed');
 
-        // Staff performance — grouped (appointment-level)
         setStaffPerformance(calculateStaffPerformance(completedGrouped));
 
-        // Service performance — flatten services from the grouped appointments
         const serviceRows = [];
         completedGrouped.forEach(appt => {
           appt.services.forEach(svc => {
@@ -382,7 +622,6 @@ function Dashboard() {
     }
   };
 
-  // ── Frequent customers — grouped, one visit per appointment, spend = grand total ──
   const fetchFrequentCustomers = async () => {
     try {
       const appointmentsResponse = await api.get('/all-appointments');
@@ -393,7 +632,10 @@ function Dashboard() {
       if (Array.isArray(appointmentsResponse.data)) {
         const grouped = groupByAppointment(appointmentsResponse.data);
 
-        grouped.forEach(appt => {
+        // ✅ Only count COMPLETED appointments toward "Top Customers"
+        const completedAppointments = grouped.filter(appt => appt.status === 'completed');
+
+        completedAppointments.forEach(appt => {
           const customerName = appt.customer_name || 'Unknown Customer';
           const key = customerName;
 
@@ -409,8 +651,7 @@ function Dashboard() {
             };
           }
 
-          customerMap[key].totalVisits += 1;   // ✅ one per appointment
-          // ✅ Spend uses appointment grand total
+          customerMap[key].totalVisits += 1;
           customerMap[key].totalSpent += getAppointmentRevenue(appt);
 
           if (appt.appointment_date) {
@@ -498,6 +739,17 @@ function Dashboard() {
     return feedbacks.find(f => f.appointment_id === appointmentId);
   };
 
+  // ── QR modal callbacks (memoized so QrCodeModal doesn't re-render unnecessarily) ──
+  const handleQrClose = useCallback(() => {
+    setIsQrModalOpen(false);
+  }, []);
+
+  const handleQrUploaded = useCallback(async () => {
+    await fetchQrCode();
+    setIsQrModalOpen(false);
+    setToast({ message: 'QR code updated successfully!', type: 'success' });
+  }, []);
+
   useEffect(() => {
     const fetchAllData = async () => {
       setIsLoading(true);
@@ -509,7 +761,8 @@ function Dashboard() {
         fetchFeedbacks(),
         fetchRemittances(),
         fetchStaffList(),
-        fetchCommissions()
+        fetchCommissions(),
+        fetchQrCode(),
       ]);
       setIsLoading(false);
     };
@@ -517,7 +770,6 @@ function Dashboard() {
     fetchAllData();
   }, []);
 
-  // Fetch performance data after staffList and commissions are loaded
   useEffect(() => {
     if (staffList.length > 0 || commissionsData.length > 0) {
       fetchPerformanceData();
@@ -642,11 +894,10 @@ function Dashboard() {
     setSelectedAppointment(null);
   };
 
-  // ── Appointment modal ──
+  // ── Appointment modal (inline — fine because it's only shown on click) ──
   const AppointmentModal = () => {
     if (!selectedAppointment) return null;
 
-    // The grouped appointment carries `services[]`, `priceSum`, `durationSum`, and billing fields.
     const services = selectedAppointment.services || [];
     const grandTotal = selectedAppointment.billing_total_amount
       ?? selectedAppointment.priceSum
@@ -656,7 +907,6 @@ function Dashboard() {
     const serviceNames = services.map(s => s.service_name).join(' + ') || 'N/A';
     const durationSum = selectedAppointment.durationSum ?? 0;
 
-    // Feedback lookup uses the appointment's id (grouped appointments carry both id and appointment_id)
     const feedback = getFeedbackForAppointment(selectedAppointment.id)
       || getFeedbackForAppointment(selectedAppointment.appointment_id);
 
@@ -725,10 +975,10 @@ function Dashboard() {
               </div>
             </div>
 
-            {/* Payment info */}
+            {/* ✅ Payment section — ₱ glyph instead of DollarSign icon */}
             <div className="mb-5">
               <h3 className="text-sm font-semibold text-gray-800 mb-2 flex items-center gap-2">
-                <DollarSign size={16} className="text-pink-500" />
+                <span className="w-[16px] text-center font-bold text-base leading-none text-pink-500">₱</span>
                 Payment
               </h3>
               <div className="bg-gray-50 rounded-lg p-3 space-y-1.5">
@@ -818,58 +1068,54 @@ function Dashboard() {
 
       {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6">
-        {/* Weekly Remittance */}
+        {/* Payment QR Code */}
         <div className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 p-4 border border-gray-100">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h3 className="text-sm font-semibold text-gray-800">Weekly Remittance</h3>
-              <p className="text-[10px] text-gray-500 mt-0.5">Last 7 days remitted profits</p>
+              <h3 className="text-sm font-semibold text-gray-800">Payment QR Code</h3>
+              <p className="text-[10px] text-gray-500 mt-0.5">
+                Shown to customers for downpayments & balances
+              </p>
             </div>
-            <div className="flex items-center gap-1">
-              <DollarSign className="text-green-500" size={16} />
-              <span className="text-xs font-semibold text-gray-700">₱{totalWeeklyRemittance.toLocaleString()}</span>
-            </div>
+            <button
+              onClick={() => setIsQrModalOpen(true)}
+              className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-semibold text-white bg-gradient-to-r from-pink-500 to-pink-600 rounded-lg hover:shadow-md transition-all"
+            >
+              <Upload size={12} />
+              <span>{qrData?.qr_image ? 'Change' : 'Upload'}</span>
+            </button>
           </div>
-          <div className="space-y-3">
-            {weeklyRemittanceData.length === 0 ? (
-              <div className="text-center py-8">
-                <AlertCircle size={32} className="text-gray-300 mx-auto mb-2" />
-                <p className="text-xs text-gray-400">No remittance data available</p>
+
+          {isLoadingQr ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader size={24} className="text-pink-500 animate-spin" />
+            </div>
+          ) : !qrData?.qr_image ? (
+            <div
+              onClick={() => setIsQrModalOpen(true)}
+              className="flex flex-col items-center justify-center py-8 border-2 border-dashed border-pink-200 rounded-lg bg-pink-50/50 cursor-pointer hover:bg-pink-50 transition-colors"
+            >
+              <ImageIcon size={32} className="text-pink-400 mb-2" />
+              <p className="text-xs font-medium text-pink-600">No QR code uploaded yet</p>
+              <p className="text-[10px] text-gray-500 mt-1">Click to upload one</p>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center">
+              <div className="bg-white p-3 rounded-xl border-2 border-pink-200 shadow-sm">
+                <img
+                  src={qrData.qr_image}
+                  alt="Payment QR"
+                  className="w-40 h-40 object-contain"
+                />
               </div>
-            ) : (
-              weeklyRemittanceData.map((day, index) => (
-                <div key={day.dayName} className="space-y-1">
-                  <div className="flex justify-between text-xs">
-                    <span className="font-medium text-gray-600">
-                      {day.dayName}
-                      <span className="text-[10px] text-gray-400 ml-1">
-                        {day.hasRemittance ? '✓' : ''}
-                      </span>
-                    </span>
-                    <span className={`font-bold ${day.amount > 0 ? 'text-green-600' : 'text-gray-400'}`}>
-                      {day.amount > 0 ? `₱${day.amount.toFixed(0)}` : '—'}
-                    </span>
-                  </div>
-                  <div className="relative">
-                    <div className="w-full bg-gray-100 rounded-full h-2 overflow-hidden">
-                      <div 
-                        className={`h-2 rounded-full transition-all duration-1000 ease-out ${
-                          day.amount > 0 
-                            ? 'bg-gradient-to-r from-green-500 to-green-600' 
-                            : 'bg-gray-200'
-                        }`}
-                        style={{ 
-                          width: day.amount > 0 
-                            ? `${Math.min((day.amount / Math.max(...weeklyRemittanceData.map(d => d.amount))) * 100, 100)}%` 
-                            : '0%' 
-                        }}
-                      />
-                    </div>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
+              <div className="mt-3 text-center">
+                <p className="text-[10px] text-gray-500">GCash Number</p>
+                <p className="text-sm font-bold text-gray-800 tracking-wide">
+                  {qrData.gcash_number || 'Not set'}
+                </p>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Appointment Status */}
@@ -1222,7 +1468,6 @@ function Dashboard() {
                   const serviceNames = (appointment.services || [])
                     .map(s => s.service_name)
                     .join(' + ') || 'N/A';
-                  const grandTotal = getAppointmentRevenue(appointment);
 
                   return (
                     <tr 
@@ -1300,6 +1545,21 @@ function Dashboard() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
       {showModal && <AppointmentModal />}
+
+      <QrCodeModal
+        open={isQrModalOpen}
+        qrData={qrData}
+        onClose={handleQrClose}
+        onUploaded={handleQrUploaded}
+      />
+
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
+      )}
 
       {sidebarOpen && (
         <div className="fixed inset-0 z-20 bg-black/50 lg:hidden" onClick={() => setSidebarOpen(false)} />
@@ -1416,7 +1676,7 @@ function Dashboard() {
               }`}
             >
               <FileText size={18} />
-              <span>Reports</span>
+              <span>Incidents</span>
             </Link>
 
             {/* Transactions Dropdown */}
@@ -1443,6 +1703,7 @@ function Dashboard() {
                 }`}
               >
                 <div className="ml-4 pl-3 border-l-2 border-pink-200 space-y-0.5">
+                  {/* ✅ Income link — ₱ glyph */}
                   <Link 
                     to="/dashboard/sales"
                     onClick={() => setSidebarOpen(false)}
@@ -1452,8 +1713,8 @@ function Dashboard() {
                         : 'text-gray-600 hover:bg-gray-50'
                     }`}
                   >
-                    <DollarSign size={14} />
-                    <span>Sales</span>
+                    <span className="w-[14px] text-center font-bold text-sm leading-none">₱</span>
+                    <span>Income</span>
                   </Link>
                   <Link 
                     to="/dashboard/inventoryReports"
@@ -1467,6 +1728,7 @@ function Dashboard() {
                     <Package size={14} />
                     <span>Inventory Reports</span>
                   </Link>
+                  {/* ✅ Remittances link — ₱ glyph */}
                   <Link 
                     to="/dashboard/remittances"
                     onClick={() => setSidebarOpen(false)}
@@ -1476,7 +1738,7 @@ function Dashboard() {
                         : 'text-gray-600 hover:bg-gray-50'
                     }`}
                   >
-                    <DollarSign size={14} />
+                    <span className="w-[14px] text-center font-bold text-sm leading-none">₱</span>
                     <span>Remittances</span>
                   </Link>
                 </div>

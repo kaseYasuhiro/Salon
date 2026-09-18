@@ -28,6 +28,7 @@ use App\Http\Controllers\RefundsController;
 use App\Http\Controllers\ServiceHairColorsController;
 use App\Http\Controllers\ExpensesController;
 use App\Http\Controllers\OTPController;
+use App\Http\Controllers\QRCodesController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -95,9 +96,24 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/walk-in/staff', [JoinedController::class, 'authorizedStaff']);
     Route::post('/walk-in/staff/auth/update/{id}', [WalkinAuthorizationController::class, 'updateAuthorization']);
     Route::get('/appointment/payment', [JoinedController::class, 'billWithPayment']);
+    Route::post('/refund/submit', [RefundsController::class, 'submitRefund']);
+    Route::post('/refund/update', [RefundsController::class, 'updateRefund']);
+    Route::get('/appointment/payment-details/{appointmentId}', [JoinedController::class, 'getPaymentDetails']);
+    Route::post('/appointment/cancel-with-refund', [JoinedController::class, 'cancelWithRefund']);
+    Route::get('/appointment/{id}', [JoinedController::class, 'getAppointmentDetails']);
+    Route::get('/expenses', [JoinedController::class, 'displayExpenses']);
+    Route::post('/expenses/add', [ExpensesController::class, 'addExpense']);
 
     Route::post('/services/update-all', [JoinedController::class, 'updateServiceDetails']);
     Route::post('/employees/update-all', [JoinedController::class, 'updateEmployeeDetails']);
+
+    Route::post('/service/haircolors/add', [ServiceHairColorsController::class, 'addAvailableColors']);
+    Route::post('/haircolors/add', [HairColorsController::class, 'addHairColor']);
+    Route::post('/haircolors/update/{id}', [HairColorsController::class, 'updateHairColor']);
+
+    Route::post('/qr-code', [QRCodesController::class, 'addQRCode']);
+    Route::put('/qr-code/gcash-number', [QRCodesController::class, 'updateGcashNumber']);
+    Route::delete('/qr-code', [QRCodesController::class, 'deleteQRCode']);
 
 
     //customer side
@@ -111,7 +127,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/user/{id}/phone', [UserController::class, 'updateNumber']);
     Route::post('/feedbacks/staff/submit', [StaffFeedbackController::class, 'submitStaffFeedback']);
     Route::post('/payment/remaining', [JoinedController::class, 'remainingBalancePayment']);
-    
+    Route::get('/services/price/adjustment/{serviceId}', [JoinedController::class, 'getServicePriceAdjustments']);
+    Route::get('/service/haircolors', [JoinedController::class, 'serviceHairColor']);
+    Route::get('/haircolors', [HairColorsController::class, 'displayHairColors']);
+    Route::get('/transact', [JoinedController::class, 'transactionWithAppointments']);
+    Route::get('/services/price/adjustment', [JoinedController::class, 'serviecsWithPriceAdjustments']);
+    Route::get('/qr-code', [QRCodesController::class, 'getQRCode']);
+        
     
 
 
@@ -134,33 +156,20 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/walk-in/transaction/add' , [WalkInTransactionController::class, 'addWalkInTransaction']);
     Route::put('/staff/appointment/{appointmentId}/update', [JoinedController::class, 'updateAppointmentServices']);
     Route::post('/report/add', [IncidentReportsController::class, 'submitIncidentReport']);
+    Route::post('/profile/add/{id}', [UserController::class, 'addProfileImage']);
+
+    //system
+    Route::post('/otp/send', [OTPController::class, 'sendOTP']);
+    Route::post('/otp/verify', [OTPController::class, 'verifyOTP']);
+    Route::post('/otp/resend', [OTPController::class, 'resendOTP']);
 
 });
 
-//dipa sure
-Route::post('/profile/add/{id}', [UserController::class, 'addProfileImage']);
-Route::post('/refund/submit', [RefundsController::class, 'submitRefund']);
-Route::post('/refund/update', [RefundsController::class, 'updateRefund']);
-Route::post('/service/haircolors/add', [ServiceHairColorsController::class, 'addAvailableColors']);
-
-//goods na ni
-Route::get('/services/price/adjustment', [JoinedController::class, 'serviecsWithPriceAdjustments']);
-Route::get('/services/price/adjustment/{serviceId}', [JoinedController::class, 'getServicePriceAdjustments']);
-Route::get('/service/haircolors', [JoinedController::class, 'serviceHairColor']);
-Route::get('/haircolors', [HairColorsController::class, 'displayHairColors']);
-Route::get('/transact', [JoinedController::class, 'transactionWithAppointments']);
 
 
-Route::get('/appointment/payment-details/{appointmentId}', [JoinedController::class, 'getPaymentDetails']);
-Route::post('/appointment/cancel-with-refund', [JoinedController::class, 'cancelWithRefund']);
 
-Route::get('/appointment/{id}', [JoinedController::class, 'getAppointmentDetails']);
 
-Route::get('/expenses', [JoinedController::class, 'displayExpenses']);
-Route::post('/expenses/add', [ExpensesController::class, 'addExpense']);
 
-Route::post('/otp/send', [OTPController::class, 'sendOTP']);
-Route::post('/otp/verify', [OTPController::class, 'verifyOTP']);
-Route::post('/otp/resend', [OTPController::class, 'resendOTP']);
+
 
 

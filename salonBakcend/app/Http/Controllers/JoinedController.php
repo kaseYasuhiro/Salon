@@ -31,6 +31,7 @@ use App\Models\ServiceHairColors;
 use App\Models\Expenses;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Http\Request;
+use Carbon\Carbon;
 
 class JoinedController extends Controller
 {
@@ -256,12 +257,10 @@ class JoinedController extends Controller
     public function userAppointments(Request $request)
     {
         $user = $request->user();
-
         $transactions = Transaction::whereHas('appointments', function ($query) use ($user) {
             $query->where('customer_id', $user->id);
         })->with(['appointments', 'services'])->get();
 
-        // ── Preload all billings for this user's appointments in one query ──
         $appointmentIds = $transactions
             ->pluck('appointments.id')
             ->unique()
@@ -271,14 +270,11 @@ class JoinedController extends Controller
         $billings = \DB::table('billings')
             ->whereIn('appointment_id', $appointmentIds)
             ->get()
-            ->keyBy('appointment_id');   // one billing per appointment (post-fix)
+            ->keyBy('appointment_id');
 
-        // Format the response
         $result = $transactions->map(function ($transaction) use ($billings) {
             $appointment = $transaction->appointments;
             $appointmentId = $appointment->id ?? null;
-
-            // Look up the billing row for this appointment
             $billing = $appointmentId ? $billings->get($appointmentId) : null;
 
             return [
@@ -287,14 +283,16 @@ class JoinedController extends Controller
                 'appointment_date' => $appointment->appointment_date,
                 'appointment_time' => $appointment->appointment_time,
                 'status' => $appointment->status,
+
+                // ✅ NEW — grace period fields
+                'grace_period_minutes' => $appointment->grace_period_minutes ?? 30,
+                'grace_period_ends_at' => $this->computeGracePeriodEnd($appointment),
+
                 'service_name' => $transaction->services->service_name ?? null,
                 'duration_minutes' => $transaction->services->duration_minutes ?? 0,
                 'price' => $transaction->services->price ?? '0',
-
-                // ✅ Assigned stylist (users.id reference)
                 'assigned_employee_id' => $transaction->assigned_employee_id ?? null,
 
-                // ── Billing fields (single source of truth) ──
                 'billing_total_amount' => $billing ? (float) $billing->total_amount : null,
                 'billing_paid_amount' => $billing ? (float) $billing->paid_amount : null,
                 'billing_balance' => $billing ? (float) $billing->balance : null,
@@ -304,6 +302,34 @@ class JoinedController extends Controller
 
         return response()->json($result);
     }
+
+    private function computeGracePeriodEnd(Appointments $appointment): ?string
+    {
+        if (!$appointment->appointment_date || !$appointment->appointment_time) {
+            return null;
+        }
+
+        $minutes = $appointment->grace_period_minutes ?? 30;
+
+        try {
+            $start = Carbon::createFromFormat(
+                'Y-m-d H:i',
+                $appointment->appointment_date . ' ' . substr($appointment->appointment_time, 0, 5),
+                config('app.timezone')
+            );
+        } catch (\Exception $e) {
+            \Log::warning('Failed to compute grace period end', [
+                'appointment_id' => $appointment->id,
+                'date' => $appointment->appointment_date,
+                'time' => $appointment->appointment_time,
+                'error' => $e->getMessage(),
+            ]);
+            return null;
+        }
+
+        return $start->copy()->addMinutes($minutes)->toIso8601String();
+    }
+
 
 
     public function billWithPayment()

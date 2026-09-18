@@ -8,7 +8,6 @@ import { router } from "expo-router";
 import * as DocumentPicker from 'expo-document-picker';
 import api from '@/api/axios';
 import StaffAppointments from "../staff/staffAppointments";
-import StaffSchedule from "../staff/staffSchedule";
 import StaffWalkIn from "../staff/staffWalkin";
 
 interface BusinessSchedule {
@@ -175,9 +174,7 @@ const IncidentReportPage = ({ onBack, userId, onSuccess }: { onBack: () => void,
     setIsLoadingStaff(true);
     try {
       const response = await api.get('/employees');
-      if (Array.isArray(response.data)) {
-        setStaffList(response.data);
-      }
+      if (Array.isArray(response.data)) setStaffList(response.data);
     } catch (error) {
       console.error('Error fetching staff list:', error);
       Alert.alert('Error', 'Failed to load staff list');
@@ -190,9 +187,7 @@ const IncidentReportPage = ({ onBack, userId, onSuccess }: { onBack: () => void,
     setIsLoadingInventory(true);
     try {
       const response = await api.get('/inventory');
-      if (Array.isArray(response.data)) {
-        setInventoryItems(response.data);
-      }
+      if (Array.isArray(response.data)) setInventoryItems(response.data);
     } catch (error) {
       console.error('Error fetching inventory items:', error);
       Alert.alert('Error', 'Failed to load inventory items');
@@ -214,30 +209,12 @@ const IncidentReportPage = ({ onBack, userId, onSuccess }: { onBack: () => void,
   };
 
   const handleSubmit = async () => {
-    if (!formData.date) {
-      Alert.alert('Validation Error', 'Please select a date');
-      return;
-    }
-    if (!formData.incident_type) {
-      Alert.alert('Validation Error', 'Please select an incident type');
-      return;
-    }
-    if (!formData.category) {
-      Alert.alert('Validation Error', 'Please select a category');
-      return;
-    }
-    if (!formData.amount || parseFloat(formData.amount) <= 0) {
-      Alert.alert('Validation Error', 'Please enter a valid amount');
-      return;
-    }
-    if (!formData.staff_id) {
-      Alert.alert('Validation Error', 'Please select a staff member');
-      return;
-    }
-    if (!formData.description.trim()) {
-      Alert.alert('Validation Error', 'Please enter a description');
-      return;
-    }
+    if (!formData.date) { Alert.alert('Validation Error', 'Please select a date'); return; }
+    if (!formData.incident_type) { Alert.alert('Validation Error', 'Please select an incident type'); return; }
+    if (!formData.category) { Alert.alert('Validation Error', 'Please select a category'); return; }
+    if (!formData.amount || parseFloat(formData.amount) <= 0) { Alert.alert('Validation Error', 'Please enter a valid amount'); return; }
+    if (!formData.staff_id) { Alert.alert('Validation Error', 'Please select a staff member'); return; }
+    if (!formData.description.trim()) { Alert.alert('Validation Error', 'Please enter a description'); return; }
 
     setIsSubmitting(true);
     try {
@@ -251,18 +228,13 @@ const IncidentReportPage = ({ onBack, userId, onSuccess }: { onBack: () => void,
         inventory_id: formData.inventory_id ? parseInt(formData.inventory_id) : null,
         status: 'reported'
       };
-
       await api.post('/report/add', submitData);
-
       Alert.alert('Success', 'Report submitted successfully!');
       if (onSuccess) onSuccess();
       onBack();
     } catch (error: any) {
       console.error('Error submitting report:', error);
-      Alert.alert(
-        'Error',
-        error.response?.data?.message || 'Failed to submit report. Please try again.'
-      );
+      Alert.alert('Error', error.response?.data?.message || 'Failed to submit report. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -270,7 +242,6 @@ const IncidentReportPage = ({ onBack, userId, onSuccess }: { onBack: () => void,
 
   const Dropdown = ({ label, options, value, onSelect, placeholder }: any) => {
     const [showDropdown, setShowDropdown] = useState(false);
-
     return (
       <View className="mb-4">
         <Text className="text-gray-700 font-semibold text-sm mb-2">{label} *</Text>
@@ -283,19 +254,13 @@ const IncidentReportPage = ({ onBack, userId, onSuccess }: { onBack: () => void,
           </Text>
           <Ionicons name={showDropdown ? "chevron-up" : "chevron-down"} size={20} color="#9ca3af" />
         </TouchableOpacity>
-
         {showDropdown && (
           <View className="mt-2 bg-white rounded-xl border border-gray-200 shadow-lg overflow-hidden">
             {options.map((option: any) => (
               <TouchableOpacity
                 key={option.value}
-                onPress={() => {
-                  onSelect(option.value);
-                  setShowDropdown(false);
-                }}
-                className={`px-4 py-3 ${
-                  value === option.value ? 'bg-pink-50' : ''
-                } ${option !== options[options.length - 1] ? 'border-b border-gray-100' : ''}`}
+                onPress={() => { onSelect(option.value); setShowDropdown(false); }}
+                className={`px-4 py-3 ${value === option.value ? 'bg-pink-50' : ''} ${option !== options[options.length - 1] ? 'border-b border-gray-100' : ''}`}
               >
                 <Text className={value === option.value ? 'text-pink-600 font-semibold' : 'text-gray-700'}>
                   {option.label}
@@ -310,13 +275,11 @@ const IncidentReportPage = ({ onBack, userId, onSuccess }: { onBack: () => void,
 
   const StaffDropdown = ({ label, value, onSelect, placeholder }: any) => {
     const [showDropdown, setShowDropdown] = useState(false);
-
     const getStaffName = (staffId: number) => {
       const staff = staffList.find(s => s.id === staffId);
       if (!staff) return '';
       return `${staff.first_name} ${staff.last_name}`;
     };
-
     return (
       <View className="mb-4">
         <Text className="text-gray-700 font-semibold text-sm mb-2">{label} *</Text>
@@ -329,7 +292,6 @@ const IncidentReportPage = ({ onBack, userId, onSuccess }: { onBack: () => void,
           </Text>
           <Ionicons name={showDropdown ? "chevron-up" : "chevron-down"} size={20} color="#9ca3af" />
         </TouchableOpacity>
-
         {showDropdown && (
           <View className="mt-2 bg-white rounded-xl border border-gray-200 shadow-lg overflow-hidden">
             {isLoadingStaff ? (
@@ -345,13 +307,8 @@ const IncidentReportPage = ({ onBack, userId, onSuccess }: { onBack: () => void,
               staffList.map((staff) => (
                 <TouchableOpacity
                   key={staff.id}
-                  onPress={() => {
-                    onSelect(staff.id);
-                    setShowDropdown(false);
-                  }}
-                  className={`px-4 py-3 ${
-                    value === staff.id ? 'bg-pink-50' : ''
-                  } ${staff !== staffList[staffList.length - 1] ? 'border-b border-gray-100' : ''}`}
+                  onPress={() => { onSelect(staff.id); setShowDropdown(false); }}
+                  className={`px-4 py-3 ${value === staff.id ? 'bg-pink-50' : ''} ${staff !== staffList[staffList.length - 1] ? 'border-b border-gray-100' : ''}`}
                 >
                   <Text className={value === staff.id ? 'text-pink-600 font-semibold' : 'text-gray-700'}>
                     {staff.first_name} {staff.last_name}
@@ -368,20 +325,16 @@ const IncidentReportPage = ({ onBack, userId, onSuccess }: { onBack: () => void,
   const InventoryDropdown = ({ label, value, onSelect, placeholder }: any) => {
     const [showDropdown, setShowDropdown] = useState(false);
     const [searchText, setSearchText] = useState('');
-
     const getInventoryName = (inventoryId: number) => {
       const item = inventoryItems.find(i => i.id === inventoryId);
       if (!item) return '';
       return `${item.products?.product_name || 'Unknown'} (Qty: ${item.product_quantity})`;
     };
-
     const filteredItems = searchText
       ? inventoryItems.filter(item =>
           item.products?.product_name?.toLowerCase().includes(searchText.toLowerCase()) ||
-          item.id.toString().includes(searchText)
-        )
+          item.id.toString().includes(searchText))
       : inventoryItems;
-
     return (
       <View className="mb-4">
         <Text className="text-gray-700 font-semibold text-sm mb-2">{label} (Optional)</Text>
@@ -394,7 +347,6 @@ const IncidentReportPage = ({ onBack, userId, onSuccess }: { onBack: () => void,
           </Text>
           <Ionicons name={showDropdown ? "chevron-up" : "chevron-down"} size={20} color="#9ca3af" />
         </TouchableOpacity>
-
         {showDropdown && (
           <View className="mt-2 bg-white rounded-xl border border-gray-200 shadow-lg overflow-hidden max-h-64">
             <View className="px-4 py-2 border-b border-gray-100">
@@ -413,7 +365,6 @@ const IncidentReportPage = ({ onBack, userId, onSuccess }: { onBack: () => void,
                 ) : null}
               </View>
             </View>
-
             {isLoadingInventory ? (
               <View className="px-4 py-4">
                 <ActivityIndicator size="small" color="#ec4899" />
@@ -428,14 +379,8 @@ const IncidentReportPage = ({ onBack, userId, onSuccess }: { onBack: () => void,
                 {filteredItems.map((item) => (
                   <TouchableOpacity
                     key={item.id}
-                    onPress={() => {
-                      onSelect(item.id.toString());
-                      setShowDropdown(false);
-                      setSearchText('');
-                    }}
-                    className={`px-4 py-3 ${
-                      value === item.id.toString() ? 'bg-pink-50' : ''
-                    } ${item !== filteredItems[filteredItems.length - 1] ? 'border-b border-gray-100' : ''}`}
+                    onPress={() => { onSelect(item.id.toString()); setShowDropdown(false); setSearchText(''); }}
+                    className={`px-4 py-3 ${value === item.id.toString() ? 'bg-pink-50' : ''} ${item !== filteredItems[filteredItems.length - 1] ? 'border-b border-gray-100' : ''}`}
                   >
                     <View>
                       <Text className={value === item.id.toString() ? 'text-pink-600 font-semibold' : 'text-gray-700'}>
@@ -483,12 +428,8 @@ const IncidentReportPage = ({ onBack, userId, onSuccess }: { onBack: () => void,
             <View className="w-16 h-16 bg-red-100 rounded-full items-center justify-center mb-3">
               <Ionicons name="alert-circle" size={32} color="#ef4444" />
             </View>
-            <Text className="text-gray-800 text-lg font-semibold text-center">
-              Report an Incident
-            </Text>
-            <Text className="text-gray-500 text-sm text-center mt-1">
-              Report damage, theft, or other incidents
-            </Text>
+            <Text className="text-gray-800 text-lg font-semibold text-center">Report an Incident</Text>
+            <Text className="text-gray-500 text-sm text-center mt-1">Report damage, theft, or other incidents</Text>
           </View>
 
           <View className="mb-4">
@@ -504,21 +445,8 @@ const IncidentReportPage = ({ onBack, userId, onSuccess }: { onBack: () => void,
             </View>
           </View>
 
-          <Dropdown
-            label="Incident Type"
-            options={incidentTypes}
-            value={formData.incident_type}
-            onSelect={(value: string) => handleInputChange('incident_type', value)}
-            placeholder="Select incident type..."
-          />
-
-          <Dropdown
-            label="Category"
-            options={categories}
-            value={formData.category}
-            onSelect={(value: string) => handleInputChange('category', value)}
-            placeholder="Select category..."
-          />
+          <Dropdown label="Incident Type" options={incidentTypes} value={formData.incident_type} onSelect={(value: string) => handleInputChange('incident_type', value)} placeholder="Select incident type..." />
+          <Dropdown label="Category" options={categories} value={formData.category} onSelect={(value: string) => handleInputChange('category', value)} placeholder="Select category..." />
 
           <View className="mb-4">
             <Text className="text-gray-700 font-semibold text-sm mb-2">Amount (₱) *</Text>
@@ -535,19 +463,8 @@ const IncidentReportPage = ({ onBack, userId, onSuccess }: { onBack: () => void,
             <Text className="text-gray-400 text-xs mt-1">Enter the estimated amount of loss or damage</Text>
           </View>
 
-          <InventoryDropdown
-            label="Inventory Item"
-            value={formData.inventory_id}
-            onSelect={(value: string) => handleInputChange('inventory_id', value)}
-            placeholder="Select inventory item (optional)..."
-          />
-
-          <StaffDropdown
-            label="Staff Member"
-            value={formData.staff_id}
-            onSelect={(value: number) => handleInputChange('staff_id', value.toString())}
-            placeholder="Select staff member..."
-          />
+          <InventoryDropdown label="Inventory Item" value={formData.inventory_id} onSelect={(value: string) => handleInputChange('inventory_id', value)} placeholder="Select inventory item (optional)..." />
+          <StaffDropdown label="Staff Member" value={formData.staff_id} onSelect={(value: number) => handleInputChange('staff_id', value.toString())} placeholder="Select staff member..." />
 
           <View className="mb-4">
             <Text className="text-gray-700 font-semibold text-sm mb-2">Description *</Text>
@@ -565,9 +482,7 @@ const IncidentReportPage = ({ onBack, userId, onSuccess }: { onBack: () => void,
           <View className="bg-gray-50 rounded-xl p-3 mb-4 border border-gray-200">
             <View className="flex-row items-center gap-2">
               <Ionicons name="information-circle-outline" size={18} color="#6b7280" />
-              <Text className="text-gray-600 text-sm">
-                Status: <Text className="font-semibold">Reported</Text> (default)
-              </Text>
+              <Text className="text-gray-600 text-sm">Status: <Text className="font-semibold">Reported</Text> (default)</Text>
             </View>
           </View>
 
@@ -575,20 +490,15 @@ const IncidentReportPage = ({ onBack, userId, onSuccess }: { onBack: () => void,
             <View className="flex-row items-start gap-2">
               <Ionicons name="information-circle-outline" size={18} color="#eab308" />
               <Text className="text-yellow-700 text-xs flex-1">
-                Please provide accurate information about the incident.
-                This report will be reviewed by the management.
+                Please provide accurate information about the incident. This report will be reviewed by the management.
               </Text>
             </View>
           </View>
 
           <View className="flex-row gap-3">
-            <TouchableOpacity
-              onPress={onBack}
-              className="flex-1 py-3 rounded-xl border border-gray-300 bg-white"
-            >
+            <TouchableOpacity onPress={onBack} className="flex-1 py-3 rounded-xl border border-gray-300 bg-white">
               <Text className="text-gray-700 text-center font-semibold">Cancel</Text>
             </TouchableOpacity>
-
             <TouchableOpacity
               onPress={handleSubmit}
               disabled={isSubmitting}
@@ -616,20 +526,13 @@ const ProfilePage = ({ onBack, userId, userData, onUpdate }: { onBack: () => voi
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [showPhoneModal, setShowPhoneModal] = useState(false);
   const [phoneNumber, setPhoneNumber] = useState(userData?.phone_number || '');
-  const [passwordForm, setPasswordForm] = useState({
-    password: '',
-    password_confirmation: ''
-  });
+  const [passwordForm, setPasswordForm] = useState({ password: '', password_confirmation: '' });
   const [isUploadingImage, setIsUploadingImage] = useState(false);
-
   const [resolvedUserId, setResolvedUserId] = useState<number | null>(userId || userData?.id || null);
 
   useEffect(() => {
-    if (userId) {
-      setResolvedUserId(userId);
-    } else if (userData?.id) {
-      setResolvedUserId(userData.id);
-    }
+    if (userId) setResolvedUserId(userId);
+    else if (userData?.id) setResolvedUserId(userData.id);
   }, [userId, userData?.id]);
 
   const getImageUrl = (imagePath: string | null) => {
@@ -645,15 +548,9 @@ const ProfilePage = ({ onBack, userId, userData, onUpdate }: { onBack: () => voi
         type: ['image/jpeg', 'image/png', 'image/jpg', 'image/gif'],
         copyToCacheDirectory: true,
       });
-
-      if (result.canceled) {
-        return;
-      }
-
+      if (result.canceled) return;
       const asset = result.assets[0];
-      if (asset) {
-        uploadProfileImage(asset.uri, asset.name || 'profile.jpg', asset.mimeType || 'image/jpeg');
-      }
+      if (asset) uploadProfileImage(asset.uri, asset.name || 'profile.jpg', asset.mimeType || 'image/jpeg');
     } catch (error) {
       console.error('Error picking document:', error);
       Alert.alert('Error', 'Failed to select image. Please try again.');
@@ -662,42 +559,26 @@ const ProfilePage = ({ onBack, userId, userData, onUpdate }: { onBack: () => voi
 
   const uploadProfileImage = async (uri: string, fileName: string, mimeType: string) => {
     const targetUserId = resolvedUserId || userId || userData?.id;
-
     if (!targetUserId) {
       Alert.alert('Error', 'Unable to determine your account. Please log out and log in again.');
       return;
     }
-
     setIsUploadingImage(true);
     try {
       const formData = new FormData();
-      formData.append('profile_image', {
-        uri: uri,
-        name: fileName,
-        type: mimeType,
-      } as any);
-
+      formData.append('profile_image', { uri, name: fileName, type: mimeType } as any);
       const response = await api.post(`/profile/add/${targetUserId}`, formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
+        headers: { 'Content-Type': 'multipart/form-data' },
       });
-
       let newPath: string | null = response.data?.profile_image ?? null;
       try {
         const userResponse = await api.get('/user');
-        if (userResponse.data?.profile_image) {
-          newPath = userResponse.data.profile_image;
-        }
+        if (userResponse.data?.profile_image) newPath = userResponse.data.profile_image;
       } catch (e) {
         console.log('Failed to re-fetch user after upload:', e);
       }
-
-      if (newPath) {
-        setProfileImage(newPath);
-      }
+      if (newPath) setProfileImage(newPath);
       if (onUpdate) onUpdate();
-
       Alert.alert('Success', 'Profile picture updated successfully!');
     } catch (error: any) {
       console.error('Error uploading profile image:', error);
@@ -712,19 +593,16 @@ const ProfilePage = ({ onBack, userId, userData, onUpdate }: { onBack: () => voi
       Alert.alert('Validation Error', 'Password must be at least 6 characters.');
       return;
     }
-
     if (passwordForm.password !== passwordForm.password_confirmation) {
       Alert.alert('Validation Error', 'Passwords do not match.');
       return;
     }
-
     setIsChangingPassword(true);
     try {
       await api.post(`/user/${userId}/password`, {
         password: passwordForm.password,
         password_confirmation: passwordForm.password_confirmation
       });
-
       Alert.alert('Success', 'Password updated successfully!');
       setShowPasswordModal(false);
       setPasswordForm({ password: '', password_confirmation: '' });
@@ -741,18 +619,13 @@ const ProfilePage = ({ onBack, userId, userData, onUpdate }: { onBack: () => voi
       Alert.alert('Validation Error', 'Please enter a phone number.');
       return;
     }
-
     if (!/^[0-9]{10,11}$/.test(phoneNumber.trim())) {
       Alert.alert('Validation Error', 'Please enter a valid phone number (10-11 digits).');
       return;
     }
-
     setIsUpdatingPhone(true);
     try {
-      await api.post(`/user/${userId}/phone`, {
-        phone_number: phoneNumber.trim()
-      });
-
+      await api.post(`/user/${userId}/phone`, { phone_number: phoneNumber.trim() });
       Alert.alert('Success', 'Phone number updated successfully!');
       setShowPhoneModal(false);
       if (onUpdate) onUpdate();
@@ -779,16 +652,9 @@ const ProfilePage = ({ onBack, userId, userData, onUpdate }: { onBack: () => voi
 
       <View className="px-5 pt-6">
         <View className="bg-white rounded-2xl p-6 items-center shadow-sm mb-6">
-          <TouchableOpacity
-            onPress={pickDocument}
-            className="mb-4"
-          >
+          <TouchableOpacity onPress={pickDocument} className="mb-4">
             {displayImage ? (
-              <Image
-                source={{ uri: displayImage }}
-                className="w-24 h-24 rounded-full border-4 border-pink-200"
-                resizeMode="cover"
-              />
+              <Image source={{ uri: displayImage }} className="w-24 h-24 rounded-full border-4 border-pink-200" resizeMode="cover" />
             ) : (
               <View className="w-24 h-24 bg-pink-100 rounded-full items-center justify-center border-4 border-pink-200">
                 <Ionicons name="person" size={50} color="#ec4899" />
@@ -813,10 +679,7 @@ const ProfilePage = ({ onBack, userId, userData, onUpdate }: { onBack: () => voi
         </View>
 
         <View className="bg-white rounded-2xl overflow-hidden shadow-sm mb-4">
-          <TouchableOpacity
-            className="flex-row items-center px-5 py-4 border-b border-gray-100"
-            onPress={pickDocument}
-          >
+          <TouchableOpacity className="flex-row items-center px-5 py-4 border-b border-gray-100" onPress={pickDocument}>
             <Ionicons name="image-outline" size={22} color="#ec4899" />
             <Text className="ml-3 flex-1 text-gray-700">Change Profile Picture</Text>
             <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
@@ -824,52 +687,32 @@ const ProfilePage = ({ onBack, userId, userData, onUpdate }: { onBack: () => voi
 
           <TouchableOpacity
             className="flex-row items-center px-5 py-4 border-b border-gray-100"
-            onPress={() => {
-              setPhoneNumber(userData?.phone_number || '');
-              setShowPhoneModal(true);
-            }}
+            onPress={() => { setPhoneNumber(userData?.phone_number || ''); setShowPhoneModal(true); }}
           >
             <Ionicons name="call-outline" size={22} color="#ec4899" />
             <Text className="ml-3 flex-1 text-gray-700">Update Phone Number</Text>
             <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
           </TouchableOpacity>
 
-          <TouchableOpacity
-            className="flex-row items-center px-5 py-4"
-            onPress={() => setShowPasswordModal(true)}
-          >
+          <TouchableOpacity className="flex-row items-center px-5 py-4" onPress={() => setShowPasswordModal(true)}>
             <Ionicons name="lock-closed-outline" size={22} color="#ec4899" />
             <Text className="ml-3 flex-1 text-gray-700">Change Password</Text>
             <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
           </TouchableOpacity>
         </View>
 
-        <Modal
-          animationType="slide"
-          transparent={true}
-          visible={showPhoneModal}
-          onRequestClose={() => {
-            setShowPhoneModal(false);
-            setPhoneNumber(userData?.phone_number || '');
-          }}
-        >
+        <Modal animationType="slide" transparent={true} visible={showPhoneModal}
+          onRequestClose={() => { setShowPhoneModal(false); setPhoneNumber(userData?.phone_number || ''); }}>
           <View className="flex-1 justify-center items-center bg-black/50">
             <View className="bg-white rounded-2xl w-full max-w-md mx-4 overflow-hidden">
               <View className="bg-pink-500 px-6 py-4 flex-row justify-between items-center">
                 <Text className="text-xl font-bold text-white">Update Phone Number</Text>
-                <TouchableOpacity onPress={() => {
-                  setShowPhoneModal(false);
-                  setPhoneNumber(userData?.phone_number || '');
-                }}>
+                <TouchableOpacity onPress={() => { setShowPhoneModal(false); setPhoneNumber(userData?.phone_number || ''); }}>
                   <Ionicons name="close" size={24} color="white" />
                 </TouchableOpacity>
               </View>
-
               <View className="p-6">
-                <Text className="text-gray-500 text-sm mb-4">
-                  Enter your new phone number below.
-                </Text>
-
+                <Text className="text-gray-500 text-sm mb-4">Enter your new phone number below.</Text>
                 <View className="mb-6">
                   <Text className="text-gray-700 font-semibold text-sm mb-2">Phone Number *</Text>
                   <View className="flex-row items-center bg-gray-50 rounded-xl px-4 py-3 border border-gray-200">
@@ -884,22 +727,13 @@ const ProfilePage = ({ onBack, userId, userData, onUpdate }: { onBack: () => voi
                   </View>
                   <Text className="text-gray-400 text-xs mt-1">Enter 10-11 digit phone number</Text>
                 </View>
-
                 <View className="flex-row gap-3">
                   <TouchableOpacity
-                    onPress={() => {
-                      setShowPhoneModal(false);
-                      setPhoneNumber(userData?.phone_number || '');
-                    }}
-                    className="flex-1 py-3 rounded-xl border border-gray-300"
-                  >
+                    onPress={() => { setShowPhoneModal(false); setPhoneNumber(userData?.phone_number || ''); }}
+                    className="flex-1 py-3 rounded-xl border border-gray-300">
                     <Text className="text-gray-600 text-center font-semibold">Cancel</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={handleUpdatePhoneNumber}
-                    disabled={isUpdatingPhone}
-                    className="flex-1 py-3 rounded-xl bg-pink-500"
-                  >
+                  <TouchableOpacity onPress={handleUpdatePhoneNumber} disabled={isUpdatingPhone} className="flex-1 py-3 rounded-xl bg-pink-500">
                     <Text className="text-white text-center font-semibold">
                       {isUpdatingPhone ? 'Updating...' : 'Update Phone Number'}
                     </Text>
@@ -910,32 +744,18 @@ const ProfilePage = ({ onBack, userId, userData, onUpdate }: { onBack: () => voi
           </View>
         </Modal>
 
-        <Modal
-          animationType="slide"
-          transparent={true}
-          visible={showPasswordModal}
-          onRequestClose={() => {
-            setShowPasswordModal(false);
-            setPasswordForm({ password: '', password_confirmation: '' });
-          }}
-        >
+        <Modal animationType="slide" transparent={true} visible={showPasswordModal}
+          onRequestClose={() => { setShowPasswordModal(false); setPasswordForm({ password: '', password_confirmation: '' }); }}>
           <View className="flex-1 justify-center items-center bg-black/50">
             <View className="bg-white rounded-2xl w-full max-w-md mx-4 overflow-hidden">
               <View className="bg-pink-500 px-6 py-4 flex-row justify-between items-center">
                 <Text className="text-xl font-bold text-white">Change Password</Text>
-                <TouchableOpacity onPress={() => {
-                  setShowPasswordModal(false);
-                  setPasswordForm({ password: '', password_confirmation: '' });
-                }}>
+                <TouchableOpacity onPress={() => { setShowPasswordModal(false); setPasswordForm({ password: '', password_confirmation: '' }); }}>
                   <Ionicons name="close" size={24} color="white" />
                 </TouchableOpacity>
               </View>
-
               <View className="p-6">
-                <Text className="text-gray-500 text-sm mb-4">
-                  Enter your new password below.
-                </Text>
-
+                <Text className="text-gray-500 text-sm mb-4">Enter your new password below.</Text>
                 <View className="mb-4">
                   <Text className="text-gray-700 font-semibold text-sm mb-2">New Password *</Text>
                   <View className="flex-row items-center bg-gray-50 rounded-xl px-4 py-3 border border-gray-200">
@@ -949,7 +769,6 @@ const ProfilePage = ({ onBack, userId, userData, onUpdate }: { onBack: () => voi
                     />
                   </View>
                 </View>
-
                 <View className="mb-6">
                   <Text className="text-gray-700 font-semibold text-sm mb-2">Confirm Password *</Text>
                   <View className="flex-row items-center bg-gray-50 rounded-xl px-4 py-3 border border-gray-200">
@@ -963,22 +782,13 @@ const ProfilePage = ({ onBack, userId, userData, onUpdate }: { onBack: () => voi
                     />
                   </View>
                 </View>
-
                 <View className="flex-row gap-3">
                   <TouchableOpacity
-                    onPress={() => {
-                      setShowPasswordModal(false);
-                      setPasswordForm({ password: '', password_confirmation: '' });
-                    }}
-                    className="flex-1 py-3 rounded-xl border border-gray-300"
-                  >
+                    onPress={() => { setShowPasswordModal(false); setPasswordForm({ password: '', password_confirmation: '' }); }}
+                    className="flex-1 py-3 rounded-xl border border-gray-300">
                     <Text className="text-gray-600 text-center font-semibold">Cancel</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={handleChangePassword}
-                    disabled={isChangingPassword}
-                    className="flex-1 py-3 rounded-xl bg-pink-500"
-                  >
+                  <TouchableOpacity onPress={handleChangePassword} disabled={isChangingPassword} className="flex-1 py-3 rounded-xl bg-pink-500">
                     <Text className="text-white text-center font-semibold">
                       {isChangingPassword ? 'Updating...' : 'Update Password'}
                     </Text>
@@ -997,7 +807,8 @@ const ProfilePage = ({ onBack, userId, userData, onUpdate }: { onBack: () => voi
 // Main Dashboard
 // ─────────────────────────────────────────────────────────────
 export default function StaffDashboard() {
-  const [activeTab, setActiveTab] = useState<'home' | 'appointments' | 'schedule' | 'walkin' | 'settings' | 'profile'>('home');
+  // ✅ 'schedule' removed — its content is now embedded on Home
+  const [activeTab, setActiveTab] = useState<'home' | 'appointments' | 'walkin' | 'settings' | 'profile'>('home');
   const [refreshing, setRefreshing] = useState(false);
 
   const insets = useSafeAreaInsets();
@@ -1032,10 +843,24 @@ export default function StaffDashboard() {
   const [lossDamages, setLossDamages] = useState<LossDamage[]>([]);
   const [userData, setUserData] = useState<any>(null);
 
-  const {
-    user,
-    logout,
-  } = useAuth();
+  // Schedule state (merged from StaffSchedule) — rendered on Home
+  const [currentMonth, setCurrentMonth] = useState(new Date());
+  const [businessSchedules, setBusinessSchedules] = useState<BusinessSchedule[]>([]);
+  const [staffAssignments, setStaffAssignments] = useState<StaffAssignment[]>([]);
+  const [showScheduleOptionsModal, setShowScheduleOptionsModal] = useState(false);
+  const [selectedSchedule, setSelectedSchedule] = useState<BusinessSchedule | null>(null);
+
+  const { user, logout } = useAuth();
+
+  const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  const getImageUrl = (imagePath: string | null | undefined) => {
+    if (!imagePath) return null;
+    if (imagePath.startsWith('http')) return imagePath;
+    if (imagePath.startsWith('/storage/')) return `http://192.168.100.73:8000${imagePath}`;
+    return `http://192.168.100.73:8000/storage/${imagePath}`;
+  };
 
   const fetchUserData = async () => {
     try {
@@ -1051,12 +876,8 @@ export default function StaffDashboard() {
   const fetchStaffAppointments = async () => {
     try {
       const userData = user;
-      if (!userData?.id) {
-        return [];
-      }
-
+      if (!userData?.id) return [];
       const response = await api.get(`/staff/${userData.id}/appointments`);
-
       let appointmentsData: Appointment[] = [];
       if (Array.isArray(response.data)) {
         appointmentsData = response.data.map((item: any) => ({
@@ -1075,7 +896,6 @@ export default function StaffDashboard() {
           transaction_id: item.transaction_id
         }));
       }
-
       setStaffAppointments(appointmentsData);
       return appointmentsData;
     } catch (error) {
@@ -1087,7 +907,6 @@ export default function StaffDashboard() {
   const fetchEmployeeCommissions = async () => {
     try {
       const response = await api.get('/employee/commission');
-
       let commissionsData: EmployeeCommission[] = [];
       if (Array.isArray(response.data)) {
         commissionsData = response.data.map((item: any) => ({
@@ -1099,7 +918,6 @@ export default function StaffDashboard() {
           employee: item.employee
         }));
       }
-
       setEmployeeCommissions(commissionsData);
       return commissionsData;
     } catch (error) {
@@ -1111,7 +929,6 @@ export default function StaffDashboard() {
   const fetchRemittances = async () => {
     try {
       const response = await api.get('/remittance');
-
       let remittancesData: Remittance[] = [];
       if (Array.isArray(response.data)) {
         remittancesData = response.data.map((item: any) => ({
@@ -1123,7 +940,6 @@ export default function StaffDashboard() {
           business_schedule: item.business_schedule
         }));
       }
-
       setRemittances(remittancesData);
       return remittancesData;
     } catch (error) {
@@ -1135,7 +951,6 @@ export default function StaffDashboard() {
   const fetchWalkIns = async () => {
     try {
       const response = await api.get('/walk-in');
-
       let walkInsData: WalkIn[] = [];
       if (Array.isArray(response.data)) {
         walkInsData = response.data.map((item: any) => ({
@@ -1150,7 +965,6 @@ export default function StaffDashboard() {
           user: item.user
         }));
       }
-
       setWalkIns(walkInsData);
       return walkInsData;
     } catch (error) {
@@ -1162,7 +976,6 @@ export default function StaffDashboard() {
   const fetchLossDamages = async () => {
     try {
       const response = await api.get('/report');
-
       let lossDamagesData: LossDamage[] = [];
       if (Array.isArray(response.data)) {
         lossDamagesData = response.data.map((item: any) => ({
@@ -1180,7 +993,6 @@ export default function StaffDashboard() {
           updated_at: item.updated_at,
         }));
       }
-
       setLossDamages(lossDamagesData);
       return lossDamagesData;
     } catch (error) {
@@ -1215,9 +1027,7 @@ export default function StaffDashboard() {
   const fetchInventoryItems = async () => {
     try {
       const response = await api.get('/inventory');
-      if (Array.isArray(response.data)) {
-        setInventoryItems(response.data);
-      }
+      if (Array.isArray(response.data)) setInventoryItems(response.data);
     } catch (error) {
       console.error('Error fetching inventory items:', error);
     }
@@ -1227,10 +1037,7 @@ export default function StaffDashboard() {
     return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
   };
 
-  const getTodayDateStr = () => {
-    const today = new Date();
-    return getUTCDateString(today);
-  };
+  const getTodayDateStr = () => getUTCDateString(new Date());
 
   const getTodayEarnings = () => {
     const todayStr = getTodayDateStr();
@@ -1248,14 +1055,8 @@ export default function StaffDashboard() {
       return walkInDate === todayStr && walkIn.stylist_id === currentStaffId && isFinished;
     });
 
-    const appointmentEarnings = todayCompletedAppointments.reduce((sum, app) => {
-      return sum + (parseFloat(app.price) || 0);
-    }, 0);
-
-    const walkInEarnings = todayCompletedWalkIns.reduce((sum, walkIn) => {
-      return sum + (parseFloat(walkIn.services?.price || '0'));
-    }, 0);
-
+    const appointmentEarnings = todayCompletedAppointments.reduce((sum, app) => sum + (parseFloat(app.price) || 0), 0);
+    const walkInEarnings = todayCompletedWalkIns.reduce((sum, walkIn) => sum + (parseFloat(walkIn.services?.price || '0')), 0);
     const totalEarnings = appointmentEarnings + walkInEarnings;
 
     const staffCommission = employeeCommissions.find(c => c.employee_id === user?.id);
@@ -1265,12 +1066,8 @@ export default function StaffDashboard() {
     const profit = totalEarnings - commissionEarnings;
 
     return {
-      totalEarnings,
-      commissionRate,
-      commissionEarnings,
-      profit,
-      appointmentEarnings,
-      walkInEarnings,
+      totalEarnings, commissionRate, commissionEarnings, profit,
+      appointmentEarnings, walkInEarnings,
       appointmentCount: todayCompletedAppointments.length,
       walkInCount: todayCompletedWalkIns.length,
       totalCount: todayCompletedAppointments.length + todayCompletedWalkIns.length
@@ -1280,16 +1077,10 @@ export default function StaffDashboard() {
   const loadRemittanceData = async () => {
     setIsLoadingRemit(true);
     try {
-      await Promise.all([
-        fetchStaffAppointments(),
-        fetchWalkIns(),
-        fetchEmployeeCommissions()
-      ]);
-
+      await Promise.all([fetchStaffAppointments(), fetchWalkIns(), fetchEmployeeCommissions()]);
       const earnings = getTodayEarnings();
       setTotalProfit(earnings.profit);
       setRemitAmount(earnings.profit);
-
       return earnings;
     } catch (error) {
       console.error("Error loading remittance data:", error);
@@ -1314,30 +1105,18 @@ export default function StaffDashboard() {
       Alert.alert('Invalid Amount', 'Remittance amount must be greater than 0');
       return;
     }
-
     const todayStr = getTodayDateStr();
     const schedule = businessSchedules.find(s => s.business_date === todayStr);
-
     if (!schedule) {
       Alert.alert('No Schedule', 'No business schedule found for today');
       return;
     }
-
     setIsSubmittingRemit(true);
     try {
-      await submitRemittance({
-        business_date_id: schedule.id,
-        remittance_amount: remitAmount
-      });
-
+      await submitRemittance({ business_date_id: schedule.id, remittance_amount: remitAmount });
       Alert.alert('Success', 'Remittance submitted successfully!');
       setShowRemitModal(false);
-      await Promise.all([
-        fetchStaffAppointments(),
-        fetchEmployeeCommissions(),
-        fetchRemittances(),
-        fetchWalkIns()
-      ]);
+      await Promise.all([fetchStaffAppointments(), fetchEmployeeCommissions(), fetchRemittances(), fetchWalkIns()]);
     } catch (error: any) {
       console.error('Error submitting remittance:', error);
       Alert.alert('Error', error.response?.data?.message || 'Failed to submit remittance');
@@ -1347,28 +1126,15 @@ export default function StaffDashboard() {
   };
 
   const handleSubmitReport = async () => {
-    if (!reportFormData.incident_type) {
-      Alert.alert('Validation Error', 'Please select an incident type');
-      return;
-    }
-    if (!reportFormData.category) {
-      Alert.alert('Validation Error', 'Please select a category');
-      return;
-    }
-    if (!reportFormData.amount || parseFloat(reportFormData.amount) <= 0) {
-      Alert.alert('Validation Error', 'Please enter a valid amount');
-      return;
-    }
-    if (!reportFormData.description) {
-      Alert.alert('Validation Error', 'Please enter a description');
-      return;
-    }
+    if (!reportFormData.incident_type) { Alert.alert('Validation Error', 'Please select an incident type'); return; }
+    if (!reportFormData.category) { Alert.alert('Validation Error', 'Please select a category'); return; }
+    if (!reportFormData.amount || parseFloat(reportFormData.amount) <= 0) { Alert.alert('Validation Error', 'Please enter a valid amount'); return; }
+    if (!reportFormData.description) { Alert.alert('Validation Error', 'Please enter a description'); return; }
 
     setIsSubmittingReport(true);
     try {
       const today = new Date();
       const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-
       await submitLossDamage({
         date: dateStr,
         incident_type: reportFormData.incident_type,
@@ -1380,18 +1146,10 @@ export default function StaffDashboard() {
         transaction_id: reportFormData.transaction_id ? parseInt(reportFormData.transaction_id) : null,
         status: 'reported'
       });
-
       Alert.alert('Success', 'Report submitted successfully!');
       setShowReportModal(false);
       setReportAppointment(null);
-      setReportFormData({
-        incident_type: '',
-        category: '',
-        amount: '',
-        description: '',
-        inventory_id: '',
-        transaction_id: ''
-      });
+      setReportFormData({ incident_type: '', category: '', amount: '', description: '', inventory_id: '', transaction_id: '' });
       await fetchLossDamages();
     } catch (error: any) {
       console.error('Error submitting report:', error);
@@ -1406,17 +1164,13 @@ export default function StaffDashboard() {
     return app.appointment_date === today;
   });
 
-  // ✅ Total Earnings = staff's commission share from all completed appointments
   const staffCommissionRecord = employeeCommissions.find(c => c.employee_id === user?.id);
-  const staffCommissionRate = staffCommissionRecord
-    ? parseFloat(String(staffCommissionRecord.commission_amount)) || 0
-    : 0;
+  const staffCommissionRate = staffCommissionRecord ? parseFloat(String(staffCommissionRecord.commission_amount)) || 0 : 0;
 
   const completedRevenue = staffAppointments
     .filter(app => app.service_status === 'completed' || app.status === 'completed')
     .reduce((sum, app) => sum + parseFloat(app.price || '0'), 0);
 
-  // Staff's actual earnings = completed revenue × commission rate
   const completedEarnings = completedRevenue * staffCommissionRate;
 
   const staffName = user ? `${user.first_name} ${user.last_name}` : 'Staff';
@@ -1430,29 +1184,89 @@ export default function StaffDashboard() {
     return `${displayHour}:${minutes} ${ampm}`;
   };
 
-  const [businessSchedules, setBusinessSchedules] = useState<BusinessSchedule[]>([]);
-
   const fetchBusinessSchedules = async () => {
     try {
       const response = await api.get('/daysched');
-      if (Array.isArray(response.data)) {
-        setBusinessSchedules(response.data);
-      }
+      if (Array.isArray(response.data)) setBusinessSchedules(response.data);
     } catch (error) {
       console.error('Error fetching business schedules:', error);
     }
   };
 
-  const [staffAssignments, setStaffAssignments] = useState<StaffAssignment[]>([]);
-
   const fetchStaffAssignments = async () => {
     try {
       const response = await api.get('/assign');
-      if (Array.isArray(response.data)) {
-        setStaffAssignments(response.data);
-      }
+      if (Array.isArray(response.data)) setStaffAssignments(response.data);
     } catch (error) {
       console.error('Error fetching staff assignments:', error);
+    }
+  };
+
+  // ═════════════════════════════════════════════════════════════
+  // Schedule helpers (merged from StaffSchedule)
+  // ═════════════════════════════════════════════════════════════
+  const getScheduleForDate = (dateStr: string): BusinessSchedule | null =>
+    businessSchedules.find(schedule => schedule.business_date === dateStr) || null;
+
+  const isStaffAssignedToSchedule = (businessDateId: number): boolean =>
+    staffAssignments.some(a => a.business_date_id === businessDateId && a.staff_id === user?.id);
+
+  const getAssignmentForSchedule = (businessDateId: number): StaffAssignment | null =>
+    staffAssignments.find(a => a.business_date_id === businessDateId && a.staff_id === user?.id) || null;
+
+  const getDaysInMonth = (date: Date) => {
+    const year = date.getFullYear();
+    const month = date.getMonth();
+    const firstDay = new Date(Date.UTC(year, month, 1));
+    const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+    const startingDayOfWeek = firstDay.getUTCDay();
+    const days: (Date | null)[] = [];
+    for (let i = 0; i < startingDayOfWeek; i++) days.push(null);
+    for (let i = 1; i <= daysInMonth; i++) days.push(new Date(Date.UTC(year, month, i)));
+    return days;
+  };
+
+  const changeMonth = (increment: number) => {
+    setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + increment, 1));
+  };
+
+  const formatFullDate = (dateString: string) => {
+    if (!dateString) return '';
+    const [year, month, day] = dateString.split('-');
+    return new Date(Date.UTC(parseInt(year), parseInt(month) - 1, parseInt(day))).toLocaleDateString('en-US', {
+      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+    });
+  };
+
+  const getScheduleStatus = (date: Date): { status: 'open' | 'closed' | 'no_schedule'; schedule: BusinessSchedule | null; isAssigned: boolean } => {
+    const dateStr = getUTCDateString(date);
+    const schedule = getScheduleForDate(dateStr);
+    if (!schedule) return { status: 'no_schedule', schedule: null, isAssigned: false };
+    if (schedule.is_open !== 1) return { status: 'closed', schedule, isAssigned: false };
+    const isAssigned = isStaffAssignedToSchedule(schedule.id);
+    return { status: 'open', schedule, isAssigned };
+  };
+
+  const handleScheduleClick = (date: Date) => {
+    const today = new Date();
+    const dateUTC = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+    const todayUTC = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()));
+    if (dateUTC < todayUTC) {
+      Alert.alert("Past Date", "Cannot interact with past dates.");
+      return;
+    }
+    const scheduleStatus = getScheduleStatus(date);
+    if (scheduleStatus.status === 'no_schedule') {
+      Alert.alert("No Schedule", "No business schedule set for this date.");
+      return;
+    }
+    if (scheduleStatus.status === 'closed') {
+      Alert.alert("Salon Closed", "The salon is closed on this date.");
+      return;
+    }
+    if (scheduleStatus.status === 'open' && scheduleStatus.schedule) {
+      setSelectedSchedule(scheduleStatus.schedule);
+      setShowScheduleOptionsModal(true);
     }
   };
 
@@ -1501,13 +1315,8 @@ export default function StaffDashboard() {
     const [localIsSubmitting, setLocalIsSubmitting] = useState(isSubmittingRemit);
     const [localEarnings, setLocalEarnings] = useState(getTodayEarnings());
 
-    useEffect(() => {
-      setLocalRemitAmount(remitAmount);
-    }, [remitAmount]);
-
-    useEffect(() => {
-      setLocalIsSubmitting(isSubmittingRemit);
-    }, [isSubmittingRemit]);
+    useEffect(() => { setLocalRemitAmount(remitAmount); }, [remitAmount]);
+    useEffect(() => { setLocalIsSubmitting(isSubmittingRemit); }, [isSubmittingRemit]);
 
     useEffect(() => {
       if (showRemitModal) {
@@ -1549,11 +1358,7 @@ export default function StaffDashboard() {
               </TouchableOpacity>
             </View>
 
-            <ScrollView
-              className="p-6"
-              showsVerticalScrollIndicator={true}
-              contentContainerStyle={{ paddingBottom: 20 }}
-            >
+            <ScrollView className="p-6" showsVerticalScrollIndicator={true} contentContainerStyle={{ paddingBottom: 20 }}>
               <Text className="text-gray-500 text-sm mb-4">Today's Remittance Summary</Text>
 
               <View className="bg-gray-50 rounded-xl p-4 mb-4">
@@ -1638,7 +1443,6 @@ export default function StaffDashboard() {
                   const isFinished = walkIn.is_finished === 1;
                   return walkInDate === todayStr && walkIn.stylist_id === currentStaffId && isFinished;
                 });
-
                 if (completedWalkIns.length > 0) {
                   return (
                     <View className="mb-4">
@@ -1648,9 +1452,7 @@ export default function StaffDashboard() {
                           <View className="flex-row justify-between items-center">
                             <View>
                               <Text className="text-gray-800 font-semibold">{walkIn.services?.service_name || 'Unknown Service'}</Text>
-                              <Text className="text-gray-500 text-xs">
-                                {walkIn.customer_name} • Walk-in
-                              </Text>
+                              <Text className="text-gray-500 text-xs">{walkIn.customer_name} • Walk-in</Text>
                             </View>
                             <Text className="text-green-600 font-bold">₱{parseFloat(walkIn.services?.price || '0').toLocaleString()}</Text>
                           </View>
@@ -1699,9 +1501,7 @@ export default function StaffDashboard() {
               </TouchableOpacity>
 
               {localEarnings.totalCount === 0 && (
-                <Text className="text-gray-400 text-xs text-center mt-2">
-                  No completed services to remit
-                </Text>
+                <Text className="text-gray-400 text-xs text-center mt-2">No completed services to remit</Text>
               )}
 
               <View className="h-4" />
@@ -1716,13 +1516,8 @@ export default function StaffDashboard() {
     const [localReportFormData, setLocalReportFormData] = useState(reportFormData);
     const [localIsSubmitting, setLocalIsSubmitting] = useState(isSubmittingReport);
 
-    useEffect(() => {
-      setLocalReportFormData(reportFormData);
-    }, [reportFormData]);
-
-    useEffect(() => {
-      setLocalIsSubmitting(isSubmittingReport);
-    }, [isSubmittingReport]);
+    useEffect(() => { setLocalReportFormData(reportFormData); }, [reportFormData]);
+    useEffect(() => { setLocalIsSubmitting(isSubmittingReport); }, [isSubmittingReport]);
 
     const handleInputChange = (field: string, value: string) => {
       setLocalReportFormData(prev => ({ ...prev, [field]: value }));
@@ -1730,22 +1525,10 @@ export default function StaffDashboard() {
     };
 
     const handleSubmit = async () => {
-      if (!localReportFormData.incident_type) {
-        Alert.alert('Validation Error', 'Please select an incident type');
-        return;
-      }
-      if (!localReportFormData.category) {
-        Alert.alert('Validation Error', 'Please select a category');
-        return;
-      }
-      if (!localReportFormData.amount || parseFloat(localReportFormData.amount) <= 0) {
-        Alert.alert('Validation Error', 'Please enter a valid amount');
-        return;
-      }
-      if (!localReportFormData.description) {
-        Alert.alert('Validation Error', 'Please enter a description');
-        return;
-      }
+      if (!localReportFormData.incident_type) { Alert.alert('Validation Error', 'Please select an incident type'); return; }
+      if (!localReportFormData.category) { Alert.alert('Validation Error', 'Please select a category'); return; }
+      if (!localReportFormData.amount || parseFloat(localReportFormData.amount) <= 0) { Alert.alert('Validation Error', 'Please enter a valid amount'); return; }
+      if (!localReportFormData.description) { Alert.alert('Validation Error', 'Please enter a description'); return; }
       await handleSubmitReport();
     };
 
@@ -1757,14 +1540,7 @@ export default function StaffDashboard() {
         onRequestClose={() => {
           setShowReportModal(false);
           setReportAppointment(null);
-          setReportFormData({
-            incident_type: '',
-            category: '',
-            amount: '',
-            description: '',
-            inventory_id: '',
-            transaction_id: ''
-          });
+          setReportFormData({ incident_type: '', category: '', amount: '', description: '', inventory_id: '', transaction_id: '' });
         }}
       >
         <View className="flex-1 justify-center items-center bg-black/50">
@@ -1774,14 +1550,7 @@ export default function StaffDashboard() {
               <TouchableOpacity onPress={() => {
                 setShowReportModal(false);
                 setReportAppointment(null);
-                setReportFormData({
-                  incident_type: '',
-                  category: '',
-                  amount: '',
-                  description: '',
-                  inventory_id: '',
-                  transaction_id: ''
-                });
+                setReportFormData({ incident_type: '', category: '', amount: '', description: '', inventory_id: '', transaction_id: '' });
               }}>
                 <Ionicons name="close" size={24} color="white" />
               </TouchableOpacity>
@@ -1806,11 +1575,7 @@ export default function StaffDashboard() {
                     <TouchableOpacity
                       key={type}
                       onPress={() => handleInputChange('incident_type', type)}
-                      className={`px-4 py-2 rounded-full ${
-                        localReportFormData.incident_type === type
-                          ? 'bg-red-600'
-                          : 'bg-gray-200'
-                      }`}
+                      className={`px-4 py-2 rounded-full ${localReportFormData.incident_type === type ? 'bg-red-600' : 'bg-gray-200'}`}
                     >
                       <Text className={`capitalize ${localReportFormData.incident_type === type ? 'text-white' : 'text-gray-700'}`}>
                         {type === 'inventory_loss' ? 'Inventory Loss' : type}
@@ -1827,11 +1592,7 @@ export default function StaffDashboard() {
                     <TouchableOpacity
                       key={cat}
                       onPress={() => handleInputChange('category', cat)}
-                      className={`px-4 py-2 rounded-full ${
-                        localReportFormData.category === cat
-                          ? 'bg-red-600'
-                          : 'bg-gray-200'
-                      }`}
+                      className={`px-4 py-2 rounded-full ${localReportFormData.category === cat ? 'bg-red-600' : 'bg-gray-200'}`}
                     >
                       <Text className={`capitalize ${localReportFormData.category === cat ? 'text-white' : 'text-gray-700'}`}>
                         {cat}
@@ -1917,15 +1678,81 @@ export default function StaffDashboard() {
     );
   });
 
+  // Schedule options modal
+  const ScheduleOptionsModal = () => {
+    if (!selectedSchedule) return null;
+    const isAssigned = isStaffAssignedToSchedule(selectedSchedule.id);
+    const assignment = getAssignmentForSchedule(selectedSchedule.id);
+
+    return (
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={showScheduleOptionsModal}
+        onRequestClose={() => { setShowScheduleOptionsModal(false); setSelectedSchedule(null); }}
+      >
+        <View className="flex-1 justify-center items-center bg-black/50">
+          <View className="bg-white rounded-2xl w-full max-w-md mx-4 overflow-hidden">
+            <View className="bg-pink-600 px-6 py-4 flex-row justify-between items-center">
+              <Text className="text-xl font-bold text-white">Schedule Details</Text>
+              <TouchableOpacity onPress={() => { setShowScheduleOptionsModal(false); setSelectedSchedule(null); }}>
+                <Ionicons name="close" size={24} color="white" />
+              </TouchableOpacity>
+            </View>
+
+            <View className="p-6">
+              <View className="mb-4">
+                <Text className="text-gray-500 text-sm">Date</Text>
+                <Text className="text-gray-800 font-semibold text-lg">
+                  {formatFullDate(selectedSchedule.business_date)}
+                </Text>
+              </View>
+
+              <View className="mb-4">
+                <Text className="text-gray-500 text-sm">Business Hours</Text>
+                <Text className="text-gray-800 font-semibold">
+                  {selectedSchedule.open_time.substring(0, 5)} - {selectedSchedule.close_time.substring(0, 5)}
+                </Text>
+              </View>
+
+              {isAssigned && assignment && (
+                <View className="mb-4 p-3 bg-green-50 rounded-xl">
+                  <View className="flex-row items-center gap-2">
+                    <Ionicons name="checkmark-circle" size={20} color="#10b981" />
+                    <Text className="text-green-700 font-semibold">You are assigned to this schedule</Text>
+                  </View>
+                </View>
+              )}
+
+              {!isAssigned && (
+                <View className="mb-4 p-3 bg-gray-50 rounded-xl">
+                  <View className="flex-row items-center gap-2">
+                    <Ionicons name="information-circle" size={20} color="#6b7280" />
+                    <Text className="text-gray-600 text-sm">You are not assigned to this schedule</Text>
+                  </View>
+                </View>
+              )}
+
+              <TouchableOpacity
+                onPress={() => { setShowScheduleOptionsModal(false); setSelectedSchedule(null); }}
+                className="bg-pink-600 py-3 rounded-xl mt-2"
+              >
+                <Text className="text-white text-center font-semibold">Close</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    );
+  };
+
   const renderContent = () => {
     if (showReportPage) {
       return (
         <IncidentReportPage
           onBack={() => setShowReportPage(false)}
           userId={user?.id || 0}
-          onSuccess={() => {
-            fetchLossDamages();
-          }}
+          onSuccess={() => { fetchLossDamages(); }}
         />
       );
     }
@@ -1936,10 +1763,7 @@ export default function StaffDashboard() {
           onBack={() => setActiveTab('settings')}
           userId={user?.id || 0}
           userData={userData || user}
-          onUpdate={() => {
-            fetchUserData();
-            onRefresh();
-          }}
+          onUpdate={() => { fetchUserData(); onRefresh(); }}
         />
       );
     }
@@ -1954,14 +1778,9 @@ export default function StaffDashboard() {
               <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#ec4899']} />
             }
           >
-            {/* Header */}
             <View
               className="bg-pink-500 px-5 pb-8"
-              style={{
-                paddingTop: insets.top + 12,
-                borderBottomLeftRadius: 30,
-                borderBottomRightRadius: 30,
-              }}
+              style={{ paddingTop: insets.top + 12, borderBottomLeftRadius: 30, borderBottomRightRadius: 30 }}
             >
               <View className="flex-row justify-between items-center">
                 <View>
@@ -1973,18 +1792,22 @@ export default function StaffDashboard() {
                   </Text>
                 </View>
                 <TouchableOpacity
-                  style={{
-                    backgroundColor: 'rgba(255,255,255,0.2)',
-                    padding: 8,
-                    borderRadius: 9999,
-                  }}
+                  onPress={() => setActiveTab('settings')}
+                  style={{ backgroundColor: 'rgba(255,255,255,0.2)', padding: 8, borderRadius: 9999 }}
                 >
-                  <Ionicons name="person-circle-outline" size={24} color="white" />
+                  {getImageUrl(userData?.profile_image || user?.profile_image) ? (
+                    <Image
+                      source={{ uri: getImageUrl(userData?.profile_image || user?.profile_image)! }}
+                      className="w-8 h-8 rounded-full border-2 border-white"
+                      resizeMode="cover"
+                    />
+                  ) : (
+                    <Ionicons name="person-circle-outline" size={24} color="white" />
+                  )}
                 </TouchableOpacity>
               </View>
             </View>
 
-            {/* Stats Cards */}
             <View className="flex-row justify-between px-4 mt-6" style={{ marginTop: -25 }}>
               <View className="bg-white rounded-2xl p-5 w-[48%] shadow-lg">
                 <View className="flex-row justify-between items-center">
@@ -2009,7 +1832,6 @@ export default function StaffDashboard() {
               </View>
             </View>
 
-            {/* Remit Profit Button */}
             <View className="px-5 mt-4">
               <TouchableOpacity
                 onPress={handleOpenRemitModal}
@@ -2041,7 +1863,6 @@ export default function StaffDashboard() {
               </TouchableOpacity>
             </View>
 
-            {/* Today's Schedule */}
             <View className="px-5 mt-6">
               <View className="flex-row justify-between items-center mb-4">
                 <Text className="text-xl font-bold text-gray-800">Today's Appointments</Text>
@@ -2103,18 +1924,13 @@ export default function StaffDashboard() {
               )}
             </View>
 
-            {/* ✅ Total Earnings Card — now shows commission-based earnings */}
+            {/* Total Earnings Card */}
             <View className="px-5 mt-4 mb-6">
-              <View
-                className="rounded-2xl p-5"
-                style={{ backgroundColor: '#ec4899' }}
-              >
+              <View className="rounded-2xl p-5" style={{ backgroundColor: '#ec4899' }}>
                 <View className="flex-row justify-between items-start">
                   <View className="flex-1">
                     <Text className="text-white opacity-90 text-sm">My Total Earnings</Text>
-                    <Text className="text-white text-4xl font-bold mt-2">
-                      ₱{completedEarnings.toLocaleString()}
-                    </Text>
+                    <Text className="text-white text-4xl font-bold mt-2">₱{completedEarnings.toLocaleString()}</Text>
                     <Text className="text-white opacity-75 text-xs mt-2">
                       {staffCommissionRate > 0
                         ? `${(staffCommissionRate * 100).toFixed(0)}% commission from completed services`
@@ -2132,33 +1948,172 @@ export default function StaffDashboard() {
                 </View>
               </View>
             </View>
+
+            {/* ✅ Work Schedule — calendar + assigned days embedded on Home */}
+            <View className="px-5 mb-6">
+              <Text className="text-xl font-bold text-gray-800 mb-3">Work Schedule</Text>
+
+              <View className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                <View className="px-4 py-3 border-b border-gray-100 flex items-center justify-between flex-row">
+                  <View className="flex-row items-center gap-3">
+                    <TouchableOpacity onPress={() => changeMonth(-1)} className="p-1.5">
+                      <Ionicons name="chevron-back" size={20} color="#ec4899" />
+                    </TouchableOpacity>
+                    <Text className="text-base font-semibold text-gray-800">
+                      {monthNames[currentMonth.getMonth()]} {currentMonth.getFullYear()}
+                    </Text>
+                    <TouchableOpacity onPress={() => changeMonth(1)} className="p-1.5">
+                      <Ionicons name="chevron-forward" size={20} color="#ec4899" />
+                    </TouchableOpacity>
+                  </View>
+                  <TouchableOpacity
+                    onPress={() => setCurrentMonth(new Date())}
+                    className="px-2 py-1 bg-pink-50 rounded-lg"
+                  >
+                    <Text className="text-xs text-pink-600">Today</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <View className="p-4">
+                  <View className="flex-row mb-2">
+                    {weekDays.map((day, index) => (
+                      <View key={index} className="flex-1 items-center py-2">
+                        <Text className="text-gray-500 text-xs font-medium">{day}</Text>
+                      </View>
+                    ))}
+                  </View>
+
+                  <View className="flex-row flex-wrap">
+                    {getDaysInMonth(currentMonth).map((date, index) => {
+                      if (!date) {
+                        return <View key={`empty-${index}`} className="w-[14.28%] aspect-square p-1" />;
+                      }
+
+                      const dateUTC = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+                      const todayUTC = new Date(Date.UTC(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()));
+                      const isTodayDate = dateUTC.getTime() === todayUTC.getTime();
+                      const isPast = dateUTC < todayUTC;
+                      const scheduleStatus = getScheduleStatus(date);
+
+                      let cellBgColor = 'bg-gray-50';
+                      let indicatorColor: string | null = null;
+                      let indicatorText: string | null = null;
+                      const dayNumber = date.getUTCDate();
+
+                      if (!isPast) {
+                        if (scheduleStatus.status === 'open') {
+                          cellBgColor = 'bg-green-50';
+                          indicatorColor = 'bg-green-500';
+                          if (scheduleStatus.isAssigned) indicatorText = '✓';
+                        } else if (scheduleStatus.status === 'closed') {
+                          cellBgColor = 'bg-red-50';
+                          indicatorColor = 'bg-red-500';
+                        } else {
+                          cellBgColor = 'bg-gray-100';
+                          indicatorColor = 'bg-gray-400';
+                        }
+                      } else {
+                        cellBgColor = 'bg-gray-100';
+                      }
+
+                      return (
+                        <TouchableOpacity
+                          key={date.toISOString()}
+                          className={`w-[14.28%] aspect-square p-1 ${isPast ? 'opacity-40' : ''}`}
+                          onPress={() => !isPast && handleScheduleClick(date)}
+                          disabled={
+                            isPast ||
+                            scheduleStatus.status === 'closed' ||
+                            scheduleStatus.status === 'no_schedule'
+                          }
+                        >
+                          <View className={`flex-1 items-center justify-center rounded-full ${cellBgColor}`}>
+                            <Text
+                              className={`text-sm ${
+                                isTodayDate
+                                  ? 'text-pink-600 font-bold'
+                                  : isPast
+                                  ? 'text-gray-400'
+                                  : scheduleStatus.status === 'open'
+                                  ? 'text-green-700'
+                                  : scheduleStatus.status === 'closed'
+                                  ? 'text-red-700'
+                                  : 'text-gray-500'
+                              }`}
+                            >
+                              {dayNumber}
+                            </Text>
+                            {indicatorColor && (
+                              <View className={`w-1.5 h-1.5 rounded-full ${indicatorColor} mt-0.5`} />
+                            )}
+                            {indicatorText && (
+                              <Text className="text-green-600 text-xs mt-0.5 font-bold">{indicatorText}</Text>
+                            )}
+                          </View>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+              </View>
+
+              <View className="flex-row justify-around mt-3 mb-4 pb-3 border-b border-gray-100 flex-wrap gap-2">
+                <View className="flex-row items-center gap-1">
+                  <View className="w-3 h-3 rounded-full bg-green-500" />
+                  <Text className="text-xs text-gray-600">Open</Text>
+                </View>
+                <View className="flex-row items-center gap-1">
+                  <View className="w-3 h-3 rounded-full bg-green-500" />
+                  <Text className="text-xs text-green-600 font-bold">✓</Text>
+                  <Text className="text-xs text-gray-600">You're assigned</Text>
+                </View>
+                <View className="flex-row items-center gap-1">
+                  <View className="w-3 h-3 rounded-full bg-red-500" />
+                  <Text className="text-xs text-gray-600">Closed</Text>
+                </View>
+                <View className="flex-row items-center gap-1">
+                  <View className="w-3 h-3 rounded-full bg-gray-400" />
+                  <Text className="text-xs text-gray-600">No Schedule</Text>
+                </View>
+              </View>
+
+              <Text className="text-lg font-bold text-gray-800 mb-3">Your Assigned Days</Text>
+              {staffAssignments.filter(a => a.staff_id === user?.id).length === 0 ? (
+                <View className="bg-white rounded-2xl p-8 items-center">
+                  <Ionicons name="calendar-outline" size={40} color="#d1d5db" />
+                  <Text className="text-gray-400 mt-2 text-center">No assigned work days yet</Text>
+                  <Text className="text-gray-400 text-xs text-center mt-1">Check back later for your schedule</Text>
+                </View>
+              ) : (
+                staffAssignments
+                  .filter(a => a.staff_id === user?.id)
+                  .map((assignment) => (
+                    <View key={assignment.id} className="bg-white rounded-2xl p-4 mb-3 shadow-sm border border-gray-100">
+                      <View className="flex-row items-center gap-3">
+                        <View className="bg-pink-100 p-2 rounded-full">
+                          <Ionicons name="checkmark-circle" size={20} color="#ec4899" />
+                        </View>
+                        <View>
+                          <Text className="text-gray-800 font-semibold">
+                            {formatFullDate(assignment.business_schedules?.business_date || '')}
+                          </Text>
+                          <Text className="text-gray-500 text-xs">
+                            {assignment.business_schedules?.open_time?.substring(0, 5)} - {assignment.business_schedules?.close_time?.substring(0, 5)}
+                          </Text>
+                        </View>
+                      </View>
+                    </View>
+                  ))
+              )}
+            </View>
           </ScrollView>
         );
 
       case 'appointments':
-        return (
-          <StaffAppointments
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-          />
-        );
-
-      case 'schedule':
-        return (
-          <StaffSchedule
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-          />
-        );
+        return <StaffAppointments refreshing={refreshing} onRefresh={onRefresh} />;
 
       case 'walkin':
-        return (
-          <StaffWalkIn
-            onSuccess={() => {
-              onRefresh();
-            }}
-          />
-        );
+        return <StaffWalkIn onSuccess={() => { onRefresh(); }} />;
 
       case 'settings':
         return (
@@ -2166,15 +2121,32 @@ export default function StaffDashboard() {
             <View className="px-5 pt-6">
               <Text className="text-3xl font-bold text-gray-800 mb-6">Settings</Text>
 
-              <View className="bg-white rounded-2xl p-6 mb-4 items-center shadow-sm">
-                <View className="bg-pink-100 p-4 rounded-full mb-3">
-                  <Ionicons name="person" size={50} color="#ec4899" />
-                </View>
+              <TouchableOpacity
+                className="bg-white rounded-2xl p-6 mb-4 items-center shadow-sm"
+                onPress={() => setActiveTab('profile')}
+                activeOpacity={0.7}
+              >
+                {getImageUrl(userData?.profile_image || user?.profile_image) ? (
+                  <Image
+                    source={{ uri: getImageUrl(userData?.profile_image || user?.profile_image)! }}
+                    className="w-24 h-24 rounded-full border-4 border-pink-200 mb-3"
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <View className="bg-pink-100 w-24 h-24 rounded-full items-center justify-center border-4 border-pink-200 mb-3">
+                    <Ionicons name="person" size={50} color="#ec4899" />
+                  </View>
+                )}
                 <Text className="text-xl font-bold text-gray-800">{staffName}</Text>
                 <Text className="text-gray-500">Salon Staff</Text>
                 <Text className="text-gray-400 text-sm mt-2">{user?.email}</Text>
                 <Text className="text-gray-400 text-sm">{user?.phone_number}</Text>
-              </View>
+
+                <View className="flex-row items-center mt-3">
+                  <Ionicons name="chevron-forward-circle-outline" size={16} color="#ec4899" />
+                  <Text className="text-pink-500 text-xs font-semibold ml-1">Tap to view profile</Text>
+                </View>
+              </TouchableOpacity>
 
               <View className="bg-white rounded-2xl overflow-hidden shadow-sm mb-4">
                 <TouchableOpacity className="flex-row items-center px-5 py-4 border-b border-gray-100">
@@ -2202,10 +2174,7 @@ export default function StaffDashboard() {
                 </TouchableOpacity>
               </View>
 
-              <TouchableOpacity
-                className="bg-red-500 py-4 rounded-xl mb-6"
-                onPress={handleLogout}
-              >
+              <TouchableOpacity className="bg-red-500 py-4 rounded-xl mb-6" onPress={handleLogout}>
                 <Text className="text-white text-center font-semibold text-lg">Log Out</Text>
               </TouchableOpacity>
             </View>
@@ -2227,14 +2196,12 @@ export default function StaffDashboard() {
 
       <RemittanceModal />
       <ReportModal />
+      <ScheduleOptionsModal />
 
       <View className="flex-row justify-around items-center border-t border-gray-200 bg-white py-3">
         <TouchableOpacity
           className="items-center py-1 px-5"
-          onPress={() => {
-            setShowReportPage(false);
-            setActiveTab('home');
-          }}
+          onPress={() => { setShowReportPage(false); setActiveTab('home'); }}
         >
           <Ionicons
             name={activeTab === 'home' ? "home" : "home-outline"}
@@ -2248,10 +2215,7 @@ export default function StaffDashboard() {
 
         <TouchableOpacity
           className="items-center py-1 px-5"
-          onPress={() => {
-            setShowReportPage(false);
-            setActiveTab('appointments');
-          }}
+          onPress={() => { setShowReportPage(false); setActiveTab('appointments'); }}
         >
           <Ionicons
             name={activeTab === 'appointments' ? "calendar" : "calendar-outline"}
@@ -2265,10 +2229,7 @@ export default function StaffDashboard() {
 
         <TouchableOpacity
           className="items-center py-1 px-5"
-          onPress={() => {
-            setShowReportPage(false);
-            setActiveTab('walkin');
-          }}
+          onPress={() => { setShowReportPage(false); setActiveTab('walkin'); }}
         >
           <Ionicons
             name={activeTab === 'walkin' ? "person-add" : "person-add-outline"}
@@ -2282,27 +2243,7 @@ export default function StaffDashboard() {
 
         <TouchableOpacity
           className="items-center py-1 px-5"
-          onPress={() => {
-            setShowReportPage(false);
-            setActiveTab('schedule');
-          }}
-        >
-          <Ionicons
-            name={activeTab === 'schedule' ? "calendar" : "calendar-outline"}
-            size={24}
-            color={activeTab === 'schedule' ? "#ec4899" : "#9ca3af"}
-          />
-          <Text className={`text-xs mt-1 ${activeTab === 'schedule' ? 'text-pink-500 font-semibold' : 'text-gray-400'}`}>
-            Schedule
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          className="items-center py-1 px-5"
-          onPress={() => {
-            setShowReportPage(false);
-            setActiveTab('settings');
-          }}
+          onPress={() => { setShowReportPage(false); setActiveTab('settings'); }}
         >
           <Ionicons
             name={activeTab === 'settings' ? "settings" : "settings-outline"}

@@ -17,7 +17,8 @@ return new class extends Migration
             $table->date('appointment_date');
             $table->time('appointment_time')->nullable();
             $table->enum('status', ['pending', 'confirmed', 'cancelled', 'no-show', 'completed'])->default('pending');
-            $table->string('cancellation_reason', 255)->nullable();
+            $table->unsignedSmallInteger('grace_period_minutes')->default(30);
+            $table->string('cancellation_reason', 150)->nullable();
             $table->unsignedBigInteger('cancelled_by')->nullable();
             $table->date('cancelled_at')->nullable();
             $table->foreign('customer_id')->references('id')->on('users')->cascadeOnDelete()->cascadeOnUpdate();

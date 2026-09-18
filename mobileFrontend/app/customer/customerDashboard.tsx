@@ -56,6 +56,10 @@ interface Appointment {
   stylist_id?: number;
 
   has_remaining_balance?: boolean;
+
+  // ✅ Grace period
+  grace_period_minutes?: number;
+  grace_period_ends_at?: string | null;
 }
 
 interface StaffMember {
@@ -76,6 +80,14 @@ interface Service {
   created_at?: string;
   updated_at?: string;
 }
+
+// Grace status union
+type GraceStatus =
+  | { kind: 'upcoming'; minutesUntilStart: number }
+  | { kind: 'in_grace'; minutesLeft: number }
+  | { kind: 'expired' }
+  | { kind: 'not_today' }
+  | { kind: 'no_time' };
 
 // ─────────────────────────────────────────────────────────────
 // Formatting helpers
@@ -101,6 +113,20 @@ const formatTime = (time: string) => {
   const ampm = hours >= 12 ? 'PM' : 'AM';
   const displayHour = hours % 12 || 12;
   return `${displayHour}:${minutes} ${ampm}`;
+};
+
+// Get today's date as YYYY-MM-DD in device-local time
+const getTodayLocalStr = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+// ✅ Helper to build the full image URL from a stored path
+const getImageUrl = (imagePath: string | null | undefined) => {
+  if (!imagePath) return null;
+  if (imagePath.startsWith('http')) return imagePath;
+  if (imagePath.startsWith('/storage/')) return `http://192.168.100.73:8000${imagePath}`;
+  return `http://192.168.100.73:8000/storage/${imagePath}`;
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -153,7 +179,6 @@ const ReceiptModal: React.FC<ReceiptModalProps> = ({
           className="bg-white rounded-2xl overflow-hidden w-full"
           style={{ minWidth: 320, maxHeight: '90%' }}
         >
-          {/* Header — solid pink (gradient doesn't render on native) */}
           <View className="px-6 py-4 items-center" style={{ backgroundColor: '#ec4899' }}>
             <Text className="text-white text-xl font-bold">Reshel Oco Hair Salon</Text>
             <Text className="text-white opacity-90 text-sm mt-0.5">Official Appointment Receipt</Text>
@@ -167,7 +192,6 @@ const ReceiptModal: React.FC<ReceiptModalProps> = ({
 
           <ScrollView showsVerticalScrollIndicator={false}>
             <View className="p-5">
-              {/* Payment status badge */}
               <View
                 className="rounded-xl py-2 items-center mb-4"
                 style={{
@@ -181,7 +205,6 @@ const ReceiptModal: React.FC<ReceiptModalProps> = ({
                 </Text>
               </View>
 
-              {/* Customer + Appointment info */}
               <View className="border-b border-gray-100 pb-3 mb-3">
                 <Text className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider mb-2">
                   Customer
@@ -211,7 +234,6 @@ const ReceiptModal: React.FC<ReceiptModalProps> = ({
                   </Text>
                 </View>
 
-                {/* ✅ Assigned Stylist */}
                 <View className="flex-row items-center mt-1">
                   <Ionicons name="person-outline" size={12} color="#9ca3af" />
                   <Text className="text-xs text-gray-600 ml-1">
@@ -230,7 +252,6 @@ const ReceiptModal: React.FC<ReceiptModalProps> = ({
                 </View>
               </View>
 
-              {/* Services */}
               <View className="border-b border-gray-100 pb-3 mb-3">
                 <Text className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider mb-2">
                   Services ({services.length})
@@ -257,7 +278,6 @@ const ReceiptModal: React.FC<ReceiptModalProps> = ({
                 )}
               </View>
 
-              {/* Payment breakdown */}
               <View className="border-b border-gray-100 pb-3 mb-3">
                 <Text className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider mb-2">
                   Payment Details
@@ -299,7 +319,6 @@ const ReceiptModal: React.FC<ReceiptModalProps> = ({
                 </View>
               </View>
 
-              {/* Footer note */}
               <View className="bg-gray-50 rounded-lg p-3 mb-4">
                 <View className="flex-row items-start gap-2">
                   <Ionicons name="information-circle-outline" size={14} color="#ec4899" />
@@ -311,7 +330,6 @@ const ReceiptModal: React.FC<ReceiptModalProps> = ({
                 </View>
               </View>
 
-              {/* Close */}
               <TouchableOpacity
                 className="py-3 rounded-xl"
                 style={{ backgroundColor: '#ec4899' }}
@@ -339,7 +357,9 @@ interface PaymentModalProps {
   onPickImage: () => void;
   onRemoveProof: () => void;
   onConfirm: () => void;
-  qrCodeImage: any;
+  qrImageUrl: string | null;
+  gcashNumber: string | null;
+  isLoadingQr: boolean;
 }
 
 const PaymentModal: React.FC<PaymentModalProps> = ({
@@ -351,7 +371,9 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
   onPickImage,
   onRemoveProof,
   onConfirm,
-  qrCodeImage,
+  qrImageUrl,
+  gcashNumber,
+  isLoadingQr,
 }) => {
   if (!appointment) return null;
 
@@ -412,14 +434,46 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
                 </View>
               </View>
 
+              {/* ✅ QR + GCash (fetched from owner's settings) */}
               <View className="items-center mb-4">
                 <Text className="text-gray-700 font-semibold text-base mb-2">Pay with GCash</Text>
-                <View className="bg-white rounded-xl p-3 border-2 border-pink-200 shadow-md">
-                  <Image source={qrCodeImage} className="w-40 h-40" resizeMode="contain" />
-                </View>
+
+                {isLoadingQr ? (
+                  <View className="bg-white rounded-xl p-3 border-2 border-pink-200 shadow-md w-40 h-40 items-center justify-center">
+                    <Text className="text-gray-400 text-xs">Loading QR...</Text>
+                  </View>
+                ) : qrImageUrl ? (
+                  <View className="bg-white rounded-xl p-3 border-2 border-pink-200 shadow-md">
+                    <Image
+                      source={{ uri: qrImageUrl }}
+                      className="w-40 h-40"
+                      resizeMode="contain"
+                      onError={(e) =>
+                        console.log("QR image failed:", qrImageUrl, e.nativeEvent.error)
+                      }
+                    />
+                  </View>
+                ) : (
+                  <View className="bg-gray-100 rounded-xl p-6 w-40 h-40 items-center justify-center border-2 border-dashed border-gray-300">
+                    <Ionicons name="qr-code-outline" size={48} color="#9ca3af" />
+                    <Text className="text-gray-400 text-xs text-center mt-2">
+                      QR code not available
+                    </Text>
+                  </View>
+                )}
+
                 <Text className="text-gray-500 text-sm mt-2 text-center">
                   Amount to pay: <Text className="font-bold text-orange-600">₱{remainingBalance.toLocaleString()}</Text>
                 </Text>
+
+                {gcashNumber ? (
+                  <View className="mt-3 bg-blue-50 rounded-xl px-4 py-2 border border-blue-200">
+                    <Text className="text-[10px] text-gray-500 text-center">GCash Number</Text>
+                    <Text className="text-sm font-bold text-gray-800 tracking-wide text-center">
+                      {gcashNumber}
+                    </Text>
+                  </View>
+                ) : null}
               </View>
 
               <View className="bg-blue-50 rounded-xl p-3 mb-4">
@@ -534,6 +588,9 @@ export default function CustomerDashboard() {
   const [totalSpent, setTotalSpent] = useState(0);
   const [upcomingCount, setUpcomingCount] = useState(0);
 
+  // ✅ Live clock — updates every 30s so grace countdown stays fresh
+  const [now, setNow] = useState(new Date());
+
   // Payment Modal States
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [selectedAppointmentForPayment, setSelectedAppointmentForPayment] = useState<Appointment | null>(null);
@@ -545,13 +602,16 @@ export default function CustomerDashboard() {
   const [showReceiptModal, setShowReceiptModal] = useState(false);
   const [selectedAppointmentForReceipt, setSelectedAppointmentForReceipt] = useState<Appointment | null>(null);
 
+  // ✅ QR code + GCash state (fetched from the owner's config)
+  const [qrImageUrl, setQrImageUrl] = useState<string | null>(null);
+  const [gcashNumber, setGcashNumber] = useState<string | null>(null);
+  const [isLoadingQr, setIsLoadingQr] = useState(false);
+
   const { user, logout } = useAuth();
 
   const insets = useSafeAreaInsets();
 
-  const qrCodeImage = require('@/assets/images/qr_code.png');
-
-  // ── Fetch staff (Option B: /employee/specialties) ──
+  // ── Fetch staff ──
   const fetchStaff = async () => {
     try {
       const response = await api.get("/employee/specialties");
@@ -572,6 +632,26 @@ export default function CustomerDashboard() {
     }
   };
 
+  // ✅ Fetch the owner-configured QR + GCash number
+  const fetchQrCode = async () => {
+    setIsLoadingQr(true);
+    try {
+      const response = await api.get('/qr-code');
+      const data = response.data;
+
+      setQrImageUrl(getImageUrl(data?.qr_image || data?.qr_image_path) || null);
+      setGcashNumber(data?.gcash_number || null);
+      return data;
+    } catch (error) {
+      console.log("Error fetching QR code:", error);
+      setQrImageUrl(null);
+      setGcashNumber(null);
+      return null;
+    } finally {
+      setIsLoadingQr(false);
+    }
+  };
+
   // ── Fetch user appointments ──
   const fetchUserAppointments = async (staffOverride?: StaffMember[]) => {
     setIsLoading(true);
@@ -579,7 +659,6 @@ export default function CustomerDashboard() {
       const response = await api.get("/appointments");
       console.log("Raw appointments response:", response.data);
 
-      // Use the override if provided so we don't rely on potentially stale state
       const activeStaff = staffOverride ?? staff;
 
       let transactions: Transaction[] = [];
@@ -613,6 +692,8 @@ export default function CustomerDashboard() {
         billing_balance?: number | null;
         billing_payment_type?: string | null;
         assigned_employee_id?: number | null;
+        grace_period_minutes?: number | null;
+        grace_period_ends_at?: string | null;
       }>();
 
       transactions.forEach((transaction) => {
@@ -633,6 +714,8 @@ export default function CustomerDashboard() {
             billing_balance: originalData?.billing_balance ?? null,
             billing_payment_type: originalData?.billing_payment_type ?? null,
             assigned_employee_id: originalData?.assigned_employee_id ?? null,
+            grace_period_minutes: originalData?.grace_period_minutes ?? null,
+            grace_period_ends_at: originalData?.grace_period_ends_at ?? null,
           });
         }
 
@@ -659,7 +742,6 @@ export default function CustomerDashboard() {
           ? billingBalance > 0
           : true;
 
-        // ✅ Resolve stylist name from the staff list
         const stylistMember = activeStaff.find(s => s.id === appointment.assigned_employee_id);
         const stylistName = stylistMember
           ? `${stylistMember.first_name} ${stylistMember.last_name}`
@@ -692,17 +774,19 @@ export default function CustomerDashboard() {
           billing_payment_type: appointment.billing_payment_type ?? 'downpayment',
           has_remaining_balance: hasRemainingBalance,
 
-          // ✅ Stylist fields
           stylist_name: stylistName,
           stylist_id: appointment.assigned_employee_id ?? undefined,
+
+          grace_period_minutes: appointment.grace_period_minutes ?? 30,
+          grace_period_ends_at: appointment.grace_period_ends_at ?? null,
         };
       });
 
       setAppointments(groupedAppointments);
 
-      const upcoming = groupedAppointments.filter((item: Appointment) => {
-        const status = item.status;
-        return status === "pending" || status === "confirmed";
+      const upcoming = groupedAppointments.filter((item) => {
+        if (isGracePeriodExpired(item, new Date())) return false;
+        return item.status === "pending" || item.status === "confirmed";
       });
       setUpcomingCount(upcoming.length);
 
@@ -776,6 +860,42 @@ export default function CustomerDashboard() {
       console.error('Error picking image:', error);
       Alert.alert('Error', 'Failed to pick image. Please try again.');
     }
+  };
+
+  // ── Grace period helpers ──
+  const isGracePeriodExpired = (item: Appointment, ref: Date = new Date()) => {
+    if (!item.grace_period_ends_at) return false;
+    try {
+      const end = new Date(item.grace_period_ends_at);
+      return ref.getTime() > end.getTime();
+    } catch {
+      return false;
+    }
+  };
+
+  const getGraceStatus = (item: Appointment, ref: Date = now): GraceStatus => {
+    if (!item.appointment_date || !item.appointment_time || !item.grace_period_ends_at) {
+      return { kind: 'no_time' };
+    }
+
+    const todayStr = getTodayLocalStr();
+    if (item.appointment_date !== todayStr) {
+      return { kind: 'not_today' };
+    }
+
+    const start = new Date(`${item.appointment_date}T${item.appointment_time.slice(0, 5)}:00`);
+    const graceEnd = new Date(item.grace_period_ends_at);
+    const refMs = ref.getTime();
+
+    if (refMs < start.getTime()) {
+      const minutes = Math.max(0, Math.round((start.getTime() - refMs) / 60000));
+      return { kind: 'upcoming', minutesUntilStart: minutes };
+    }
+    if (refMs <= graceEnd.getTime()) {
+      const minutes = Math.max(0, Math.round((graceEnd.getTime() - refMs) / 60000));
+      return { kind: 'in_grace', minutesLeft: minutes };
+    }
+    return { kind: 'expired' };
   };
 
   // ── Payment handlers ──
@@ -853,7 +973,7 @@ export default function CustomerDashboard() {
         } as any);
       }
 
-      const response = await api.post('/payment/remaining', formData, {
+      await api.post('/payment/remaining', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
 
@@ -872,22 +992,39 @@ export default function CustomerDashboard() {
     }
   };
 
+  // ✅ Grace-aware upcoming filter
   const getUpcomingAppointments = () => {
     return appointments.filter((item: Appointment) => {
-      const status = item.status;
-      return status === "pending" || status === "confirmed";
+      if (isGracePeriodExpired(item, now)) return false;
+      return item.status === "pending" || item.status === "confirmed";
     });
   };
 
+  // ── Effects ──
   useEffect(() => {
     const loadInitial = async () => {
-      // Fetch staff first so stylist names resolve on the first render
       const staffData = await fetchStaff();
       await fetchUserAppointments(staffData);
       await fetchServices();
+      await fetchQrCode();   // ✅ fetch QR on mount
     };
     loadInitial();
   }, []);
+
+  // ✅ Live clock — updates `now` every 30s
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 30000);
+    return () => clearInterval(id);
+  }, []);
+
+  // ✅ Background refetch every 2 min while on Home so backend `no_show` propagates
+  useEffect(() => {
+    if (activeTab !== 'home') return;
+    const id = setInterval(() => {
+      fetchUserAppointments();
+    }, 120000);
+    return () => clearInterval(id);
+  }, [activeTab]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -895,6 +1032,7 @@ export default function CustomerDashboard() {
     await Promise.all([
       fetchUserAppointments(staffData),
       fetchServices(),
+      fetchQrCode(),
     ]);
     setRefreshing(false);
   }, []);
@@ -911,7 +1049,6 @@ export default function CustomerDashboard() {
 
   const handleBookingSuccess = async () => {
     setRefreshTrigger(prev => prev + 1);
-    // Refresh staff first in case assignments changed, then appointments
     const staffData = await fetchStaff();
     await fetchUserAppointments(staffData);
   };
@@ -922,6 +1059,7 @@ export default function CustomerDashboard() {
       case 'pending': return 'bg-yellow-100 text-yellow-700';
       case 'completed': return 'bg-blue-100 text-blue-700';
       case 'cancelled': return 'bg-red-100 text-red-700';
+      case 'no_show': return 'bg-red-100 text-red-700';
       default: return 'bg-gray-100 text-gray-700';
     }
   };
@@ -1025,6 +1163,8 @@ export default function CustomerDashboard() {
                   const services = item.services || [];
                   const serviceNames = item.service_names || ['No Service'];
 
+                  const graceStatus = getGraceStatus(item);
+
                   return (
                     <View key={item.id} className="bg-white rounded-2xl p-4 mb-4 shadow-sm">
                       <View className="flex-row justify-between items-start">
@@ -1067,7 +1207,6 @@ export default function CustomerDashboard() {
                             </View>
                           )}
 
-                          {/* ✅ Assigned stylist on the card */}
                           <View className="flex-row items-center mt-1">
                             <Ionicons name="person-outline" size={14} color="#9ca3af" />
                             <Text className="text-gray-500 text-xs ml-1">
@@ -1102,6 +1241,27 @@ export default function CustomerDashboard() {
                         </Text>
                       </View>
 
+                      {graceStatus.kind === 'in_grace' && (
+                        <View className="mt-3 bg-orange-50 border border-orange-200 rounded-lg p-2.5 flex-row items-center">
+                          <Ionicons name="alarm-outline" size={16} color="#f97316" />
+                          <Text className="text-orange-700 text-xs ml-2 flex-1">
+                            <Text className="font-bold">Hurry!</Text>{' '}
+                            You have {graceStatus.minutesLeft} min{graceStatus.minutesLeft === 1 ? '' : 's'} left
+                            before this appointment is released.
+                          </Text>
+                        </View>
+                      )}
+
+                      {graceStatus.kind === 'upcoming' && graceStatus.minutesUntilStart <= 120 && (
+                        <View className="mt-3 bg-blue-50 border border-blue-200 rounded-lg p-2.5 flex-row items-center">
+                          <Ionicons name="time-outline" size={16} color="#3b82f6" />
+                          <Text className="text-blue-700 text-xs ml-2 flex-1">
+                            Your appointment starts in {graceStatus.minutesUntilStart} min{graceStatus.minutesUntilStart === 1 ? '' : 's'}.
+                            Please arrive on time.
+                          </Text>
+                        </View>
+                      )}
+
                       <View className="flex-row mt-2">
                         <View className={`px-2 py-1 rounded-full ${getStatusColor(item.status || 'pending')}`}>
                           <Text className="text-xs font-semibold capitalize">{item.status || 'pending'}</Text>
@@ -1113,7 +1273,6 @@ export default function CustomerDashboard() {
                         )}
                       </View>
 
-                      {/* Action buttons: View Receipt + Pay Remaining Balance */}
                       <View className="flex-row mt-3 gap-2">
                         <TouchableOpacity
                           className="flex-1 py-2.5 rounded-xl flex-row items-center justify-center border border-pink-500"
@@ -1178,7 +1337,9 @@ export default function CustomerDashboard() {
         onPickImage={pickImageFromGallery}
         onRemoveProof={() => setPaymentProof(null)}
         onConfirm={handleConfirmPayment}
-        qrCodeImage={qrCodeImage}
+        qrImageUrl={qrImageUrl}
+        gcashNumber={gcashNumber}
+        isLoadingQr={isLoadingQr}
       />
 
       {/* Receipt Modal */}

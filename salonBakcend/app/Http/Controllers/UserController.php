@@ -174,7 +174,7 @@ class UserController extends Controller
 
         // Validate
         $request->validate([
-            'profile_image' => ['required', 'image', 'mimes:jpg,jpeg,png', 'max:2048']
+            'profile_image' => ['required', 'image', 'mimes:jpg,jpeg,png', 'max:4096']
         ]);
 
         // (Optional) Delete the old image file if one exists

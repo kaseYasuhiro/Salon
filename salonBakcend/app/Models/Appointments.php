@@ -19,6 +19,7 @@ class Appointments extends Model
         'appointment_time',
         'status',
         'cancellation_reason',
+        'grace_period_minutes',
         'cancelled_by',
         'cancelled_at'
     ];

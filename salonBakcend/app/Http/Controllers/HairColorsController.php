@@ -12,6 +12,26 @@ class HairColorsController extends Controller
         return HairColors::get();
     }
 
+
+    public function addHairColor(Request $request)
+    {
+        $request->validate([
+            'color_name' => ['required', 'string', 'max:255'],
+            'color_code' => ['required', 'string', 'regex:/^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/'],
+        ]);
+
+        $color = HairColors::create([
+            'color_name' => $request->color_name,
+            'color_code' => $request->color_code,
+            'is_active' => 1,
+        ]);
+
+        return response()->json([
+            'message' => 'Hair color added successfully',
+            'data' => $color,
+        ], 201);
+    }
+
     public function addAvailableColors(Request $request)
     {
         $request->validate([
