@@ -85,9 +85,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/staff', [JoinedController::class, 'getStaff']);
     Route::post('/specialty/add', [SpecialtiesController::class, 'addSpecialty']);
     Route::get('/specialties', [SpecialtiesController::class, 'displaySpecialties']);
-    Route::post('/daysched/add', [BusinessSchedulesController::class, 'addDateSchedule']);
     Route::get('/daysched', [BusinessSchedulesController::class, 'displayBusinessSchedules']);
     Route::get('/assign', [JoinedController::class, 'assignedStaffSchedules']);
+    // Route::post('/assign/add', [AssignStaffController::class, 'staffAssignment']);
+    // Route::post('/daysched/add', [BusinessSchedulesController::class, 'addDateSchedule']);
     Route::get('/remittance', [JoinedController::class, 'remittanceReport']);
     Route::post('/employee/commission/add', [EmployeeCommissionController::class, 'addCommission']);
     Route::post('/report/update/{id}', [IncidentReportsController::class, 'updateIncidentReport']);
@@ -115,6 +116,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/qr-code/gcash-number', [QRCodesController::class, 'updateGcashNumber']);
     Route::delete('/qr-code', [QRCodesController::class, 'deleteQRCode']);
 
+    Route::post('/daysched-staff/add', [JoinedController::class, 'saveScheduleWithStaff']);
+
 
     //customer side
     Route::get('/appointments', [JoinedController::class, 'userAppointments']);
@@ -139,12 +142,10 @@ Route::middleware('auth:sanctum')->group(function () {
 
     //staff side
     Route::get('/staff/{staffId}/appointments', [JoinedController::class, 'getStaffAppointments']);
-    // Route::put('/staff/transaction/{transactionId}/status', [JoinedController::class, 'updateTransactionStatus']);
     Route::put('/staff/transaction/{transactionId}/complete', [JoinedController::class, 'completeService']);
     Route::put('/staff/transaction/{transactionId}/update', [JoinedController::class, 'updateServiceWithInventory']);
     Route::get('/service/{serviceId}/product-usages', [JoinedController::class, 'getServiceProductUsages']);
     Route::get('/test/service/{serviceId}/product-usages', [JoinedController::class, 'testServiceProductUsages']);
-    Route::post('/assign/add', [AssignStaffController::class, 'staffAssignment']);
     Route::post('/profile/{id}/add', [UserController::class, 'addProfileImage']);
     Route::post('/remittance/submit', [RemittanceController::class, 'submitRemittance']);
     Route::get('/employee/commission', [JoinedController::class, 'employeeCommissions']);
@@ -158,16 +159,16 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/report/add', [IncidentReportsController::class, 'submitIncidentReport']);
     Route::post('/profile/add/{id}', [UserController::class, 'addProfileImage']);
 
-    //system
-    Route::post('/otp/send', [OTPController::class, 'sendOTP']);
-    Route::post('/otp/verify', [OTPController::class, 'verifyOTP']);
-    Route::post('/otp/resend', [OTPController::class, 'resendOTP']);
+
+    
 
 });
 
 
-
-
+//system
+Route::post('/otp/send', [OTPController::class, 'sendOTP']);
+Route::post('/otp/verify', [OTPController::class, 'verifyOTP']);
+Route::post('/otp/resend', [OTPController::class, 'resendOTP']);
 
 
 

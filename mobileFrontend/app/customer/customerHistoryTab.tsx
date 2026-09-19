@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { View, Text, TouchableOpacity, ScrollView, Alert, RefreshControl, TextInput } from "react-native";
+import { View, Text, TouchableOpacity, ScrollView, Alert, RefreshControl, TextInput, Modal } from "react-native";
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from "@/contexts/auth-context";
 import api from '@/api/axios';
@@ -65,11 +65,9 @@ interface Appointment {
   assigned_employee_id?: number;
   stylist_name?: string;
   stylist_id?: number;
-  // Billing fields from the API
   billing_total_amount?: number | null;
   billing_paid_amount?: number | null;
   billing_balance?: number | null;
-  // Backward compatibility
   service_name?: string;
   duration_minutes?: number;
   price?: string;
@@ -90,7 +88,12 @@ interface Feedback {
 interface StaffFeedback {
   id: number;
   staff_id: number;
+  appointment_id?: number;
+  customer_id?: number;
   rating: number;
+  comments?: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 interface StaffMember {
@@ -165,7 +168,6 @@ const FeedbackPage = ({
 
   return (
     <View className="flex-1 bg-gray-50">
-      {/* ✅ Solid pink header (gradient doesn't render on native) */}
       <View
         className="px-5 pt-12 pb-4"
         style={{ backgroundColor: '#ec4899' }}
@@ -201,7 +203,6 @@ const FeedbackPage = ({
           )}
         </View>
 
-        {/* Service Rating */}
         <View className="bg-white rounded-2xl p-6 shadow-sm mb-5">
           <Text className="text-gray-800 text-lg font-semibold text-center mb-2">
             Rate the Service
@@ -230,7 +231,6 @@ const FeedbackPage = ({
           </Text>
         </View>
 
-        {/* Staff Rating */}
         <View className="bg-white rounded-2xl p-6 shadow-sm mb-5">
           <Text className="text-gray-800 text-lg font-semibold text-center mb-2">
             Rate the Stylist
@@ -259,7 +259,6 @@ const FeedbackPage = ({
           </Text>
         </View>
 
-        {/* Comment */}
         <View className="bg-white rounded-2xl p-6 shadow-sm mb-5">
           <View className="border-t border-gray-100 pt-4">
             <Text className="text-gray-700 text-sm font-semibold mb-3">
@@ -277,7 +276,6 @@ const FeedbackPage = ({
           </View>
         </View>
 
-        {/* ✅ Buttons with solid backgrounds (no gradient on native) */}
         <View className="flex-row gap-3 mb-5">
           <TouchableOpacity
             onPress={onBack}
@@ -302,12 +300,186 @@ const FeedbackPage = ({
 };
 
 // ─────────────────────────────────────────────────────────────
+// View Comment Modal
+// ─────────────────────────────────────────────────────────────
+interface ViewCommentModalProps {
+  visible: boolean;
+  appointment: Appointment | null;
+  serviceFeedback: Feedback | null;
+  staffFeedback: StaffFeedback | null;
+  stylistName: string;
+  onClose: () => void;
+}
+
+const ViewCommentModal: React.FC<ViewCommentModalProps> = ({
+  visible,
+  appointment,
+  serviceFeedback,
+  staffFeedback,
+  stylistName,
+  onClose,
+}) => {
+  if (!appointment) return null;
+
+  const formatDate = (date: string) => {
+    if (!date) return '';
+    const d = new Date(date);
+    return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+  };
+
+  const renderStars = (rating: number, size: number = 20) => {
+    const stars = [];
+    for (let i = 0; i < 5; i++) {
+      stars.push(
+        <Ionicons
+          key={i}
+          name={i < rating ? "star" : "star-outline"}
+          size={size}
+          color={i < rating ? "#fbbf24" : "#d1d5db"}
+        />
+      );
+    }
+    return stars;
+  };
+
+  const serviceRating = serviceFeedback?.rating || 0;
+  const stylistRating = staffFeedback?.rating || 0;
+  const comments = serviceFeedback?.comments || staffFeedback?.comments || '';
+  const submittedDate = serviceFeedback?.created_at || staffFeedback?.created_at;
+
+  return (
+    <Modal
+      transparent={true}
+      animationType="slide"
+      visible={visible}
+      onRequestClose={onClose}
+    >
+      <View className="flex-1 justify-center items-center bg-black/50 p-4">
+        <View className="bg-white rounded-2xl overflow-hidden w-full" style={{ minWidth: 320, maxHeight: '85%' }}>
+          <View className="px-6 py-4" style={{ backgroundColor: '#ec4899' }}>
+            <View className="flex-row justify-between items-center">
+              <View className="flex-1">
+                <Text className="text-white text-lg font-bold">Your Feedback</Text>
+                <Text className="text-white/80 text-xs mt-0.5">
+                  Submitted review for this appointment
+                </Text>
+              </View>
+              <TouchableOpacity onPress={onClose} className="p-1">
+                <Ionicons name="close" size={24} color="white" />
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <ScrollView showsVerticalScrollIndicator={false} className="p-5">
+            <View className="bg-pink-50 rounded-xl p-4 mb-4">
+              <Text className="text-gray-500 text-xs">Appointment</Text>
+              <Text className="text-gray-800 font-bold text-base mt-0.5">
+                {appointment.service_names?.join(' + ') || appointment.service_name || 'Appointment'}
+              </Text>
+              <View className="flex-row items-center mt-1">
+                <Ionicons name="calendar-outline" size={12} color="#9ca3af" />
+                <Text className="text-gray-500 text-xs ml-1">
+                  {formatDate(appointment.appointment_date)}
+                </Text>
+              </View>
+              <View className="flex-row items-center mt-0.5">
+                <Ionicons name="time-outline" size={12} color="#9ca3af" />
+                <Text className="text-gray-500 text-xs ml-1">
+                  {appointment.appointment_time}
+                </Text>
+              </View>
+              {stylistName && stylistName !== 'Not assigned' && (
+                <View className="flex-row items-center mt-0.5">
+                  <Ionicons name="person-outline" size={12} color="#9ca3af" />
+                  <Text className="text-gray-500 text-xs ml-1">
+                    Stylist: <Text className="font-semibold text-gray-700">{stylistName}</Text>
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            <View className="bg-white rounded-xl p-4 mb-3 border border-gray-100">
+              <View className="flex-row items-center justify-between mb-2">
+                <Text className="text-gray-700 text-sm font-semibold">Service Rating</Text>
+                <Text className="text-yellow-600 font-bold text-sm">
+                  {serviceRating > 0 ? `${serviceRating}/5` : 'N/A'}
+                </Text>
+              </View>
+              <View className="flex-row items-center gap-1">
+                {renderStars(serviceRating, 22)}
+              </View>
+            </View>
+
+            <View className="bg-white rounded-xl p-4 mb-3 border border-gray-100">
+              <View className="flex-row items-center justify-between mb-2">
+                <Text className="text-gray-700 text-sm font-semibold">
+                  Stylist Rating {stylistName && stylistName !== 'Not assigned' && `(${stylistName})`}
+                </Text>
+                <Text className="text-yellow-600 font-bold text-sm">
+                  {stylistRating > 0 ? `${stylistRating}/5` : 'N/A'}
+                </Text>
+              </View>
+              <View className="flex-row items-center gap-1">
+                {renderStars(stylistRating, 22)}
+              </View>
+            </View>
+
+            <View className="bg-white rounded-xl p-4 mb-3 border border-gray-100">
+              <Text className="text-gray-700 text-sm font-semibold mb-2">
+                Your Comment
+              </Text>
+              {comments && comments.trim().length > 0 ? (
+                <View className="bg-gray-50 rounded-lg p-3">
+                  <Text className="text-gray-700 text-sm italic leading-5">
+                    "{comments}"
+                  </Text>
+                </View>
+              ) : (
+                <View className="bg-gray-50 rounded-lg p-3 items-center">
+                  <Ionicons name="chatbubble-outline" size={20} color="#d1d5db" />
+                  <Text className="text-gray-400 text-xs mt-1">
+                    No comment was added
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            {submittedDate && (
+              <View className="items-center mt-1 mb-3">
+                <Text className="text-gray-400 text-[10px]">
+                  Submitted on {new Date(submittedDate).toLocaleDateString('en-US', {
+                    month: 'short',
+                    day: 'numeric',
+                    year: 'numeric',
+                  })}
+                </Text>
+              </View>
+            )}
+
+            <TouchableOpacity
+              onPress={onClose}
+              className="py-3 rounded-xl mt-2"
+              style={{ backgroundColor: '#ec4899' }}
+            >
+              <Text className="text-white text-center font-semibold">Close</Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────
 // Main History Tab
 // ─────────────────────────────────────────────────────────────
 export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger }: CustomerHistoryProps) {
   const [showFeedbackPage, setShowFeedbackPage] = useState(false);
   const [selectedAppointmentForFeedback, setSelectedAppointmentForFeedback] = useState<any>(null);
   const [refreshing, setRefreshing] = useState(false);
+
+  const [showCommentModal, setShowCommentModal] = useState(false);
+  const [selectedAppointmentForComment, setSelectedAppointmentForComment] = useState<Appointment | null>(null);
 
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -318,11 +490,9 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
 
   const { user } = useAuth();
 
-  // ── Fetch user appointments ──
   const fetchUserAppointments = async () => {
     try {
       const response = await api.get("/appointments");
-      console.log("Raw appointments response:", response.data);
 
       let transactionsData: any[] = [];
       if (Array.isArray(response.data)) {
@@ -343,7 +513,6 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
         }>;
         assigned_employee_id?: number;
         stylist_name?: string;
-        // ✅ Billing fields
         billing_total_amount?: number | null;
         billing_paid_amount?: number | null;
         billing_balance?: number | null;
@@ -362,7 +531,6 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
             services: [],
             assigned_employee_id: item.assigned_employee_id,
             stylist_name: item.stylist_name,
-            // ✅ Carry billing fields through
             billing_total_amount: item.billing_total_amount ?? null,
             billing_paid_amount: item.billing_paid_amount ?? null,
             billing_balance: item.billing_balance ?? null,
@@ -383,7 +551,6 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
         const totalDuration = appointment.services.reduce((sum, s) => sum + s.duration_minutes, 0);
         const basePriceSum = appointment.services.reduce((sum, s) => sum + parseFloat(s.price || '0'), 0);
 
-        // ✅ Prefer the grand total (base + adjustments) from billing
         const totalPrice = (appointment.billing_total_amount != null && appointment.billing_total_amount > 0)
           ? appointment.billing_total_amount
           : basePriceSum;
@@ -415,11 +582,9 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
           assigned_employee_id: appointment.assigned_employee_id,
           stylist_name: stylistName || 'Not assigned',
           stylist_id: appointment.assigned_employee_id,
-          // ✅ Billing fields passed through
           billing_total_amount: appointment.billing_total_amount ?? totalPrice,
           billing_paid_amount: appointment.billing_paid_amount ?? 0,
           billing_balance: appointment.billing_balance ?? (totalPrice / 2),
-          // Backward compatibility
           service_name: serviceNames.join(' + '),
           duration_minutes: totalDuration,
           price: totalPrice.toString(),
@@ -430,7 +595,6 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
       setAppointments(groupedAppointments);
       return groupedAppointments;
     } catch (error) {
-      console.log("Error fetching appointments:", error);
       return [];
     }
   };
@@ -460,7 +624,6 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
       setTransactions(transactionsData);
       return transactionsData;
     } catch (error) {
-      console.log("Error fetching transactions:", error);
       return [];
     }
   };
@@ -475,7 +638,6 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
       setFeedbacks(feedbacksData);
       return feedbacksData;
     } catch (error) {
-      console.log("Error fetching feedbacks:", error);
       return [];
     }
   };
@@ -488,13 +650,15 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
         staffFeedbacksData = response.data.map((item: any) => ({
           id: item.id || 0,
           staff_id: item.staff_id || 0,
-          rating: parseFloat(item.rating) || 0
+          appointment_id: item.appointment_id ?? null,
+          customer_id: item.customer_id ?? null,
+          rating: parseFloat(item.rating) || 0,
+          comments: item.comments || ''
         }));
       }
       setStaffFeedbacks(staffFeedbacksData);
       return staffFeedbacksData;
     } catch (error) {
-      console.log("Error fetching staff feedbacks:", error);
       return [];
     }
   };
@@ -509,39 +673,28 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
       setStaff(staffData);
       return staffData;
     } catch (error) {
-      console.log("Error fetching staff:", error);
       return [];
     }
   };
 
   const submitFeedback = async (data: { appointment_id: number; customer_id: number; rating: number; comments: string }) => {
-    try {
-      const response = await api.post("/feedbacks/submit", {
-        appointment_id: data.appointment_id,
-        customer_id: data.customer_id,
-        rating: data.rating,
-        comments: data.comments
-      });
-      return response.data;
-    } catch (error) {
-      console.log("Error submitting feedback:", error);
-      throw error;
-    }
+    const response = await api.post("/feedbacks/submit", {
+      appointment_id: data.appointment_id,
+      customer_id: data.customer_id,
+      rating: data.rating,
+      comments: data.comments
+    });
+    return response.data;
   };
 
   const submitStaffFeedback = async (data: { staff_id: number; customer_id: number; rating: number; comments: string }) => {
-    try {
-      const response = await api.post("/feedbacks/staff/submit", {
-        staff_id: data.staff_id,
-        customer_id: data.customer_id,
-        rating: data.rating,
-        comments: data.comments
-      });
-      return response.data;
-    } catch (error) {
-      console.log("Error submitting staff feedback:", error);
-      throw error;
-    }
+    const response = await api.post("/feedbacks/staff/submit", {
+      staff_id: data.staff_id,
+      customer_id: data.customer_id,
+      rating: data.rating,
+      comments: data.comments
+    });
+    return response.data;
   };
 
   const formatDate = (date: string) => {
@@ -570,6 +723,21 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
       return feedbacksForAppointment[0].rating;
     }
     return null;
+  };
+
+  const getServiceFeedbackForAppointment = (appointmentId: number): Feedback | null => {
+    const list = feedbacks.filter(f => f.appointment_id === appointmentId);
+    return list.length > 0 ? list[0] : null;
+  };
+
+  const getStaffFeedbackForAppointment = (appointment: Appointment): StaffFeedback | null => {
+    const stylistId = appointment.stylist_id || appointment.assigned_employee_id;
+    if (!stylistId) return null;
+    const list = staffFeedbacks.filter(
+      f => f.staff_id === stylistId &&
+      (f.customer_id == null || f.customer_id === user?.id)
+    );
+    return list.length > 0 ? list[0] : null;
   };
 
   const getStaffName = (staffId: number) => {
@@ -633,6 +801,16 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
   const handleCloseFeedbackPage = () => {
     setShowFeedbackPage(false);
     setSelectedAppointmentForFeedback(null);
+  };
+
+  const handleViewComment = (appointment: Appointment) => {
+    setSelectedAppointmentForComment(appointment);
+    setShowCommentModal(true);
+  };
+
+  const handleCloseCommentModal = () => {
+    setShowCommentModal(false);
+    setSelectedAppointmentForComment(null);
   };
 
   const handleSubmitFeedback = async (serviceRating: number, staffRating: number, comment: string) => {
@@ -735,186 +913,238 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
     );
   }
 
+  const commentModalServiceFeedback = selectedAppointmentForComment
+    ? getServiceFeedbackForAppointment(selectedAppointmentForComment.id)
+    : null;
+
+  const commentModalStaffFeedback = selectedAppointmentForComment
+    ? getStaffFeedbackForAppointment(selectedAppointmentForComment)
+    : null;
+
+  const commentModalStylistName = selectedAppointmentForComment
+    ? getStylistNameForAppointment(selectedAppointmentForComment)
+    : 'Not assigned';
+
   return (
-    <ScrollView 
-      showsVerticalScrollIndicator={false} 
-      className="flex-1"
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#ec4899']} />
-      }
-    >
-      <View className="px-5 pt-6">
-        <Text className="text-3xl font-bold text-gray-800 mb-2">History</Text>
-        <Text className="text-gray-500 mb-6">Your completed and cancelled appointments</Text>
+    <>
+      <ScrollView 
+        showsVerticalScrollIndicator={false} 
+        className="flex-1"
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#ec4899']} />
+        }
+      >
+        <View className="px-5 pt-6">
+          <Text className="text-3xl font-bold text-gray-800 mb-2">History</Text>
+          <Text className="text-gray-500 mb-6">Your completed and cancelled appointments</Text>
 
-        {isLoading ? (
-          <View className="py-10">
-            <Text className="text-center text-gray-500">Loading history...</Text>
-          </View>
-        ) : filteredAppointments.length === 0 ? (
-          <View className="bg-white rounded-2xl p-8 items-center" style={{ elevation: 2 }}>
-            <Ionicons name="document-text-outline" size={50} color="#d1d5db" />
-            <Text className="text-gray-500 text-center mt-3">No completed or cancelled appointments</Text>
-          </View>
-        ) : (
-          filteredAppointments.map((item) => {
-            const hasGivenFeedback = hasFeedback(item.id);
-            const existingRating = getFeedbackRating(item.id);
-            const isCompleted = item.status === 'completed';
-            const isMultipleServices = item.services && item.services.length > 1;
-            const services = item.services || [];
-            const serviceNames = item.service_names || ['No Service'];
+          {isLoading ? (
+            <View className="py-10">
+              <Text className="text-center text-gray-500">Loading history...</Text>
+            </View>
+          ) : filteredAppointments.length === 0 ? (
+            <View className="bg-white rounded-2xl p-8 items-center" style={{ elevation: 2 }}>
+              <Ionicons name="document-text-outline" size={50} color="#d1d5db" />
+              <Text className="text-gray-500 text-center mt-3">No completed or cancelled appointments</Text>
+            </View>
+          ) : (
+            filteredAppointments.map((item) => {
+              const hasGivenFeedback = hasFeedback(item.id);
+              const existingRating = getFeedbackRating(item.id);
+              const isCompleted = item.status === 'completed';
+              const isMultipleServices = item.services && item.services.length > 1;
+              const services = item.services || [];
+              const serviceNames = item.service_names || ['No Service'];
 
-            const stylistName = getStylistNameForAppointment(item);
-            const stylistId = getStylistIdForAppointment(item.id);
+              const stylistName = getStylistNameForAppointment(item);
+              const stylistId = getStylistIdForAppointment(item.id);
 
-            // ✅ Grand total (base + adjustments) — this is what we now display
-            const grandTotal = item.billing_total_amount ?? item.total_price ?? 0;
-            const paidAmount = item.billing_paid_amount ?? 0;
-            const balance = item.billing_balance ?? (grandTotal - paidAmount);
+              const grandTotal = item.billing_total_amount ?? item.total_price ?? 0;
+              const paidAmount = item.billing_paid_amount ?? 0;
+              const balance = item.billing_balance ?? (grandTotal - paidAmount);
 
-            return (
-              <View key={item.id} className="bg-white rounded-2xl p-4 mb-3 shadow-sm">
-                <View className="flex-row justify-between items-start">
-                  <View className="flex-1">
-                    <View className="flex-row flex-wrap items-center">
-                      <Text className="font-semibold text-gray-800 text-lg">
-                        {serviceNames.join(' + ')}
-                      </Text>
-                      {isMultipleServices && (
-                        <View className="ml-2 bg-pink-100 px-2 py-0.5 rounded-full">
-                          <Text className="text-pink-600 text-xs font-semibold">
-                            {services.length} services
+              // ✅ Can this card be tapped to view the review?
+              const canViewReview = isCompleted && hasGivenFeedback;
+
+              return (
+                <View key={item.id} className="bg-white rounded-2xl p-4 mb-3 shadow-sm">
+                  {/* ✅ Wrap the whole main content in a touchable when review exists */}
+                  <TouchableOpacity
+                    activeOpacity={canViewReview ? 0.7 : 1}
+                    disabled={!canViewReview}
+                    onPress={() => canViewReview && handleViewComment(item)}
+                  >
+                    <View className="flex-row justify-between items-start">
+                      <View className="flex-1">
+                        <View className="flex-row flex-wrap items-center">
+                          <Text className="font-semibold text-gray-800 text-lg">
+                            {serviceNames.join(' + ')}
+                          </Text>
+                          {isMultipleServices && (
+                            <View className="ml-2 bg-pink-100 px-2 py-0.5 rounded-full">
+                              <Text className="text-pink-600 text-xs font-semibold">
+                                {services.length} services
+                              </Text>
+                            </View>
+                          )}
+                        </View>
+
+                        {isMultipleServices && services.length > 0 && (
+                          <View className="mt-1">
+                            {services.map((service, index) => (
+                              <View key={index} className="flex-row items-center mt-0.5">
+                                <View className="w-1.5 h-1.5 bg-pink-400 rounded-full mr-2" />
+                                <Text className="text-gray-500 text-xs">
+                                  {service.service_name} ({service.duration_minutes} mins)
+                                </Text>
+                              </View>
+                            ))}
+                          </View>
+                        )}
+
+                        <View className="flex-row items-center mt-1">
+                          <Ionicons name="calendar-outline" size={12} color="#9ca3af" />
+                          <Text className="text-gray-400 text-xs ml-1">{formatDate(item.appointment_date)}</Text>
+                        </View>
+                        <View className="flex-row items-center mt-1">
+                          <Ionicons name="time-outline" size={12} color="#9ca3af" />
+                          <Text className="text-gray-400 text-xs ml-1">{item.appointment_time}</Text>
+                        </View>
+
+                        <View className="flex-row items-center mt-1">
+                          <Ionicons name="person-outline" size={12} color="#9ca3af" />
+                          <Text className="text-gray-400 text-xs ml-1">
+                            Stylist: <Text className="font-medium text-gray-600">{stylistName}</Text>
                           </Text>
                         </View>
+
+                        {isMultipleServices && (
+                          <View className="flex-row items-center mt-1">
+                            <Ionicons name="hourglass-outline" size={12} color="#9ca3af" />
+                            <Text className="text-gray-400 text-xs ml-1">Total: {item.total_duration} mins</Text>
+                          </View>
+                        )}
+
+                        <View className="flex-row items-center mt-1">
+                          <Ionicons name="cash-outline" size={12} color="#9ca3af" />
+                          <Text className="text-gray-400 text-xs ml-1">
+                            Total: ₱{grandTotal.toLocaleString()}
+                          </Text>
+                        </View>
+
+                        {balance > 0 && (
+                          <View className="flex-row items-center mt-1">
+                            <Ionicons name="alert-circle-outline" size={12} color="#f59e0b" />
+                            <Text className="text-orange-500 text-xs ml-1">
+                              Balance: ₱{balance.toLocaleString()}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+
+                      <Text className="text-pink-500 font-semibold">
+                        ₱{grandTotal.toLocaleString()}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+
+                  <View className="mt-3 pt-2 border-t border-gray-100">
+                    <View className="flex-row items-center justify-between">
+                      <View className={`px-2 py-0.5 rounded-full self-start ${getStatusColor(item.status)}`}>
+                        <Text className="text-xs font-semibold capitalize">{item.status}</Text>
+                      </View>
+
+                      {/* Rate — no stylist assigned */}
+                      {isCompleted && !hasGivenFeedback && (!stylistId || stylistName === 'Not assigned') && (
+                        <TouchableOpacity 
+                          onPress={() => {
+                            Alert.alert(
+                              "No Stylist Assigned",
+                              "This appointment has no stylist assigned. You can still rate the service, but stylist rating will be skipped.",
+                              [
+                                { text: "Cancel", style: "cancel" },
+                                { 
+                                  text: "Continue", 
+                                  onPress: () => {
+                                    const appointmentWithoutStylist = {
+                                      ...item,
+                                      stylist_name: 'Not assigned',
+                                      stylist_id: null,
+                                      assigned_employee_id: null
+                                    };
+                                    setSelectedAppointmentForFeedback(appointmentWithoutStylist);
+                                    setShowFeedbackPage(true);
+                                  }
+                                }
+                              ]
+                            );
+                          }}
+                          className="flex-row items-center gap-1 px-3 py-1.5 bg-yellow-50 rounded-full"
+                        >
+                          <Ionicons name="star-outline" size={14} color="#eab308" />
+                          <Text className="text-xs font-semibold text-yellow-600">Rate Service</Text>
+                        </TouchableOpacity>
+                      )}
+
+                      {/* Rate — stylist assigned */}
+                      {isCompleted && !hasGivenFeedback && stylistId && stylistName !== 'Not assigned' && (
+                        <TouchableOpacity 
+                          onPress={() => handleOpenFeedbackPage(item)}
+                          className="flex-row items-center gap-1 px-3 py-1.5 bg-yellow-50 rounded-full"
+                        >
+                          <Ionicons name="star-outline" size={14} color="#eab308" />
+                          <Text className="text-xs font-semibold text-yellow-600">Rate</Text>
+                        </TouchableOpacity>
+                      )}
+
+                      {/* ✅ Already-rated badge (also tappable) */}
+                      {isCompleted && hasGivenFeedback && (
+                        <TouchableOpacity
+                          onPress={() => handleViewComment(item)}
+                          activeOpacity={0.7}
+                          className="flex-row items-center gap-1 px-3 py-1.5 bg-green-50 rounded-full"
+                        >
+                          <View className="flex-row items-center gap-0.5">
+                            {renderStars(existingRating || 0)}
+                          </View>
+                          <Text className="text-xs font-semibold text-green-600 ml-1">
+                            {Math.round(Number(existingRating) || 0)}/5
+                          </Text>
+                          <Ionicons name="chatbubble-outline" size={12} color="#10b981" />
+                        </TouchableOpacity>
                       )}
                     </View>
 
-                    {isMultipleServices && services.length > 0 && (
-                      <View className="mt-1">
-                        {services.map((service, index) => (
-                          <View key={index} className="flex-row items-center mt-0.5">
-                            <View className="w-1.5 h-1.5 bg-pink-400 rounded-full mr-2" />
-                            <Text className="text-gray-500 text-xs">
-                              {service.service_name} ({service.duration_minutes} mins)
-                            </Text>
-                          </View>
-                        ))}
-                      </View>
-                    )}
-
-                    <View className="flex-row items-center mt-1">
-                      <Ionicons name="calendar-outline" size={12} color="#9ca3af" />
-                      <Text className="text-gray-400 text-xs ml-1">{formatDate(item.appointment_date)}</Text>
-                    </View>
-                    <View className="flex-row items-center mt-1">
-                      <Ionicons name="time-outline" size={12} color="#9ca3af" />
-                      <Text className="text-gray-400 text-xs ml-1">{item.appointment_time}</Text>
-                    </View>
-
-                    <View className="flex-row items-center mt-1">
-                      <Ionicons name="person-outline" size={12} color="#9ca3af" />
-                      <Text className="text-gray-400 text-xs ml-1">
-                        Stylist: <Text className="font-medium text-gray-600">{stylistName}</Text>
-                      </Text>
-                    </View>
-
-                    {isMultipleServices && (
-                      <View className="flex-row items-center mt-1">
-                        <Ionicons name="hourglass-outline" size={12} color="#9ca3af" />
-                        <Text className="text-gray-400 text-xs ml-1">Total: {item.total_duration} mins</Text>
-                      </View>
-                    )}
-
-                    {/* ✅ Show grand total (base + adjustments) */}
-                    <View className="flex-row items-center mt-1">
-                      <Ionicons name="cash-outline" size={12} color="#9ca3af" />
-                      <Text className="text-gray-400 text-xs ml-1">
-                        Total: ₱{grandTotal.toLocaleString()}
-                      </Text>
-                    </View>
-
-                    {balance > 0 && (
-                      <View className="flex-row items-center mt-1">
-                        <Ionicons name="alert-circle-outline" size={12} color="#f59e0b" />
-                        <Text className="text-orange-500 text-xs ml-1">
-                          Balance: ₱{balance.toLocaleString()}
+                    {/* ✅ NEW: Full-width "View Review" button for already-rated appointments */}
+                    {isCompleted && hasGivenFeedback && (
+                      <TouchableOpacity
+                        onPress={() => handleViewComment(item)}
+                        activeOpacity={0.7}
+                        className="mt-2 flex-row items-center justify-center gap-2 py-2.5 rounded-xl bg-green-50 border border-green-200"
+                      >
+                        <Ionicons name="chatbubble-ellipses-outline" size={16} color="#10b981" />
+                        <Text className="text-green-700 font-semibold text-sm">
+                          View My Review
                         </Text>
-                      </View>
+                        <Ionicons name="chevron-forward" size={14} color="#10b981" />
+                      </TouchableOpacity>
                     )}
                   </View>
-
-                  {/* ✅ Right-side amount uses the grand total, not per-service base price */}
-                  <Text className="text-pink-500 font-semibold">
-                    ₱{grandTotal.toLocaleString()}
-                  </Text>
                 </View>
+              );
+            })
+          )}
+        </View>
+      </ScrollView>
 
-                <View className="flex-row items-center justify-between mt-3 pt-2 border-t border-gray-100">
-                  <View className={`px-2 py-0.5 rounded-full self-start ${getStatusColor(item.status)}`}>
-                    <Text className="text-xs font-semibold capitalize">{item.status}</Text>
-                  </View>
-
-                  {/* Rate — no stylist assigned */}
-                  {isCompleted && !hasGivenFeedback && (!stylistId || stylistName === 'Not assigned') && (
-                    <TouchableOpacity 
-                      onPress={() => {
-                        Alert.alert(
-                          "No Stylist Assigned",
-                          "This appointment has no stylist assigned. You can still rate the service, but stylist rating will be skipped.",
-                          [
-                            { text: "Cancel", style: "cancel" },
-                            { 
-                              text: "Continue", 
-                              onPress: () => {
-                                const appointmentWithoutStylist = {
-                                  ...item,
-                                  stylist_name: 'Not assigned',
-                                  stylist_id: null,
-                                  assigned_employee_id: null
-                                };
-                                setSelectedAppointmentForFeedback(appointmentWithoutStylist);
-                                setShowFeedbackPage(true);
-                              }
-                            }
-                          ]
-                        );
-                      }}
-                      className="flex-row items-center gap-1 px-3 py-1.5 bg-yellow-50 rounded-full"
-                    >
-                      <Ionicons name="star-outline" size={14} color="#eab308" />
-                      <Text className="text-xs font-semibold text-yellow-600">Rate Service</Text>
-                    </TouchableOpacity>
-                  )}
-
-                  {/* Rate — stylist assigned */}
-                  {isCompleted && !hasGivenFeedback && stylistId && stylistName !== 'Not assigned' && (
-                    <TouchableOpacity 
-                      onPress={() => handleOpenFeedbackPage(item)}
-                      className="flex-row items-center gap-1 px-3 py-1.5 bg-yellow-50 rounded-full"
-                    >
-                      <Ionicons name="star-outline" size={14} color="#eab308" />
-                      <Text className="text-xs font-semibold text-yellow-600">Rate</Text>
-                    </TouchableOpacity>
-                  )}
-
-                  {/* ✅ Already-rated badge — ONLY yellow stars, no green star */}
-                  {isCompleted && hasGivenFeedback && (
-                    <View className="flex-row items-center gap-1 px-3 py-1.5 bg-green-50 rounded-full">
-                      <View className="flex-row items-center gap-0.5">
-                        {renderStars(existingRating || 0)}
-                      </View>
-                      <Text className="text-xs font-semibold text-green-600 ml-1">
-                        {Math.round(Number(existingRating) || 0)}/5
-                      </Text>
-                    </View>
-                  )}
-                </View>
-              </View>
-            );
-          })
-        )}
-      </View>
-    </ScrollView>
+      <ViewCommentModal
+        visible={showCommentModal}
+        appointment={selectedAppointmentForComment}
+        serviceFeedback={commentModalServiceFeedback}
+        staffFeedback={commentModalStaffFeedback}
+        stylistName={commentModalStylistName}
+        onClose={handleCloseCommentModal}
+      />
+    </>
   );
 }

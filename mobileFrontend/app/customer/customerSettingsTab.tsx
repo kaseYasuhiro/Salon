@@ -56,11 +56,9 @@ const ChangePasswordSection = ({ onBack }: { onBack: () => void }) => {
         password_confirmation: confirmPassword
       });
 
-      console.log('Password updated:', response.data);
       Alert.alert("Success", "Password updated successfully!");
       onBack();
     } catch (error: any) {
-      console.error("Error updating password:", error);
       Alert.alert("Error", error.response?.data?.message || "Failed to update password. Please try again.");
     } finally {
       setIsUpdatingPassword(false);
@@ -193,11 +191,9 @@ const UpdatePhoneSection = ({ onBack, currentPhone }: { onBack: () => void, curr
         phone_number: phoneNumber.trim()
       });
 
-      console.log('Phone number updated:', response.data);
       Alert.alert("Success", "Phone number updated successfully!");
       onBack();
     } catch (error: any) {
-      console.error("Error updating phone number:", error);
       Alert.alert("Error", error.response?.data?.message || "Failed to update phone number.");
     } finally {
       setIsUpdatingPhone(false);
@@ -306,7 +302,7 @@ const ProfilePage = ({
           setResolvedUserId(res.data.id);
         }
       } catch (e) {
-        console.log('Failed to resolve user id:', e);
+        // silently ignore
       }
     })();
     return () => {
@@ -330,7 +326,6 @@ const ProfilePage = ({
         uploadProfileImage(asset.uri, asset.name || 'profile.jpg', asset.mimeType || 'image/jpeg');
       }
     } catch (error) {
-      console.error('Error picking document:', error);
       Alert.alert('Error', 'Failed to select image. Please try again.');
     }
   };
@@ -355,15 +350,11 @@ const ProfilePage = ({
         type: mimeType,
       } as any);
 
-      console.log('Uploading profile image for user:', userId);
-
       const response = await api.post(`/profile/add/${userId}`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
       });
-
-      console.log('Profile image upload response:', response.data);
 
       // ✅ Trust the response first — the controller returns the new path
       let newPath: string | null = response.data?.profile_image ?? null;
@@ -375,7 +366,7 @@ const ProfilePage = ({
           newPath = userResponse.data.profile_image;
         }
       } catch (e) {
-        console.log('Failed to re-fetch user after upload:', e);
+        // silently ignore
       }
 
       if (newPath) {
@@ -385,7 +376,6 @@ const ProfilePage = ({
 
       Alert.alert('Success', 'Profile picture updated successfully!');
     } catch (error: any) {
-      console.error('Error uploading profile image:', error);
       Alert.alert('Error', error.response?.data?.message || 'Failed to upload profile picture.');
     } finally {
       setIsUploadingImage(false);
@@ -508,7 +498,7 @@ export default function CustomerSettingsTab({ onLogout }: CustomerSettingsProps)
           setProfileImage(res.data.profile_image);
         }
       } catch (e) {
-        console.log('Failed to fetch user on mount:', e);
+        // silently ignore
       }
     })();
     return () => { cancelled = true; };
@@ -521,7 +511,7 @@ export default function CustomerSettingsTab({ onLogout }: CustomerSettingsProps)
         onLogout();
       }
     } catch (error) {
-      console.log("Logout Error.", error);
+      // silently ignore
     }
   };
 

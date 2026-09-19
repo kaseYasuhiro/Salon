@@ -1617,5 +1617,42 @@ class JoinedController extends Controller
         }
     }
 
+    public function saveScheduleWithStaff(Request $request)
+    {
+        $request->validate([
+            'business_date'    => ['required', 'date', 'date_format:Y-m-d'],
+            'open_time'        => ['required', 'date_format:H:i'],
+            'close_time'       => ['required', 'date_format:H:i'],
+            'is_open'          => ['required', 'boolean'],
+            'staff_ids'        => ['present', 'array'],       // can be empty
+            'staff_ids.*'      => ['numeric', 'exists:users,id'],
+        ]);
+
+        // 1. Upsert the business schedule for that date
+        $schedule = \App\Models\BusinessSchedules::updateOrCreate(
+            ['business_date' => $request->business_date],
+            [
+                'open_time'  => $request->open_time,
+                'close_time' => $request->close_time,
+                'is_open'    => $request->is_open ? 1 : 0,
+            ]
+        );
+
+        // 2. Sync the staff assignments (delete + reinsert for this date)
+        \App\Models\AssignStaff::where('business_date_id', $schedule->id)->delete();
+
+        foreach ($request->staff_ids as $staffId) {
+            \App\Models\AssignStaff::create([
+                'staff_id'         => $staffId,
+                'business_date_id' => $schedule->id,
+            ]);
+        }
+
+        return response()->json([
+            'message'  => 'Schedule and staff saved successfully',
+            'schedule' => $schedule,
+        ], 200);
+    }
+
 
 }

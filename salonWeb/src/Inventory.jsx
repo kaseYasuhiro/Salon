@@ -17,7 +17,6 @@ function Inventory() {
   const [isLoading, setIsLoading] = useState(true);
   const [showAddStockModal, setShowAddStockModal] = useState(false);
   const [showRestockModal, setShowRestockModal] = useState(false);
-  const [showTransactionsModal, setShowTransactionsModal] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [formError, setFormError] = useState('');
   const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
@@ -26,10 +25,15 @@ function Inventory() {
   const [showProductDropdown, setShowProductDropdown] = useState(false);
   const [restockQuantity, setRestockQuantity] = useState('');
   const [restockPrice, setRestockPrice] = useState('');
-  const [transactions, setTransactions] = useState([]);
-  const [selectedInventoryItem, setSelectedInventoryItem] = useState(null);
-  const [isLoadingTransactions, setIsLoadingTransactions] = useState(false);
   const [user, setUser] = useState(null);
+
+  // ── Stats (derived from inventory) ──
+  const [stats, setStats] = useState({
+    totalProducts: 0,
+    totalQuantity: 0,
+    lowStockCount: 0,
+    criticalCount: 0
+  });
 
   const [formData, setFormData] = useState({
     product_id: '',
@@ -40,19 +44,6 @@ function Inventory() {
     expiration_date: '',
     unit_price: ''
   });
-
-  const categories = [
-    { id: 'all', name: 'All Products' },
-    { id: 'products', name: 'Products' },
-    { id: 'tools', name: 'Tools' },
-    { id: 'equipment', name: 'Equipment' },
-  ];
-
-  const stats = [
-    { label: 'Total Products', value: '0', icon: Package, color: 'bg-pink-100', textColor: 'text-pink-600' },
-    { label: 'Low Stock', value: '0', icon: AlertCircle, color: 'bg-yellow-100', textColor: 'text-yellow-600' },
-    { label: 'Total Value', value: '₱0', icon: () => <span className="text-green-600 text-lg font-bold">₱</span>, color: 'bg-green-100', textColor: 'text-green-600' },
-  ];
 
   // Toast notification component
   const showToast = (message, type = 'success') => {
@@ -71,7 +62,6 @@ function Inventory() {
       }
       return null;
     } catch (error) {
-      console.error('Error getting user:', error);
       return null;
     }
   };
@@ -99,17 +89,49 @@ function Inventory() {
     });
   };
 
+  // Compute summary stats from inventory
+  const computeStats = (items) => {
+    let totalQuantity = 0;
+    let lowStockCount = 0;
+    let criticalCount = 0;
+
+    items.forEach(item => {
+      const qty = parseInt(item.product_quantity, 10) || 0;
+      const perUnit = parseInt(item.estimated_usages_per_unit, 10) || 0;
+      const openUsages = parseInt(item.current_usages, 10) || 0;
+      const reorder = parseInt(item.reorder_level, 10) || 0;
+
+      // Total units (in bottles/pieces)
+      totalQuantity += qty;
+
+      // Remaining usages (same formula used in the status badge)
+      const remaining = qty > 0 ? (qty - 1) * perUnit + openUsages : 0;
+
+      if (remaining <= reorder * 0.5) {
+        criticalCount++;
+      } else if (remaining <= reorder) {
+        lowStockCount++;
+      }
+    });
+
+    setStats({
+      totalProducts: items.length,
+      totalQuantity,
+      lowStockCount,
+      criticalCount
+    });
+  };
+
   // Fetch products for dropdown
   const fetchProducts = async () => {
     try {
       const response = await api.get('/products');
-      console.log('Fetched products:', response.data);
       if (Array.isArray(response.data)) {
         setProducts(response.data);
         setFilteredProducts(response.data);
       }
     } catch (error) {
-      console.error('Error fetching products:', error);
+      // silently ignore
     }
   };
 
@@ -118,7 +140,6 @@ function Inventory() {
     setIsLoading(true);
     try {
       const response = await api.get('/inventory');
-      console.log('Fetched inventory:', response.data);
       
       if (Array.isArray(response.data)) {
         const transformedData = response.data.map(item => ({
@@ -132,47 +153,18 @@ function Inventory() {
         
         const sortedData = sortInventoryByRecent(transformedData);
         setInventory(sortedData);
-        
-        const lowStockItems = sortedData.filter(item => {
-          const remainingUsages = (item.product_quantity * item.estimated_usages_per_unit) - item.current_usages;
-          return remainingUsages <= item.reorder_level && remainingUsages > item.reorder_level * 0.5;
-        }).length;
-        
-        const totalValue = sortedData.reduce((sum, item) => sum + ((item.product_quantity || 0) * (item.unit_price || 0)), 0);
-        
-        stats[0].value = sortedData.length.toString();
-        stats[1].value = lowStockItems.toString();
-        stats[2].value = `₱${totalValue.toLocaleString()}`;
+        computeStats(sortedData);
       }
     } catch (error) {
-      console.error('Error fetching inventory:', error);
       showToast('Failed to fetch inventory', 'error');
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Fetch inventory transactions
-  const fetchInventoryTransactions = async () => {
-    setIsLoadingTransactions(true);
-    try {
-      const response = await api.get('/inventory/transactions');
-      console.log('Fetched inventory transactions:', response.data);
-      if (Array.isArray(response.data)) {
-        setTransactions(response.data);
-      }
-    } catch (error) {
-      console.error('Error fetching inventory transactions:', error);
-      showToast('Failed to fetch transactions', 'error');
-    } finally {
-      setIsLoadingTransactions(false);
-    }
-  };
-
   useEffect(() => {
     fetchInventory();
     fetchProducts();
-    fetchInventoryTransactions();
     setUser(getCurrentUser());
   }, []);
 
@@ -269,8 +261,6 @@ function Inventory() {
         expiration_date: formData.expiration_date,
         unit_price: parseFloat(formData.unit_price)
       });
-      
-      console.log('Stock added:', response.data);
 
       // Now, create an expense entry for the new stock
       const quantity = parseInt(formData.product_quantity);
@@ -287,17 +277,10 @@ function Inventory() {
         stock_amount: quantity
       };
 
-      console.log('Creating expense entry:', expenseData);
-
       try {
-        const expenseResponse = await api.post('/expenses/add', expenseData);
-        console.log('Expense created:', expenseResponse.data);
+        await api.post('/expenses/add', expenseData);
         showToast(`Stock added and expense recorded! (₱${totalAmount.toFixed(2)})`, 'success');
       } catch (expenseError) {
-        console.error('Error creating expense:', expenseError);
-        console.error('Error response data:', expenseError.response?.data);
-        console.error('Error response status:', expenseError.response?.status);
-        
         if (expenseError.response?.data?.errors) {
           const errors = Object.values(expenseError.response.data.errors).flat();
           showToast(`Stock added but expense recording failed: ${errors.join(', ')}`, 'warning');
@@ -310,8 +293,6 @@ function Inventory() {
       resetForm();
       fetchInventory();
     } catch (error) {
-      console.error('Error adding stock:', error);
-      
       if (error.response?.data?.message) {
         setFormError(error.response.data.message);
         showToast(error.response.data.message, 'error');
@@ -345,12 +326,10 @@ function Inventory() {
     setIsLoading(true);
     try {
       // First, update the inventory
-      const restockResponse = await api.post(`/inventory/update/${editingItem.id}`, {
+      await api.post(`/inventory/update/${editingItem.id}`, {
         product_id: parseInt(editingItem.product_id),
         product_quantity: parseInt(restockQuantity)
       });
-      
-      console.log('Stock restocked:', restockResponse.data);
 
       // Now, create an expense entry for the restock
       const quantity = parseInt(restockQuantity);
@@ -367,17 +346,10 @@ function Inventory() {
         stock_amount: quantity
       };
 
-      console.log('Creating expense entry:', expenseData);
-
       try {
-        const expenseResponse = await api.post('/expenses/add', expenseData);
-        console.log('Expense created:', expenseResponse.data);
+        await api.post('/expenses/add', expenseData);
         showToast(`Stock restocked and expense recorded! (₱${totalAmount.toFixed(2)})`, 'success');
       } catch (expenseError) {
-        console.error('Error creating expense:', expenseError);
-        console.error('Error response data:', expenseError.response?.data);
-        console.error('Error response status:', expenseError.response?.status);
-        
         if (expenseError.response?.data?.errors) {
           const errors = Object.values(expenseError.response.data.errors).flat();
           showToast(`Stock restocked but expense recording failed: ${errors.join(', ')}`, 'warning');
@@ -391,28 +363,11 @@ function Inventory() {
       setRestockQuantity('');
       setRestockPrice('');
       fetchInventory();
-      fetchInventoryTransactions();
     } catch (error) {
-      console.error('Error restocking:', error);
       setFormError(error.response?.data?.message || 'Error restocking');
       showToast(error.response?.data?.message || 'Error restocking', 'error');
     } finally {
       setIsLoading(false);
-    }
-  };
-
-  const handleDeleteItem = async (id) => {
-    if (window.confirm('Are you sure you want to delete this item?')) {
-      try {
-        // Replace with actual API call for deleting inventory item
-        // await api.post(`/inventory/delete/${id}`);
-        
-        showToast('Item deleted successfully!', 'success');
-        fetchInventory();
-      } catch (error) {
-        console.error('Error deleting item:', error);
-        showToast(error.response?.data?.message || 'Error deleting item', 'error');
-      }
     }
   };
 
@@ -443,11 +398,6 @@ function Inventory() {
     setShowRestockModal(true);
   };
 
-  const handleOpenTransactionsModal = (item) => {
-    setSelectedInventoryItem(item);
-    setShowTransactionsModal(true);
-  };
-
   const getStatusBadge = (item) => {
     const remainingUsages = (item.product_quantity * item.estimated_usages_per_unit) - item.current_usages;
     const reorderPoint = item.reorder_level;
@@ -476,42 +426,11 @@ function Inventory() {
     }
   };
 
-  const getTransactionTypeBadge = (type) => {
-    switch(type) {
-      case 'usage':
-        return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] rounded-full bg-red-100 text-red-700">
-            <AlertCircle size={10} />
-            Usage
-          </span>
-        );
-      case 'restock':
-        return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] rounded-full bg-green-100 text-green-700">
-            <Package size={10} />
-            Restock
-          </span>
-        );
-      default:
-        return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] rounded-full bg-gray-100 text-gray-700">
-            {type}
-          </span>
-        );
-    }
-  };
-
   // Filter inventory (maintains sort order)
   const filteredInventory = inventory.filter(item => {
     if (searchTerm && !(item.product_name || '').toLowerCase().includes(searchTerm.toLowerCase())) return false;
     return true;
   });
-
-  // Get transactions for the selected inventory item
-  const getItemTransactions = () => {
-    if (!selectedInventoryItem) return [];
-    return transactions.filter(t => t.inventory_id === selectedInventoryItem.id);
-  };
 
   if (isLoading && inventory.length === 0) {
     return (
@@ -546,17 +465,49 @@ function Inventory() {
         </div>
       )}
 
-      {/* Stats Grid - 3 cards */}
+      {/* ✅ Stats Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {stats.map((stat, index) => (
-          <div key={index} className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 p-4 border border-gray-100">
-            <div className={`${stat.color} w-10 h-10 rounded-xl flex items-center justify-center mb-2`}>
-              {typeof stat.icon === 'function' ? stat.icon() : <stat.icon className={stat.textColor} size={18} />}
+        {/* Total Products */}
+        <div className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 p-4 border border-gray-100">
+          <div className="flex items-center justify-between mb-2">
+            <div className="bg-pink-50 p-2 rounded-lg">
+              <Package className="text-pink-600" size={18} />
             </div>
-            <p className="text-gray-500 text-xs mb-0.5">{stat.label}</p>
-            <p className="text-xl font-bold text-gray-800">{stat.value}</p>
           </div>
-        ))}
+          <p className="text-xs text-gray-500">Total Products</p>
+          <p className="text-xl font-bold text-gray-800 mt-0.5">{stats.totalProducts}</p>
+          <p className="text-[10px] text-gray-400 mt-1">{stats.totalQuantity} total units</p>
+        </div>
+
+        {/* Low Stock */}
+        <div className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 p-4 border border-gray-100">
+          <div className="flex items-center justify-between mb-2">
+            <div className="bg-yellow-50 p-2 rounded-lg">
+              <Clock className="text-yellow-600" size={18} />
+            </div>
+            <span className="text-xs font-semibold text-yellow-600 bg-yellow-50 px-2 py-0.5 rounded-full">
+              Attention
+            </span>
+          </div>
+          <p className="text-xs text-gray-500">Low Stock Items</p>
+          <p className="text-xl font-bold text-yellow-600 mt-0.5">{stats.lowStockCount}</p>
+          <p className="text-[10px] text-gray-400 mt-1">Needs restocking soon</p>
+        </div>
+
+        {/* Critical */}
+        <div className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 p-4 border border-gray-100">
+          <div className="flex items-center justify-between mb-2">
+            <div className="bg-red-50 p-2 rounded-lg">
+              <AlertTriangle className="text-red-600" size={18} />
+            </div>
+            <span className="text-xs font-semibold text-red-600 bg-red-50 px-2 py-0.5 rounded-full">
+              Urgent
+            </span>
+          </div>
+          <p className="text-xs text-gray-500">Critical Stock</p>
+          <p className="text-xl font-bold text-red-600 mt-0.5">{stats.criticalCount}</p>
+          <p className="text-[10px] text-gray-400 mt-1">Restock immediately</p>
+        </div>
       </div>
 
       {/* Controls Bar - Compact */}
@@ -650,25 +601,11 @@ function Inventory() {
                     <td className="px-4 py-3 whitespace-nowrap">
                       <div className="flex items-center gap-1.5">
                         <button 
-                          onClick={() => handleOpenTransactionsModal(item)}
-                          className="p-1 hover:bg-blue-50 rounded-lg transition-colors"
-                          title="View Transactions"
-                        >
-                          <History size={14} className="text-blue-600" />
-                        </button>
-                        <button 
                           onClick={() => handleOpenRestockModal(item)}
                           className="p-1 hover:bg-green-50 rounded-lg transition-colors"
                           title="Restock"
                         >
                           <Package size={14} className="text-green-600" />
-                        </button>
-                        <button 
-                          onClick={() => handleDeleteItem(item.id)}
-                          className="p-1 hover:bg-red-50 rounded-lg transition-colors"
-                          title="Delete"
-                        >
-                          <Trash2 size={14} className="text-red-500" />
                         </button>
                       </div>
                     </td>
@@ -742,25 +679,11 @@ function Inventory() {
                 
                 <div className="flex gap-1.5">
                   <button 
-                    onClick={() => handleOpenTransactionsModal(item)}
-                    className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors text-xs font-medium"
-                  >
-                    <History size={12} />
-                    History
-                  </button>
-                  <button 
                     onClick={() => handleOpenRestockModal(item)}
                     className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 bg-green-50 text-green-600 rounded-lg hover:bg-green-100 transition-colors text-xs font-medium"
                   >
                     <Package size={12} />
                     Restock
-                  </button>
-                  <button 
-                    onClick={() => handleDeleteItem(item.id)}
-                    className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors text-xs font-medium"
-                  >
-                    <Trash2 size={12} />
-                    Delete
                   </button>
                 </div>
               </div>
@@ -1151,121 +1074,6 @@ function Inventory() {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
-
-      {/* Transactions Modal - PINK COLOR */}
-      {showTransactionsModal && selectedInventoryItem && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl mx-4 overflow-hidden max-h-[85vh]">
-            <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-6 py-4 flex items-center justify-between sticky top-0 z-10">
-              <div>
-                <h2 className="text-lg font-bold text-white">Transaction History</h2>
-                <p className="text-pink-100 text-sm mt-0.5">{selectedInventoryItem.product_name}</p>
-              </div>
-              <button 
-                onClick={() => {
-                  setShowTransactionsModal(false);
-                  setSelectedInventoryItem(null);
-                }}
-                className="text-white hover:bg-white/20 rounded-lg p-1 transition-colors"
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            <div className="p-6 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden" style={{ maxHeight: 'calc(85vh - 72px)' }}>
-              {/* Product Info Summary */}
-              <div className="grid grid-cols-4 gap-3 mb-4">
-                <div className="bg-gray-50 rounded-lg p-3 text-center border border-gray-200">
-                  <p className="text-[10px] text-gray-400">Current Quantity</p>
-                  <p className="text-sm font-semibold text-gray-800">{selectedInventoryItem.product_quantity}</p>
-                </div>
-                <div className="bg-gray-50 rounded-lg p-3 text-center border border-gray-200">
-                  <p className="text-[10px] text-gray-400">Usage Left</p>
-                  <p className="text-sm font-semibold text-gray-800">{selectedInventoryItem.current_usages}</p>
-                </div>
-                <div className="bg-gray-50 rounded-lg p-3 text-center border border-gray-200">
-                  <p className="text-[10px] text-gray-400">Reorder Level</p>
-                  <p className="text-sm font-semibold text-gray-800">{selectedInventoryItem.reorder_level}</p>
-                </div>
-                <div className="bg-gray-50 rounded-lg p-3 text-center border border-gray-200">
-                  <p className="text-[10px] text-gray-400">Unit</p>
-                  <p className="text-sm font-semibold text-gray-800">{selectedInventoryItem.unit}</p>
-                </div>
-              </div>
-
-              {/* Transactions Table */}
-              {isLoadingTransactions ? (
-                <div className="flex items-center justify-center h-32">
-                  <div className="w-8 h-8 border-4 border-pink-500 border-t-transparent rounded-full animate-spin"></div>
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead className="bg-gray-50 border-b border-gray-200">
-                      <tr>
-                        <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Type</th>
-                        <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Quantity</th>
-                        <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Transaction ID</th>
-                        <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Appointment ID</th>
-                        <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Date</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {getItemTransactions().length === 0 ? (
-                        <tr>
-                          <td colSpan="5" className="px-4 py-6 text-center text-gray-500 text-sm">
-                            No transactions found for this product
-                          </td>
-                        </tr>
-                      ) : (
-                        getItemTransactions().map((transaction) => (
-                          <tr key={transaction.id} className="hover:bg-gray-50/50 transition-colors duration-200">
-                            <td className="px-4 py-2.5 whitespace-nowrap">
-                              {getTransactionTypeBadge(transaction.transaction_type)}
-                            </td>
-                            <td className="px-4 py-2.5 whitespace-nowrap">
-                              <span className={`text-sm font-semibold ${
-                                transaction.quantity_change < 0 ? 'text-red-600' : 'text-green-600'
-                              }`}>
-                                {transaction.quantity_change}
-                              </span>
-                            </td>
-                            <td className="px-4 py-2.5 whitespace-nowrap text-sm text-gray-600">
-                              #{transaction.transaction_id}
-                            </td>
-                            <td className="px-4 py-2.5 whitespace-nowrap text-sm text-gray-600">
-                              #{transaction.transaction?.appointment_id || 'N/A'}
-                            </td>
-                            <td className="px-4 py-2.5 whitespace-nowrap text-sm text-gray-600">
-                              {new Date(transaction.created_at).toLocaleDateString('en-US', { 
-                                month: 'short', 
-                                day: 'numeric', 
-                                year: 'numeric' 
-                              })}
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-
-              <div className="mt-4 flex justify-end">
-                <button
-                  onClick={() => {
-                    setShowTransactionsModal(false);
-                    setSelectedInventoryItem(null);
-                  }}
-                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors text-sm font-medium"
-                >
-                  Close
-                </button>
-              </div>
-            </div>
           </div>
         </div>
       )}

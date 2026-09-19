@@ -81,7 +81,6 @@ function Remittances() {
     setError(null);
     try {
       const response = await api.get('/remittance');
-      console.log('Remittances:', response.data);
 
       const raw = Array.isArray(response.data)
         ? response.data
@@ -99,7 +98,6 @@ function Remittances() {
 
       setRemittances(normalized);
     } catch (err) {
-      console.error('Error fetching remittances:', err);
       setError('Failed to load remittance records. Please try again.');
       setRemittances([]);
     } finally {

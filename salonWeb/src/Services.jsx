@@ -181,7 +181,7 @@ function Services() {
         { ...stats[3], value: `₱${avgPrice.toFixed(0)}` },
       ]);
     } catch (error) {
-      console.error('Error fetching services:', error);
+      // silently ignore
     } finally {
       setIsLoading(false);
     }
@@ -192,7 +192,7 @@ function Services() {
       const response = await api.get('/products');
       if (Array.isArray(response.data)) setAllProducts(response.data);
     } catch (error) {
-      console.error('Error fetching products:', error);
+      // silently ignore
     }
   };
 
@@ -201,7 +201,7 @@ function Services() {
       const response = await api.get('/specialties');
       if (Array.isArray(response.data)) setSpecialtiesList(response.data);
     } catch (error) {
-      console.error('Error fetching specialties list:', error);
+      // silently ignore
     }
   };
 
@@ -210,7 +210,7 @@ function Services() {
       const response = await api.get('/haircolors');
       if (Array.isArray(response.data)) setHairColors(response.data);
     } catch (error) {
-      console.error('Error fetching hair colors:', error);
+      // silently ignore
     }
   };
 
@@ -270,7 +270,6 @@ function Services() {
 
       await fetchHairColors();
     } catch (error) {
-      console.error('Error saving hair color:', error);
       const msg =
         error.response?.data?.errors
           ? Object.values(error.response.data.errors).flat().join(' ')
@@ -292,7 +291,6 @@ function Services() {
         setSelectedServiceUsages([]);
       }
     } catch (error) {
-      console.error('Error fetching product usages:', error);
       setSelectedServiceUsages([]);
     } finally {
       setIsLoadingUsages(false);
@@ -304,7 +302,6 @@ function Services() {
       const response = await api.get(`/services/price/adjustment/${serviceId}`);
       return response.data;
     } catch (error) {
-      console.error('Error fetching price adjustments:', error);
       return [];
     }
   };
@@ -387,7 +384,6 @@ function Services() {
       await fetchProductUsages(selectedService.id);
       await fetchHairColors();
     } catch (error) {
-      console.error('Error saving all changes:', error);
       showToast(error.response?.data?.message || 'Error saving changes. Please try again.', 'error');
     } finally {
       setIsSavingAll(false);
@@ -431,7 +427,6 @@ function Services() {
       resetForm();
       fetchServices();
     } catch (error) {
-      console.error('Error adding service:', error);
       setFormError(error.response?.data?.message || 'Error adding service');
       showToast(error.response?.data?.message || 'Error adding service', 'error');
     } finally {
@@ -476,7 +471,6 @@ function Services() {
       resetForm();
       fetchServices();
     } catch (error) {
-      console.error('Error updating service:', error);
       setFormError(error.response?.data?.message || 'Error updating service');
       showToast(error.response?.data?.message || 'Error updating service', 'error');
     } finally {
@@ -529,7 +523,6 @@ function Services() {
         price_adjustments: priceAdjustments
       });
     } catch (error) {
-      console.error('Error fetching price adjustments:', error);
       setFormData({
         service_name: service.service_name,
         description: service.description,

@@ -71,7 +71,6 @@ function Products() {
     setIsLoading(true);
     try {
       const response = await api.get('/products');
-      console.log('Fetched products:', response.data);
       if (Array.isArray(response.data)) {
         const sortedProducts = sortProductsByRecent(response.data);
         setProducts(sortedProducts);
@@ -88,7 +87,6 @@ function Products() {
         ]);
       }
     } catch (error) {
-      console.error('Error fetching products:', error);
       showToast('Failed to fetch products', 'error');
     } finally {
       setIsLoading(false);
@@ -149,14 +147,11 @@ function Products() {
         },
       });
       
-      console.log('Product added:', response.data);
       showToast(response.data.message || 'Product added successfully!', 'success');
       setShowModal(false);
       resetForm();
       fetchProducts();
     } catch (error) {
-      console.error('Error adding product:', error);
-      
       if (error.response?.data?.message) {
         showToast(error.response.data.message, 'error');
       } else if (error.response?.data?.errors) {
@@ -201,14 +196,11 @@ function Products() {
         },
       });
       
-      console.log('Product updated:', response.data);
       showToast(response.data.message || 'Product updated successfully!', 'success');
       setShowModal(false);
       resetForm();
       fetchProducts();
     } catch (error) {
-      console.error('Error updating product:', error);
-      
       if (error.response?.data?.message) {
         showToast(error.response.data.message, 'error');
       } else if (error.response?.data?.errors) {

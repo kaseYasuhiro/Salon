@@ -161,7 +161,9 @@ export default function StaffAppointments({
   refreshing,
   onRefresh,
 }: StaffAppointmentsProps) {
-  const [showUpdateModal, setShowUpdateModal] = useState(false);
+  // ✅ NEW: page navigation state — when set, we render the UpdateAppointmentPage instead of the list
+  const [showUpdatePage, setShowUpdatePage] = useState(false);
+
   const [showWalkInUpdateModal, setShowWalkInUpdateModal] = useState(false);
   const [showPaymentProofModal, setShowPaymentProofModal] = useState(false);
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
@@ -206,7 +208,6 @@ export default function StaffAppointments({
       const response = await api.put(`/staff/appointment/${appointmentId}/update`, data);
       return response.data;
     } catch (error) {
-      console.log("Error updating appointment:", error);
       throw error;
     }
   };
@@ -302,7 +303,6 @@ export default function StaffAppointments({
       setStaffAppointments(groupedAppointments);
       return groupedAppointments;
     } catch (error) {
-      console.log("Error fetching staff appointments:", error);
       return [];
     }
   };
@@ -317,7 +317,6 @@ export default function StaffAppointments({
       setStaff(staffData);
       return staffData;
     } catch (error) {
-      console.log("Error fetching staff:", error);
       return [];
     }
   };
@@ -342,7 +341,6 @@ export default function StaffAppointments({
       setServices(servicesData);
       return servicesData;
     } catch (error) {
-      console.log("Error fetching services:", error);
       return [];
     }
   };
@@ -371,7 +369,6 @@ export default function StaffAppointments({
       setWalkIns(walkInsData);
       return walkInsData;
     } catch (error) {
-      console.error("Error fetching walk-ins:", error);
       return [];
     }
   };
@@ -387,7 +384,6 @@ export default function StaffAppointments({
       });
       return response.data;
     } catch (error) {
-      console.error("Error updating walk-in:", error);
       throw error;
     }
   };
@@ -409,7 +405,6 @@ export default function StaffAppointments({
       setWalkInTransactions(transactionsData);
       return transactionsData;
     } catch (error) {
-      console.error("Error fetching walk-in transactions:", error);
       return [];
     }
   };
@@ -427,7 +422,6 @@ export default function StaffAppointments({
       });
       return response.data;
     } catch (error) {
-      console.error("Error submitting walk-in transaction:", error);
       throw error;
     }
   };
@@ -439,7 +433,7 @@ export default function StaffAppointments({
         setBusinessSchedules(response.data);
       }
     } catch (error) {
-      console.error("Error fetching business schedules:", error);
+      // silently ignore
     }
   };
 
@@ -450,7 +444,7 @@ export default function StaffAppointments({
         setStaffAssignments(response.data);
       }
     } catch (error) {
-      console.error("Error fetching staff assignments:", error);
+      // silently ignore
     }
   };
 
@@ -497,7 +491,6 @@ export default function StaffAppointments({
         Alert.alert("No Payment Found", "No payment record found for this appointment.");
       }
     } catch (error: any) {
-      console.error("Error fetching payment proof:", error);
       Alert.alert("Error", error.response?.data?.message || "Failed to fetch payment data");
     }
   };
@@ -569,12 +562,13 @@ export default function StaffAppointments({
 
       return allUsages;
     } catch (error) {
-      console.error("Error fetching product usages:", error);
       Alert.alert("Error", "Failed to load product information");
       return [];
     }
   };
 
+  // ✅ Opens the walk-in update MODAL (unchanged)
+  // ✅ Opens the appointment update PAGE instead of a modal
   const handleOpenUpdateModal = async (item: DisplayItem) => {
     if (item.is_walk_in && item.walk_in_data) {
       setSelectedWalkIn(item.walk_in_data);
@@ -625,7 +619,8 @@ export default function StaffAppointments({
       setProductUsages([]);
     }
 
-    setShowUpdateModal(true);
+    // ✅ Show the update page instead of a modal
+    setShowUpdatePage(true);
   };
 
   const handleProductQuantityChange = (index: number, value: string) => {
@@ -633,6 +628,18 @@ export default function StaffAppointments({
     const numericValue = parseInt(value) || 0;
     updatedUsages[index].quantity_change = numericValue;
     setProductUsages(updatedUsages);
+
+    // ✅ Alert when the product has run out of available stock
+    const product = updatedUsages[index];
+    if (product && product.inventory_id) {
+      const availableStock = product.current_quantity || 0;
+      if (availableStock <= 0) {
+        Alert.alert(
+          "Out of Stock",
+          `${product.product_name} has no available stock left. Please restock this product before using it.`
+        );
+      }
+    }
   };
 
   const handleWalkInProductQuantityChange = (index: number, value: string) => {
@@ -640,6 +647,18 @@ export default function StaffAppointments({
     const numericValue = parseInt(value) || 0;
     updatedUsages[index].quantity_change = numericValue;
     setWalkInProductUsages(updatedUsages);
+
+    // ✅ Alert when the product has run out of available stock (walk-in)
+    const product = updatedUsages[index];
+    if (product && product.inventory_id) {
+      const availableStock = product.current_quantity || 0;
+      if (availableStock <= 0) {
+        Alert.alert(
+          "Out of Stock",
+          `${product.product_name} has no available stock left. Please restock this product before using it.`
+        );
+      }
+    }
   };
 
   const handleUpdateSubmit = async () => {
@@ -675,11 +694,11 @@ export default function StaffAppointments({
       await updateAppointmentServices(selectedAppointment.id, updateData);
 
       Alert.alert("Success", "Appointment updated successfully!");
-      setShowUpdateModal(false);
+      // ✅ Close the page instead of the modal
+      setShowUpdatePage(false);
       setSelectedAppointment(null);
       await fetchStaffAppointments();
     } catch (error: any) {
-      console.error("Update error:", error);
       Alert.alert("Error", error.response?.data?.message || "Failed to update appointment");
     } finally {
       setIsUpdating(false);
@@ -745,7 +764,6 @@ export default function StaffAppointments({
         fetchStaffAssignments(),
       ]);
     } catch (error: any) {
-      console.error("Error updating walk-in:", error);
       Alert.alert(
         "Error",
         error.response?.data?.message || "Failed to update walk-in customer"
@@ -1467,500 +1485,618 @@ export default function StaffAppointments({
   }, []);
 
   // ─────────────────────────────────────────────
+  // ✅ Update Appointment PAGE (replaces the old modal)
+  // ─────────────────────────────────────────────
+  const renderUpdatePage = () => {
+    if (!selectedAppointment) return null;
+
+    return (
+      <View className="flex-1 bg-gray-50">
+        {/* Fixed header with back button */}
+        <View className="bg-pink-500 px-5 pt-12 pb-4">
+          <View className="flex-row items-center justify-between">
+            <TouchableOpacity
+              onPress={() => {
+                setShowUpdatePage(false);
+                setSelectedAppointment(null);
+              }}
+              className="p-1"
+            >
+              <Ionicons name="arrow-back" size={24} color="white" />
+            </TouchableOpacity>
+            <Text className="text-white text-lg font-semibold">
+              Update Appointment
+            </Text>
+            <View style={{ width: 32 }} />
+          </View>
+        </View>
+
+        {/* Scrollable body */}
+        <ScrollView
+          className="flex-1"
+          showsVerticalScrollIndicator={true}
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={{ padding: 20, paddingBottom: 40 }}
+        >
+          <View className="mb-4 p-4 bg-white rounded-2xl shadow-sm">
+            <Text className="text-gray-500 text-sm">Customer</Text>
+            <Text className="text-gray-800 font-bold text-lg">
+              {selectedAppointment.customer_name}
+            </Text>
+            {selectedAppointment.customer_phone && (
+              <Text className="text-gray-500 text-sm mt-0.5">
+                {selectedAppointment.customer_phone}
+              </Text>
+            )}
+            <View className="mt-3 pt-3 border-t border-gray-100">
+              <Text className="text-gray-500 text-sm mb-1">Services</Text>
+              <Text className="text-gray-800 font-semibold">
+                {selectedAppointment.service_names?.join(" + ") || "No Service"}
+              </Text>
+              {selectedAppointment.services &&
+                selectedAppointment.services.length > 1 && (
+                  <View className="mt-2">
+                    {selectedAppointment.services.map((service, index) => (
+                      <View
+                        key={index}
+                        className="flex-row items-center mt-0.5 ml-2"
+                      >
+                        <View className="w-1 h-1 bg-pink-400 rounded-full mr-2" />
+                        <Text className="text-gray-600 text-sm">
+                          {service.service_name} ({service.duration_minutes} mins) - ₱
+                          {parseFloat(service.price).toLocaleString()}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
+              {selectedAppointment.appointment_date && (
+                <View className="flex-row items-center mt-2">
+                  <Ionicons name="calendar-outline" size={14} color="#9ca3af" />
+                  <Text className="text-gray-500 text-xs ml-1">
+                    {formatDate(selectedAppointment.appointment_date)}
+                    {selectedAppointment.appointment_time &&
+                      ` • ${formatTime(selectedAppointment.appointment_time)}`}
+                  </Text>
+                </View>
+              )}
+              {selectedAppointment.total_duration > 0 && (
+                <View className="flex-row items-center mt-1">
+                  <Ionicons name="hourglass-outline" size={14} color="#9ca3af" />
+                  <Text className="text-gray-500 text-xs ml-1">
+                    Total: {selectedAppointment.total_duration} mins
+                  </Text>
+                </View>
+              )}
+            </View>
+          </View>
+
+          {selectedAppointment.services &&
+            selectedAppointment.services.length > 0 && (
+              <View className="bg-white rounded-2xl shadow-sm mb-4 p-1">
+                {renderTransactionDetails(selectedAppointment.services)}
+              </View>
+            )}
+
+          <View className="bg-white rounded-2xl shadow-sm p-4 mb-4">
+            <StatusDropdown
+              label="Appointment Status"
+              value={updateFormData.status}
+              onValueChange={(value) =>
+                setUpdateFormData((prev) => ({ ...prev, status: value }))
+              }
+              options={["confirmed", "completed"]}
+              placeholder="Select appointment status..."
+            />
+
+            <View>
+              <Text className="text-gray-700 font-semibold mb-2">Notes</Text>
+              <TextInput
+                value={updateFormData.notes}
+                onChangeText={(text) =>
+                  setUpdateFormData((prev) => ({ ...prev, notes: text }))
+                }
+                placeholder="Add notes about this appointment..."
+                multiline
+                numberOfLines={3}
+                textAlignVertical="top"
+                className="border border-gray-300 rounded-lg p-3 text-gray-700 min-h-[80px]"
+              />
+            </View>
+          </View>
+
+          <View className="bg-white rounded-2xl shadow-sm p-4 mb-4">
+            <Text className="text-gray-700 font-semibold mb-2">Product Usage</Text>
+            <Text className="text-gray-500 text-sm mb-3">
+              Update quantity used for each product
+            </Text>
+
+            {productUsages.length === 0 ? (
+              <View className="bg-yellow-50 rounded-xl p-4">
+                <Text className="text-yellow-600 text-sm text-center">
+                  No products configured for these services
+                </Text>
+              </View>
+            ) : (
+              productUsages.map((product, index) => {
+                const availableStock = product.current_quantity || 0;
+                const isOutOfStock = availableStock <= 0;
+
+                return (
+                  <View
+                    key={`${product.id}-${product.service_id || index}`}
+                    className={`rounded-xl p-3 mb-3 border ${
+                      isOutOfStock
+                        ? "bg-red-50 border-red-200"
+                        : "bg-gray-50 border-gray-100"
+                    }`}
+                  >
+                    <View className="flex-row justify-between items-start">
+                      <Text className="text-gray-800 font-semibold flex-1">
+                        {product.product_name}
+                      </Text>
+                      {product.service_name && (
+                        <View className="bg-pink-100 px-2 py-0.5 rounded-full ml-2">
+                          <Text className="text-pink-600 text-[10px] font-medium">
+                            {product.service_name}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                    <Text className="text-gray-500 text-xs mb-2">
+                      Estimated Usage: {product.estimated_usage} per service
+                    </Text>
+                    <View className="flex-row items-center gap-3">
+                      <Text className="text-gray-600">Quantity Used:</Text>
+                      <TextInput
+                        value={product.quantity_change.toString()}
+                        onChangeText={(value) =>
+                          handleProductQuantityChange(index, value)
+                        }
+                        keyboardType="numeric"
+                        className={`flex-1 border rounded-lg px-3 py-2 text-center ${
+                          isOutOfStock ? "border-red-300 bg-white" : "border-gray-300"
+                        }`}
+                        placeholder="0"
+                      />
+                      <Text className="text-gray-600">units</Text>
+                    </View>
+                    {isOutOfStock ? (
+                      <View className="flex-row items-center gap-1 mt-2 bg-red-100 rounded-lg p-2">
+                        <Ionicons name="alert-circle" size={14} color="#dc2626" />
+                        <Text className="text-red-700 text-xs font-semibold flex-1">
+                          Out of stock! Available stock: 0 units
+                        </Text>
+                      </View>
+                    ) : (
+                      <Text className="text-gray-400 text-xs mt-2">
+                        Available Stock: {availableStock} units
+                      </Text>
+                    )}
+                  </View>
+                );
+              })
+            )}
+          </View>
+
+          <TouchableOpacity
+            onPress={handleUpdateSubmit}
+            disabled={isUpdating}
+            className="bg-pink-500 py-4 rounded-xl mb-3"
+          >
+            <Text className="text-white text-center font-semibold text-base">
+              {isUpdating ? "Updating..." : "Update Appointment"}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={() => {
+              setShowUpdatePage(false);
+              setSelectedAppointment(null);
+            }}
+            className="py-3 rounded-xl border border-gray-300 mb-6"
+          >
+            <Text className="text-gray-600 text-center font-semibold">Cancel</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </View>
+    );
+  };
+
+  // ─────────────────────────────────────────────
   // Render
   // ─────────────────────────────────────────────
   return (
     <>
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        className="flex-1"
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            colors={["#ec4899"]}
-          />
-        }
-      >
-        <View className="px-5 pt-6">
-          <View className="flex-row justify-between items-center mb-2">
-            <Text className="text-3xl font-bold text-gray-800">
-              My Appointments
-            </Text>
-          </View>
-          <Text className="text-gray-500 mb-4">
-            All your assigned appointments &amp; walk-ins
-          </Text>
-
-          {renderDateSection(
-            "Today",
-            todayCount,
-            grouped.today.appointments,
-            grouped.today.walkIns,
-            "bg-pink-100",
-            "text-pink-600"
-          )}
-
-          {renderDateSection(
-            "Upcoming",
-            upcomingCount,
-            grouped.upcoming.appointments,
-            grouped.upcoming.walkIns,
-            "bg-blue-100",
-            "text-blue-600"
-          )}
-
-          {renderDateSection(
-            "Past",
-            pastCount,
-            grouped.past.appointments,
-            grouped.past.walkIns,
-            "bg-gray-200",
-            "text-gray-600"
-          )}
-
-          {allItems.length === 0 && (
-            <View className="bg-white rounded-2xl p-12 items-center mt-4">
-              <Ionicons name="calendar-outline" size={60} color="#d1d5db" />
-              <Text className="text-gray-400 mt-4 text-center">
-                No appointments or walk-ins yet
-              </Text>
-            </View>
-          )}
-        </View>
-      </ScrollView>
-
-      {/* Update Modal for Regular Appointments */}
-      <Modal
-        animationType="slide"
-        transparent={true}
-        visible={showUpdateModal}
-        onRequestClose={() => setShowUpdateModal(false)}
-      >
-        <View className="flex-1 justify-center items-center bg-black/50">
-          <View className="bg-white rounded-2xl w-full max-w-md mx-4 max-h-[90%] overflow-hidden">
-            <View className="bg-pink-500 px-6 py-4 flex-row justify-between items-center">
-              <Text className="text-xl font-bold text-white">
-                Update Appointment
-              </Text>
-              <TouchableOpacity onPress={() => setShowUpdateModal(false)}>
-                <Ionicons name="close" size={24} color="white" />
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView className="p-6">
-              <View className="mb-4 p-3 bg-gray-50 rounded-xl">
-                <Text className="text-gray-500 text-sm">Customer</Text>
-                <Text className="text-gray-800 font-semibold">
-                  {selectedAppointment?.customer_name}
-                </Text>
-                <Text className="text-gray-500 text-sm mt-2">Services</Text>
-                <Text className="text-gray-800 font-semibold">
-                  {selectedAppointment?.service_names?.join(" + ") || "No Service"}
-                </Text>
-                {selectedAppointment?.services &&
-                  selectedAppointment.services.length > 1 && (
-                    <View className="mt-1">
-                      {selectedAppointment.services.map((service, index) => (
-                        <Text key={index} className="text-gray-600 text-sm ml-2">
-                          • {service.service_name}
-                        </Text>
-                      ))}
-                    </View>
-                  )}
-              </View>
-
-              {selectedAppointment?.services &&
-                selectedAppointment.services.length > 0 &&
-                renderTransactionDetails(selectedAppointment.services)}
-
-              <StatusDropdown
-                label="Appointment Status"
-                value={updateFormData.status}
-                onValueChange={(value) =>
-                  setUpdateFormData((prev) => ({ ...prev, status: value }))
-                }
-                options={["pending", "confirmed", "completed", "cancelled"]}
-                placeholder="Select appointment status..."
+      {/* ✅ If the update page is open, render it instead of the list */}
+      {showUpdatePage ? (
+        renderUpdatePage()
+      ) : (
+        <>
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            className="flex-1"
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={onRefresh}
+                colors={["#ec4899"]}
               />
-
-              <View className="mb-4">
-                <Text className="text-gray-700 font-semibold mb-2">Notes</Text>
-                <TextInput
-                  value={updateFormData.notes}
-                  onChangeText={(text) =>
-                    setUpdateFormData((prev) => ({ ...prev, notes: text }))
-                  }
-                  placeholder="Add notes about this appointment..."
-                  multiline
-                  numberOfLines={3}
-                  textAlignVertical="top"
-                  className="border border-gray-300 rounded-lg p-3 text-gray-700 min-h-[80px]"
-                />
+            }
+          >
+            <View className="px-5 pt-6">
+              <View className="flex-row justify-between items-center mb-2">
+                <Text className="text-3xl font-bold text-gray-800">
+                  My Appointments
+                </Text>
               </View>
+              <Text className="text-gray-500 mb-4">
+                All your assigned appointments &amp; walk-ins
+              </Text>
 
-              <View className="mb-4">
-                <Text className="text-gray-700 font-semibold mb-2">
-                  Product Usage
-                </Text>
-                <Text className="text-gray-500 text-sm mb-3">
-                  Update quantity used for each product
-                </Text>
+              {renderDateSection(
+                "Today",
+                todayCount,
+                grouped.today.appointments,
+                grouped.today.walkIns,
+                "bg-pink-100",
+                "text-pink-600"
+              )}
 
-                {productUsages.length === 0 ? (
-                  <View className="bg-yellow-50 rounded-xl p-4">
-                    <Text className="text-yellow-600 text-sm text-center">
-                      No products configured for these services
+              {renderDateSection(
+                "Upcoming",
+                upcomingCount,
+                grouped.upcoming.appointments,
+                grouped.upcoming.walkIns,
+                "bg-blue-100",
+                "text-blue-600"
+              )}
+
+              {renderDateSection(
+                "Past",
+                pastCount,
+                grouped.past.appointments,
+                grouped.past.walkIns,
+                "bg-gray-200",
+                "text-gray-600"
+              )}
+
+              {allItems.length === 0 && (
+                <View className="bg-white rounded-2xl p-12 items-center mt-4">
+                  <Ionicons name="calendar-outline" size={60} color="#d1d5db" />
+                  <Text className="text-gray-400 mt-4 text-center">
+                    No appointments or walk-ins yet
+                  </Text>
+                </View>
+              )}
+            </View>
+          </ScrollView>
+
+          {/* Walk-in Update Modal (unchanged) */}
+          <Modal
+            animationType="slide"
+            transparent={true}
+            visible={showWalkInUpdateModal}
+            onRequestClose={() => setShowWalkInUpdateModal(false)}
+          >
+            <View className="flex-1 justify-center items-center bg-black/50">
+              <View className="bg-white rounded-2xl w-full max-w-md mx-4 max-h-[90%] overflow-hidden">
+                <View className="bg-green-600 px-6 py-4 flex-row justify-between items-center">
+                  <Text className="text-xl font-bold text-white">
+                    Update Walk-in
+                  </Text>
+                  <TouchableOpacity onPress={() => setShowWalkInUpdateModal(false)}>
+                    <Ionicons name="close" size={24} color="white" />
+                  </TouchableOpacity>
+                </View>
+
+                <ScrollView
+                  className="p-6"
+                  showsVerticalScrollIndicator={true}
+                  keyboardShouldPersistTaps="handled"
+                  contentContainerStyle={{ paddingBottom: 24 }}
+                >
+                  <View className="mb-4 p-3 bg-gray-50 rounded-xl">
+                    <Text className="text-gray-500 text-sm">
+                      Current Walk-in Details
                     </Text>
-                  </View>
-                ) : (
-                  productUsages.map((product, index) => (
-                    <View
-                      key={`${product.id}-${product.service_id || index}`}
-                      className="bg-gray-50 rounded-xl p-3 mb-3"
-                    >
-                      <View className="flex-row justify-between items-start">
-                        <Text className="text-gray-800 font-semibold flex-1">
-                          {product.product_name}
+                    <View className="flex-row justify-between items-center mt-2">
+                      <Text className="text-gray-600 text-sm">Customer:</Text>
+                      <Text className="text-gray-800 font-semibold">
+                        {selectedWalkIn?.customer_name}
+                      </Text>
+                    </View>
+                    <View className="flex-row justify-between items-center mt-1">
+                      <Text className="text-gray-600 text-sm">Service:</Text>
+                      <Text className="text-gray-800 font-semibold">
+                        {selectedWalkIn?.services?.service_name || "Unknown"}
+                      </Text>
+                    </View>
+                    <View className="flex-row justify-between items-center mt-1">
+                      <Text className="text-gray-600 text-sm">Stylist:</Text>
+                      <Text className="text-gray-800 font-semibold">
+                        {selectedWalkIn?.user?.first_name}{" "}
+                        {selectedWalkIn?.user?.last_name}
+                      </Text>
+                    </View>
+                    <View className="flex-row justify-between items-center mt-1">
+                      <Text className="text-gray-600 text-sm">Status:</Text>
+                      <View
+                        className={`px-2 py-0.5 rounded-full ${
+                          selectedWalkIn?.is_finished === 1
+                            ? "bg-green-100"
+                            : "bg-yellow-100"
+                        }`}
+                      >
+                        <Text
+                          className={`text-xs font-semibold ${
+                            selectedWalkIn?.is_finished === 1
+                              ? "text-green-700"
+                              : "text-yellow-700"
+                          }`}
+                        >
+                          {selectedWalkIn?.is_finished === 1 ? "FINISHED" : "PENDING"}
                         </Text>
-                        {product.service_name && (
-                          <View className="bg-pink-100 px-2 py-0.5 rounded-full ml-2">
-                            <Text className="text-pink-600 text-[10px] font-medium">
-                              {product.service_name}
+                      </View>
+                    </View>
+                    <View className="flex-row justify-between items-center mt-1">
+                      <Text className="text-gray-600 text-sm">Amount Paid:</Text>
+                      <Text className="text-green-600 font-semibold">
+                        ₱{selectedWalkIn?.amount_paid?.toLocaleString() || "0.00"}
+                      </Text>
+                    </View>
+                    {(selectedWalkIn?.hair_length ||
+                      selectedWalkIn?.hair_thickness ||
+                      selectedWalkIn?.preferred_color) && (
+                      <View className="mt-2 pt-2 border-t border-gray-200">
+                        <Text className="text-gray-600 text-sm font-semibold">
+                          Hair Details
+                        </Text>
+                        {selectedWalkIn?.hair_length && (
+                          <View className="flex-row justify-between items-center mt-1">
+                            <Text className="text-gray-500 text-sm">Hair Length:</Text>
+                            <Text className="text-gray-700 text-sm capitalize">
+                              {selectedWalkIn.hair_length}
+                            </Text>
+                          </View>
+                        )}
+                        {selectedWalkIn?.hair_thickness && (
+                          <View className="flex-row justify-between items-center mt-1">
+                            <Text className="text-gray-500 text-sm">
+                              Hair Thickness:
+                            </Text>
+                            <Text className="text-gray-700 text-sm capitalize">
+                              {selectedWalkIn.hair_thickness}
+                            </Text>
+                          </View>
+                        )}
+                        {selectedWalkIn?.preferred_color && (
+                          <View className="flex-row justify-between items-center mt-1">
+                            <Text className="text-gray-500 text-sm">
+                              Preferred Color:
+                            </Text>
+                            <Text className="text-gray-700 text-sm">
+                              {selectedWalkIn.preferred_color}
                             </Text>
                           </View>
                         )}
                       </View>
-                      <Text className="text-gray-500 text-xs mb-2">
-                        Estimated Usage: {product.estimated_usage} per service
-                      </Text>
-                      <View className="flex-row items-center gap-3">
-                        <Text className="text-gray-600">Quantity Used:</Text>
-                        <TextInput
-                          value={product.quantity_change.toString()}
-                          onChangeText={(value) =>
-                            handleProductQuantityChange(index, value)
-                          }
-                          keyboardType="numeric"
-                          className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-center"
-                          placeholder="0"
-                        />
-                        <Text className="text-gray-600">units</Text>
-                      </View>
-                      <Text className="text-gray-400 text-xs mt-2">
-                        Available Stock: {product.current_quantity} units
-                      </Text>
+                    )}
+                  </View>
+
+                  <View className="mb-4">
+                    <Text className="text-gray-700 font-semibold mb-2">
+                      Customer Name *
+                    </Text>
+                    <TextInput
+                      value={walkInUpdateData.customer_name}
+                      onChangeText={(text) =>
+                        setWalkInUpdateData((prev) => ({
+                          ...prev,
+                          customer_name: text,
+                        }))
+                      }
+                      placeholder="Enter customer name"
+                      className="border border-gray-300 rounded-lg px-4 py-3 text-gray-700"
+                    />
+                  </View>
+
+                  <View className="mb-4">
+                    <Text className="text-gray-700 font-semibold mb-2">
+                      Amount Paid *
+                    </Text>
+                    <View className="flex-row items-center bg-gray-50 rounded-xl px-4 py-3 border border-gray-200">
+                      <Text className="text-gray-800 font-bold text-lg mr-2">₱</Text>
+                      <TextInput
+                        value={walkInUpdateData.amount_paid.toString()}
+                        onChangeText={(text) => {
+                          const num = parseFloat(text) || 0;
+                          setWalkInUpdateData((prev) => ({
+                            ...prev,
+                            amount_paid: num,
+                          }));
+                        }}
+                        keyboardType="numeric"
+                        className="flex-1 text-lg text-gray-800"
+                        placeholder="0.00"
+                      />
                     </View>
-                  ))
-                )}
+                    <Text className="text-gray-400 text-xs mt-1">
+                      Enter the amount paid by the customer
+                    </Text>
+                  </View>
+
+                  <View className="mb-4">
+                    <Text className="text-gray-700 font-semibold mb-2">Status</Text>
+                    <View className="flex-row gap-3">
+                      <TouchableOpacity
+                        onPress={() =>
+                          setWalkInUpdateData((prev) => ({
+                            ...prev,
+                            is_finished: 0,
+                          }))
+                        }
+                        className={`flex-1 py-3 rounded-xl ${
+                          walkInUpdateData.is_finished === 0
+                            ? "bg-yellow-500"
+                            : "bg-gray-200"
+                        }`}
+                      >
+                        <Text
+                          className={`text-center font-semibold ${
+                            walkInUpdateData.is_finished === 0
+                              ? "text-white"
+                              : "text-gray-700"
+                          }`}
+                        >
+                          Pending
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() =>
+                          setWalkInUpdateData((prev) => ({
+                            ...prev,
+                            is_finished: 1,
+                          }))
+                        }
+                        className={`flex-1 py-3 rounded-xl ${
+                          walkInUpdateData.is_finished === 1
+                            ? "bg-green-500"
+                            : "bg-gray-200"
+                        }`}
+                      >
+                        <Text
+                          className={`text-center font-semibold ${
+                            walkInUpdateData.is_finished === 1
+                              ? "text-white"
+                              : "text-gray-700"
+                          }`}
+                        >
+                          Finished
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+
+                  <View className="mb-4">
+                    <Text className="text-gray-700 font-semibold mb-2">
+                      Product Usage
+                    </Text>
+                    <Text className="text-gray-500 text-sm mb-3">
+                      Update quantity used for each product
+                    </Text>
+
+                    {walkInProductUsages.length === 0 ? (
+                      <View className="bg-yellow-50 rounded-xl p-4">
+                        <Text className="text-yellow-600 text-sm text-center">
+                          No products configured for this service
+                        </Text>
+                      </View>
+                    ) : (
+                      walkInProductUsages.map((product, index) => {
+                        const availableStock = product.current_quantity || 0;
+                        const isOutOfStock = availableStock <= 0;
+
+                        return (
+                          <View
+                            key={product.id}
+                            className={`rounded-xl p-3 mb-3 border ${
+                              isOutOfStock
+                                ? "bg-red-50 border-red-200"
+                                : "bg-gray-50 border-gray-100"
+                            }`}
+                          >
+                            <Text className="text-gray-800 font-semibold">
+                              {product.product_name}
+                            </Text>
+                            <Text className="text-gray-500 text-xs mb-2">
+                              Estimated Usage: {product.estimated_usage} per service
+                            </Text>
+                            <View className="flex-row items-center gap-3">
+                              <Text className="text-gray-600">Quantity Used:</Text>
+                              <TextInput
+                                value={product.quantity_change.toString()}
+                                onChangeText={(value) =>
+                                  handleWalkInProductQuantityChange(index, value)
+                                }
+                                keyboardType="numeric"
+                                className={`flex-1 border rounded-lg px-3 py-2 text-center ${
+                                  isOutOfStock
+                                    ? "border-red-300 bg-white"
+                                    : "border-gray-300"
+                                }`}
+                                placeholder="0"
+                              />
+                              <Text className="text-gray-600">units</Text>
+                            </View>
+                            {isOutOfStock ? (
+                              <View className="flex-row items-center gap-1 mt-2 bg-red-100 rounded-lg p-2">
+                                <Ionicons
+                                  name="alert-circle"
+                                  size={14}
+                                  color="#dc2626"
+                                />
+                                <Text className="text-red-700 text-xs font-semibold flex-1">
+                                  Out of stock! Available stock: 0 units
+                                </Text>
+                              </View>
+                            ) : (
+                              <Text className="text-gray-400 text-xs mt-2">
+                                Available Stock: {availableStock} units
+                              </Text>
+                            )}
+                          </View>
+                        );
+                      })
+                    )}
+                  </View>
+
+                  <View className="mb-4 p-3 bg-gray-50 rounded-xl">
+                    <Text className="text-gray-600 text-sm font-semibold mb-1">
+                      Updated Summary
+                    </Text>
+                    <Text className="text-gray-600 text-sm">
+                      Customer: {walkInUpdateData.customer_name || "Not set"}
+                    </Text>
+                    <Text className="text-gray-600 text-sm">
+                      Amount Paid: ₱{walkInUpdateData.amount_paid.toLocaleString()}
+                    </Text>
+                    <Text className="text-gray-600 text-sm">
+                      Status:{" "}
+                      {walkInUpdateData.is_finished === 1
+                        ? "✅ Finished"
+                        : "⏳ Pending"}
+                    </Text>
+                  </View>
+
+                  <View className="flex-row gap-3">
+                    <TouchableOpacity
+                      onPress={() => setShowWalkInUpdateModal(false)}
+                      className="flex-1 py-3 rounded-xl border border-gray-300"
+                    >
+                      <Text className="text-gray-600 text-center font-semibold">
+                        Cancel
+                      </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      onPress={handleWalkInUpdate}
+                      disabled={isUpdatingWalkIn}
+                      className="flex-1 py-3 rounded-xl bg-green-600"
+                    >
+                      <Text className="text-white text-center font-semibold">
+                        {isUpdatingWalkIn ? "Updating..." : "Update Walk-in"}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </ScrollView>
               </View>
-
-              <TouchableOpacity
-                onPress={handleUpdateSubmit}
-                disabled={isUpdating}
-                className="bg-pink-500 py-3 rounded-xl mt-4"
-              >
-                <Text className="text-white text-center font-semibold">
-                  {isUpdating ? "Updating..." : "Update Appointment"}
-                </Text>
-              </TouchableOpacity>
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Walk-in Update Modal */}
-      <Modal
-        animationType="slide"
-        transparent={true}
-        visible={showWalkInUpdateModal}
-        onRequestClose={() => setShowWalkInUpdateModal(false)}
-      >
-        <View className="flex-1 justify-center items-center bg-black/50">
-          <View className="bg-white rounded-2xl w-full max-w-md mx-4 max-h-[90%] overflow-hidden">
-            <View className="bg-green-600 px-6 py-4 flex-row justify-between items-center">
-              <Text className="text-xl font-bold text-white">
-                Update Walk-in
-              </Text>
-              <TouchableOpacity onPress={() => setShowWalkInUpdateModal(false)}>
-                <Ionicons name="close" size={24} color="white" />
-              </TouchableOpacity>
             </View>
+          </Modal>
 
-            <ScrollView className="p-6">
-              <View className="mb-4 p-3 bg-gray-50 rounded-xl">
-                <Text className="text-gray-500 text-sm">
-                  Current Walk-in Details
-                </Text>
-                <View className="flex-row justify-between items-center mt-2">
-                  <Text className="text-gray-600 text-sm">Customer:</Text>
-                  <Text className="text-gray-800 font-semibold">
-                    {selectedWalkIn?.customer_name}
-                  </Text>
-                </View>
-                <View className="flex-row justify-between items-center mt-1">
-                  <Text className="text-gray-600 text-sm">Service:</Text>
-                  <Text className="text-gray-800 font-semibold">
-                    {selectedWalkIn?.services?.service_name || "Unknown"}
-                  </Text>
-                </View>
-                <View className="flex-row justify-between items-center mt-1">
-                  <Text className="text-gray-600 text-sm">Stylist:</Text>
-                  <Text className="text-gray-800 font-semibold">
-                    {selectedWalkIn?.user?.first_name}{" "}
-                    {selectedWalkIn?.user?.last_name}
-                  </Text>
-                </View>
-                <View className="flex-row justify-between items-center mt-1">
-                  <Text className="text-gray-600 text-sm">Status:</Text>
-                  <View
-                    className={`px-2 py-0.5 rounded-full ${
-                      selectedWalkIn?.is_finished === 1
-                        ? "bg-green-100"
-                        : "bg-yellow-100"
-                    }`}
-                  >
-                    <Text
-                      className={`text-xs font-semibold ${
-                        selectedWalkIn?.is_finished === 1
-                          ? "text-green-700"
-                          : "text-yellow-700"
-                      }`}
-                    >
-                      {selectedWalkIn?.is_finished === 1 ? "FINISHED" : "PENDING"}
-                    </Text>
-                  </View>
-                </View>
-                <View className="flex-row justify-between items-center mt-1">
-                  <Text className="text-gray-600 text-sm">Amount Paid:</Text>
-                  <Text className="text-green-600 font-semibold">
-                    ₱{selectedWalkIn?.amount_paid?.toLocaleString() || "0.00"}
-                  </Text>
-                </View>
-                {(selectedWalkIn?.hair_length ||
-                  selectedWalkIn?.hair_thickness ||
-                  selectedWalkIn?.preferred_color) && (
-                  <View className="mt-2 pt-2 border-t border-gray-200">
-                    <Text className="text-gray-600 text-sm font-semibold">
-                      Hair Details
-                    </Text>
-                    {selectedWalkIn?.hair_length && (
-                      <View className="flex-row justify-between items-center mt-1">
-                        <Text className="text-gray-500 text-sm">Hair Length:</Text>
-                        <Text className="text-gray-700 text-sm capitalize">
-                          {selectedWalkIn.hair_length}
-                        </Text>
-                      </View>
-                    )}
-                    {selectedWalkIn?.hair_thickness && (
-                      <View className="flex-row justify-between items-center mt-1">
-                        <Text className="text-gray-500 text-sm">
-                          Hair Thickness:
-                        </Text>
-                        <Text className="text-gray-700 text-sm capitalize">
-                          {selectedWalkIn.hair_thickness}
-                        </Text>
-                      </View>
-                    )}
-                    {selectedWalkIn?.preferred_color && (
-                      <View className="flex-row justify-between items-center mt-1">
-                        <Text className="text-gray-500 text-sm">
-                          Preferred Color:
-                        </Text>
-                        <Text className="text-gray-700 text-sm">
-                          {selectedWalkIn.preferred_color}
-                        </Text>
-                      </View>
-                    )}
-                  </View>
-                )}
-              </View>
-
-              <View className="mb-4">
-                <Text className="text-gray-700 font-semibold mb-2">
-                  Customer Name *
-                </Text>
-                <TextInput
-                  value={walkInUpdateData.customer_name}
-                  onChangeText={(text) =>
-                    setWalkInUpdateData((prev) => ({
-                      ...prev,
-                      customer_name: text,
-                    }))
-                  }
-                  placeholder="Enter customer name"
-                  className="border border-gray-300 rounded-lg px-4 py-3 text-gray-700"
-                />
-              </View>
-
-              <View className="mb-4">
-                <Text className="text-gray-700 font-semibold mb-2">
-                  Amount Paid *
-                </Text>
-                <View className="flex-row items-center bg-gray-50 rounded-xl px-4 py-3 border border-gray-200">
-                  <Text className="text-gray-800 font-bold text-lg mr-2">₱</Text>
-                  <TextInput
-                    value={walkInUpdateData.amount_paid.toString()}
-                    onChangeText={(text) => {
-                      const num = parseFloat(text) || 0;
-                      setWalkInUpdateData((prev) => ({
-                        ...prev,
-                        amount_paid: num,
-                      }));
-                    }}
-                    keyboardType="numeric"
-                    className="flex-1 text-lg text-gray-800"
-                    placeholder="0.00"
-                  />
-                </View>
-                <Text className="text-gray-400 text-xs mt-1">
-                  Enter the amount paid by the customer
-                </Text>
-              </View>
-
-              <View className="mb-4">
-                <Text className="text-gray-700 font-semibold mb-2">Status</Text>
-                <View className="flex-row gap-3">
-                  <TouchableOpacity
-                    onPress={() =>
-                      setWalkInUpdateData((prev) => ({
-                        ...prev,
-                        is_finished: 0,
-                      }))
-                    }
-                    className={`flex-1 py-3 rounded-xl ${
-                      walkInUpdateData.is_finished === 0
-                        ? "bg-yellow-500"
-                        : "bg-gray-200"
-                    }`}
-                  >
-                    <Text
-                      className={`text-center font-semibold ${
-                        walkInUpdateData.is_finished === 0
-                          ? "text-white"
-                          : "text-gray-700"
-                      }`}
-                    >
-                      Pending
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={() =>
-                      setWalkInUpdateData((prev) => ({
-                        ...prev,
-                        is_finished: 1,
-                      }))
-                    }
-                    className={`flex-1 py-3 rounded-xl ${
-                      walkInUpdateData.is_finished === 1
-                        ? "bg-green-500"
-                        : "bg-gray-200"
-                    }`}
-                  >
-                    <Text
-                      className={`text-center font-semibold ${
-                        walkInUpdateData.is_finished === 1
-                          ? "text-white"
-                          : "text-gray-700"
-                      }`}
-                    >
-                      Finished
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-
-              <View className="mb-4">
-                <Text className="text-gray-700 font-semibold mb-2">
-                  Product Usage
-                </Text>
-                <Text className="text-gray-500 text-sm mb-3">
-                  Update quantity used for each product
-                </Text>
-
-                {walkInProductUsages.length === 0 ? (
-                  <View className="bg-yellow-50 rounded-xl p-4">
-                    <Text className="text-yellow-600 text-sm text-center">
-                      No products configured for this service
-                    </Text>
-                  </View>
-                ) : (
-                  walkInProductUsages.map((product, index) => (
-                    <View
-                      key={product.id}
-                      className="bg-gray-50 rounded-xl p-3 mb-3"
-                    >
-                      <Text className="text-gray-800 font-semibold">
-                        {product.product_name}
-                      </Text>
-                      <Text className="text-gray-500 text-xs mb-2">
-                        Estimated Usage: {product.estimated_usage} per service
-                      </Text>
-                      <View className="flex-row items-center gap-3">
-                        <Text className="text-gray-600">Quantity Used:</Text>
-                        <TextInput
-                          value={product.quantity_change.toString()}
-                          onChangeText={(value) =>
-                            handleWalkInProductQuantityChange(index, value)
-                          }
-                          keyboardType="numeric"
-                          className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-center"
-                          placeholder="0"
-                        />
-                        <Text className="text-gray-600">units</Text>
-                      </View>
-                      <Text className="text-gray-400 text-xs mt-2">
-                        Available Stock: {product.current_quantity} units
-                      </Text>
-                    </View>
-                  ))
-                )}
-              </View>
-
-              <View className="mb-4 p-3 bg-gray-50 rounded-xl">
-                <Text className="text-gray-600 text-sm font-semibold mb-1">
-                  Updated Summary
-                </Text>
-                <Text className="text-gray-600 text-sm">
-                  Customer: {walkInUpdateData.customer_name || "Not set"}
-                </Text>
-                <Text className="text-gray-600 text-sm">
-                  Amount Paid: ₱{walkInUpdateData.amount_paid.toLocaleString()}
-                </Text>
-                <Text className="text-gray-600 text-sm">
-                  Status:{" "}
-                  {walkInUpdateData.is_finished === 1
-                    ? "✅ Finished"
-                    : "⏳ Pending"}
-                </Text>
-              </View>
-
-              <View className="flex-row gap-3">
-                <TouchableOpacity
-                  onPress={() => setShowWalkInUpdateModal(false)}
-                  className="flex-1 py-3 rounded-xl border border-gray-300"
-                >
-                  <Text className="text-gray-600 text-center font-semibold">
-                    Cancel
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  onPress={handleWalkInUpdate}
-                  disabled={isUpdatingWalkIn}
-                  className="flex-1 py-3 rounded-xl bg-green-600"
-                >
-                  <Text className="text-white text-center font-semibold">
-                    {isUpdatingWalkIn ? "Updating..." : "Update Walk-in"}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
-
-      <PaymentProofModal />
+          <PaymentProofModal />
+        </>
+      )}
     </>
   );
 }

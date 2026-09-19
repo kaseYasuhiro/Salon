@@ -54,4 +54,6 @@ class Appointments extends Model
         return $this->hasMany(Refunds::class, 'appointment_id', 'id');
     }
 
+
+    
 }

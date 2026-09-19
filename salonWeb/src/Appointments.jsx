@@ -42,7 +42,6 @@ function Appointments() {
   const navigate = useNavigate();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedStatus, setSelectedStatus] = useState('all');
-  const [viewMode, setViewMode] = useState('calendar');
   const [searchTerm, setSearchTerm] = useState('');
   const [appointments, setAppointments] = useState([]);
   const [staffList, setStaffList] = useState([]);
@@ -50,7 +49,6 @@ function Appointments() {
   const [selectedDayAppointments, setSelectedDayAppointments] = useState([]);
   const [showModal, setShowModal] = useState(false);
   const [showScheduleModal, setShowScheduleModal] = useState(false);
-  const [showAssignStaffModal, setShowAssignStaffModal] = useState(false);
   const [showPaymentProofModal, setShowPaymentProofModal] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [selectedPaymentData, setSelectedPaymentData] = useState(null);
@@ -69,13 +67,10 @@ function Appointments() {
     close_time: '17:00',
     is_open: true
   });
-  const [assignStaffFormData, setAssignStaffFormData] = useState({
-    staff_id: '',
-    business_date_id: ''
-  });
+  // ✅ Unified modal state — holds the multi-select staff list
+  const [selectedStaffIds, setSelectedStaffIds] = useState([]);
   const [isUpdating, setIsUpdating] = useState(false);
   const [isSavingSchedule, setIsSavingSchedule] = useState(false);
-  const [isAssigningStaff, setIsAssigningStaff] = useState(false);
   const [businessSchedules, setBusinessSchedules] = useState([]);
   const [assignedStaff, setAssignedStaff] = useState([]);
   
@@ -146,12 +141,10 @@ function Appointments() {
   const fetchBusinessSchedules = async () => {
     try {
       const response = await api.get('/daysched');
-      console.log('Fetched business schedules:', response.data);
       if (Array.isArray(response.data)) {
         setBusinessSchedules(response.data);
       }
     } catch (error) {
-      console.error('Error fetching business schedules:', error);
       showToast('Failed to fetch business schedules', 'error');
     }
   };
@@ -160,12 +153,10 @@ function Appointments() {
   const fetchAssignedStaff = async () => {
     try {
       const response = await api.get('/assign');
-      console.log('Fetched assigned staff:', response.data);
       if (Array.isArray(response.data)) {
         setAssignedStaff(response.data);
       }
     } catch (error) {
-      console.error('Error fetching assigned staff:', error);
       showToast('Failed to fetch assigned staff', 'error');
     }
   };
@@ -181,57 +172,28 @@ function Appointments() {
     return schedule?.id || null;
   };
 
-  // Add/Update business schedule
+  // ✅ Unified handler: saves schedule + staff in one request
   const handleSaveSchedule = async (e) => {
     e.preventDefault();
     setIsSavingSchedule(true);
     try {
-      const response = await api.post('/daysched/add', {
+      const response = await api.post('/daysched-staff/add', {
         business_date: scheduleFormData.business_date,
         open_time: scheduleFormData.open_time,
         close_time: scheduleFormData.close_time,
-        is_open: scheduleFormData.is_open ? 1 : 0
+        is_open: scheduleFormData.is_open ? 1 : 0,
+        staff_ids: selectedStaffIds,
       });
-      
-      console.log('Schedule saved:', response.data);
-      showToast('Schedule saved successfully!', 'success');
+
+      showToast('Schedule and staff saved successfully!', 'success');
       setShowScheduleModal(false);
       setSelectedDateSchedule(null);
       resetScheduleForm();
-      fetchBusinessSchedules();
+      await Promise.all([fetchBusinessSchedules(), fetchAssignedStaff()]);
     } catch (error) {
-      console.error('Error saving schedule:', error);
       showToast(error.response?.data?.message || 'Error saving schedule', 'error');
     } finally {
       setIsSavingSchedule(false);
-    }
-  };
-
-  // Assign staff to schedule
-  const handleAssignStaff = async (e) => {
-    e.preventDefault();
-    if (!assignStaffFormData.staff_id) {
-      showToast('Please select a staff member', 'warning');
-      return;
-    }
-    
-    setIsAssigningStaff(true);
-    try {
-      const response = await api.post('/assign/add', {
-        staff_id: parseInt(assignStaffFormData.staff_id),
-        business_date_id: parseInt(assignStaffFormData.business_date_id)
-      });
-      
-      console.log('Staff assigned:', response.data);
-      showToast('Staff assigned successfully!', 'success');
-      setShowAssignStaffModal(false);
-      resetAssignStaffForm();
-      fetchAssignedStaff();
-    } catch (error) {
-      console.error('Error assigning staff:', error);
-      showToast(error.response?.data?.message || 'Error assigning staff', 'error');
-    } finally {
-      setIsAssigningStaff(false);
     }
   };
 
@@ -249,17 +211,14 @@ function Appointments() {
     
     const schedule = getScheduleForDate(dateStr);
     
-    // If no schedule exists, show default (no highlight)
     if (!schedule) {
       return 'default';
     }
     
-    // If schedule exists and is closed
     if (!schedule.is_open) {
       return 'closed';
     }
     
-    // If schedule exists and is open
     return 'open';
   };
 
@@ -267,12 +226,10 @@ function Appointments() {
   const fetchStaffList = async () => {
     try {
       const response = await api.get('/staff-list');
-      console.log('Fetched staff list:', response.data);
       if (Array.isArray(response.data)) {
         setStaffList(response.data);
       }
     } catch (error) {
-      console.error('Error fetching staff list:', error);
       setStaffList([]);
       showToast('Failed to fetch staff list', 'error');
     }
@@ -282,10 +239,8 @@ function Appointments() {
   const fetchPaymentDetails = async (appointmentId) => {
     try {
       const response = await api.get(`/appointment/payment-details/${appointmentId}`);
-      console.log('Payment details:', response.data);
       return response.data;
     } catch (error) {
-      console.error('Error fetching payment details:', error);
       showToast('Failed to fetch payment details', 'error');
       return null;
     }
@@ -320,18 +275,13 @@ function Appointments() {
         refund_amount: cancelFormData.refund_amount
       });
       
-      console.log('Appointment cancelled with refund:', response.data);
       showToast('Appointment cancelled and refund processed successfully!', 'success');
       
-      // Close modal and reset form
       setShowCancelModal(false);
       resetCancelForm();
-      
-      // Refresh data
       await fetchAppointments();
       
     } catch (error) {
-      console.error('Error cancelling appointment:', error);
       showToast(error.response?.data?.message || 'Failed to cancel appointment', 'error');
     } finally {
       setIsProcessingCancel(false);
@@ -341,7 +291,6 @@ function Appointments() {
   // Open cancel modal
   const handleOpenCancelModal = async (appointment) => {
     try {
-      // Fetch payment details for this appointment
       const paymentData = await fetchPaymentDetails(appointment.appointment_id);
       
       if (!paymentData) {
@@ -349,7 +298,6 @@ function Appointments() {
         return;
       }
       
-      // Get the amount from billing
       const refundAmount = paymentData.billing?.total_amount || 0;
       
       setCancelFormData({
@@ -362,7 +310,6 @@ function Appointments() {
       
       setShowCancelModal(true);
     } catch (error) {
-      console.error('Error opening cancel modal:', error);
       showToast('Failed to load payment details', 'error');
     }
   };
@@ -382,7 +329,6 @@ function Appointments() {
     setIsLoading(true);
     try {
       const response = await api.get('/all-appointments');
-      console.log('Fetched appointments (raw):', response.data);
       
       if (Array.isArray(response.data)) {
         const staffNameMap = new Map();
@@ -390,14 +336,12 @@ function Appointments() {
           staffNameMap.set(staff.id, staff.name);
         });
         
-        // Group transactions by appointment_id
         const appointmentMap = new Map();
         
         response.data.forEach((transaction) => {
           const appointmentId = transaction.appointment_id;
           
           if (!appointmentMap.has(appointmentId)) {
-            // Create a new appointment entry
             appointmentMap.set(appointmentId, {
               id: appointmentId,
               appointment_id: appointmentId,
@@ -417,7 +361,6 @@ function Appointments() {
             });
           }
           
-          // Add the service to the appointment
           const appointment = appointmentMap.get(appointmentId);
           appointment.services.push({
             id: transaction.id,
@@ -428,21 +371,17 @@ function Appointments() {
             service_status: transaction.service_status || 'pending'
           });
           
-          // Accumulate totals
           appointment.total_price += parseFloat(transaction.price || '0');
           appointment.total_duration += parseInt(transaction.duration_minutes || 0);
           appointment.service_names.push(transaction.service_name || 'Unknown Service');
         });
         
-        // Convert the map to an array and format the data
         const groupedAppointments = Array.from(appointmentMap.values()).map((appointment) => {
-          // Get staff name
           let staffName = 'Unassigned';
           if (appointment.assigned_employee_id) {
             staffName = staffNameMap.get(appointment.assigned_employee_id) || `Staff ID: ${appointment.assigned_employee_id}`;
           }
           
-          // Determine overall status - use the appointment status directly
           let overallStatus = appointment.status;
           
           return {
@@ -468,15 +407,11 @@ function Appointments() {
           };
         });
         
-        console.log('Grouped appointments:', groupedAppointments);
         setAppointments(groupedAppointments);
         
-        // Calculate stats based on appointment status
         const total = groupedAppointments.length;
         const pending = groupedAppointments.filter(a => a.status === 'pending').length;
-        const confirmed = groupedAppointments.filter(a => a.status === 'confirmed').length;
         const completed = groupedAppointments.filter(a => a.status === 'completed').length;
-        const cancelled = groupedAppointments.filter(a => a.status === 'cancelled').length;
         const today = new Date().toISOString().split('T')[0];
         const todayAppointments = groupedAppointments.filter(a => a.appointment_date === today).length;
         
@@ -488,7 +423,6 @@ function Appointments() {
         ]);
       }
     } catch (error) {
-      console.error('Error fetching appointments:', error);
       showToast('Failed to fetch appointments', 'error');
     } finally {
       setIsLoading(false);
@@ -499,8 +433,6 @@ function Appointments() {
   const fetchPaymentProof = async (appointmentId) => {
     try {
       const response = await api.get(`/appointment/payment?appointment_id=${appointmentId}`);
-      console.log('Full payment response:', response);
-      console.log('Payment data:', response.data);
       
       if (response.data && response.data.length > 0) {
         const payment = response.data.find(p => p.billing?.appointment_id === appointmentId);
@@ -515,7 +447,6 @@ function Appointments() {
         showToast('No payment record found for this appointment.', 'warning');
       }
     } catch (error) {
-      console.error('Error fetching payment proof:', error);
       showToast(error.response?.data?.message || 'Failed to fetch payment data', 'error');
     }
   };
@@ -589,49 +520,42 @@ function Appointments() {
       assignedStaff: assignedStaffForDate
     });
     
-    // Show options modal
     setShowModal(true);
   };
 
   // Navigate to AppointmentDetails when "View Appointments" is clicked
   const handleViewAppointments = () => {
-    // Get the selected date in YYYY-MM-DD format
     const year = currentDate.getFullYear();
     const month = String(currentDate.getMonth() + 1).padStart(2, '0');
     const dayStr = String(selectedDay).padStart(2, '0');
     const dateStr = `${year}-${month}-${dayStr}`;
     
-    // Close the modal
     setShowModal(false);
     setSelectedDay(null);
-    
-    // Navigate to the appointments list with the date as a query parameter
     navigate(`/dashboard/appointments/list?date=${dateStr}`);
   };
 
+  // ✅ Unified open-schedule modal: pre-fills form + pre-checks assigned staff
   const handleEditSchedule = () => {
     const schedule = getScheduleForDate(selectedDateSchedule.date);
+    const businessScheduleId = selectedDateSchedule.businessScheduleId;
+
+    const alreadyAssigned = businessScheduleId
+      ? assignedStaff
+          .filter(a => a.business_date_id === businessScheduleId)
+          .map(a => a.staff_id)
+      : [];
+
     setScheduleFormData({
       business_date: selectedDateSchedule.date,
-      open_time: schedule?.open_time || '09:00',
-      close_time: schedule?.close_time || '17:00',
+      open_time: schedule?.open_time?.substring(0, 5) || '09:00',
+      close_time: schedule?.close_time?.substring(0, 5) || '17:00',
       is_open: schedule?.is_open === 1
     });
+    setSelectedStaffIds(alreadyAssigned);
+
     setShowModal(false);
     setShowScheduleModal(true);
-  };
-
-  const handleAssignStaffToSchedule = () => {
-    if (!selectedDateSchedule.businessScheduleId) {
-      showToast('Please save the business schedule first before assigning staff.', 'warning');
-      return;
-    }
-    setAssignStaffFormData({
-      staff_id: '',
-      business_date_id: selectedDateSchedule.businessScheduleId
-    });
-    setShowModal(false);
-    setShowAssignStaffModal(true);
   };
 
   const resetScheduleForm = () => {
@@ -641,18 +565,28 @@ function Appointments() {
       close_time: '17:00',
       is_open: true
     });
+    setSelectedStaffIds([]);
   };
 
-  const resetAssignStaffForm = () => {
-    setAssignStaffFormData({
-      staff_id: '',
-      business_date_id: ''
-    });
+  // ✅ Multi-select helpers
+  const toggleStaffSelection = (staffId) => {
+    setSelectedStaffIds(prev =>
+      prev.includes(staffId)
+        ? prev.filter(id => id !== staffId)
+        : [...prev, staffId]
+    );
+  };
+
+  const selectAllStaff = () => {
+    setSelectedStaffIds(staffList.map(s => s.id));
+  };
+
+  const clearAllStaff = () => {
+    setSelectedStaffIds([]);
   };
 
   // Update appointment status - Updates all services in the appointment
   const handleUpdateAppointmentStatus = async (appointmentId, newStatus) => {
-    // If cancelling, open the cancel modal instead
     if (newStatus === 'cancelled') {
       const appointment = appointments.find(a => a.appointment_id === appointmentId);
       if (appointment) {
@@ -667,9 +601,6 @@ function Appointments() {
         status: newStatus
       });
       
-      console.log('Appointment status updated:', response.data);
-      
-      // Update the appointment in the local state
       setAppointments(prevAppointments => 
         prevAppointments.map(app => 
           app.appointment_id === appointmentId 
@@ -678,7 +609,6 @@ function Appointments() {
         )
       );
       
-      // Also update the selected day appointments if they're being viewed
       if (selectedDayAppointments.length > 0) {
         setSelectedDayAppointments(prev => 
           prev.map(app => 
@@ -691,11 +621,9 @@ function Appointments() {
       
       showToast(`Appointment ${newStatus === 'confirmed' ? 'confirmed' : 'updated'} successfully!`, 'success');
       
-      // Refresh stats
       await fetchAppointments();
       
     } catch (error) {
-      console.error('Error updating appointment status:', error);
       showToast(error.response?.data?.message || 'Failed to update appointment status', 'error');
     } finally {
       setIsUpdating(false);
@@ -772,16 +700,12 @@ function Appointments() {
   const PaymentProofModal = () => {
     if (!selectedPaymentData) return null;
     
-    console.log('Selected Payment Data:', selectedPaymentData);
-    
     const { id, payment_method, payment_proof, billing } = selectedPaymentData;
     const appointment_id = billing?.appointment_id || 'N/A';
     const total_amount = billing?.total_amount || '0.00';
     const payment_type = billing?.payment_type || 'N/A';
     
     const proofUrl = payment_proof ? `http://192.168.100.73:8000${payment_proof}` : null;
-    
-    console.log('Extracted values:', { id, appointment_id, total_amount, payment_type, payment_method, proofUrl });
     
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
@@ -832,13 +756,11 @@ function Appointments() {
                     alt="Payment Proof" 
                     className="w-full h-full object-contain"
                     onError={(e) => {
-                      console.error('Image failed to load:', proofUrl);
                       e.target.style.display = 'none';
                       const parent = e.target.parentElement;
                       if (parent) {
                         parent.innerHTML = `
                           <div class="flex flex-col items-center justify-center p-8">
-                            <FileText size={48} class="text-gray-400 mb-2" />
                             <p class="text-gray-500 text-sm">Failed to load image</p>
                             <p class="text-gray-400 text-xs mt-1 break-all">${proofUrl}</p>
                           </div>
@@ -1048,24 +970,22 @@ function Appointments() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div className="flex gap-2">
           <button 
-            onClick={() => setViewMode('calendar')}
-            className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 text-sm ${
-              viewMode === 'calendar' 
-                ? 'bg-pink-500 text-white shadow-md' 
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-            }`}
+            onClick={goToPreviousMonth} 
+            className="px-3 py-2 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 transition-all duration-200"
           >
-            Calendar View
+            <ChevronLeft size={16} />
           </button>
           <button 
-            onClick={() => setViewMode('list')}
-            className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 text-sm ${
-              viewMode === 'list' 
-                ? 'bg-pink-500 text-white shadow-md' 
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-            }`}
+            onClick={goToCurrentMonth}
+            className="px-4 py-2 rounded-lg bg-pink-500 text-white shadow-md hover:bg-pink-600 transition-all duration-200 text-sm font-medium"
           >
-            List View
+            Today
+          </button>
+          <button 
+            onClick={goToNextMonth}
+            className="px-3 py-2 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 transition-all duration-200"
+          >
+            <ChevronRight size={16} />
           </button>
         </div>
         
@@ -1096,116 +1016,105 @@ function Appointments() {
       </div>
 
       {/* Calendar View */}
-      {viewMode === 'calendar' && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between flex-wrap gap-3">
-            <div className="flex items-center gap-3">
-              <button onClick={goToPreviousMonth} className="p-1.5 hover:bg-gray-100 rounded-lg">
-                <ChevronLeft size={18} />
-              </button>
-              <h3 className="text-base font-semibold text-gray-800">{getCurrentMonthYear()}</h3>
-              <button onClick={goToNextMonth} className="p-1.5 hover:bg-gray-100 rounded-lg">
-                <ChevronRight size={18} />
-              </button>
-              <button onClick={goToCurrentMonth} className="px-2 py-1 text-xs bg-pink-50 text-pink-600 rounded-lg hover:bg-pink-100">
-                Today
-              </button>
-            </div>
-            <div className="flex gap-3 text-xs">
-              <div className="flex items-center gap-1">
-                <div className="w-2.5 h-2.5 bg-green-100 rounded border border-green-300"></div>
-                <span className="text-gray-500">Open</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <div className="w-2.5 h-2.5 bg-red-100 rounded border border-red-300"></div>
-                <span className="text-gray-500">Closed</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <div className="w-2.5 h-2.5 bg-white rounded border border-gray-200"></div>
-                <span className="text-gray-500">No Schedule</span>
-              </div>
-            </div>
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between flex-wrap gap-3">
+          <div className="flex items-center gap-3">
+            <h3 className="text-base font-semibold text-gray-800">{getCurrentMonthYear()}</h3>
           </div>
-
-          <div className="p-4">
-            <div className="grid grid-cols-7 gap-2 mb-2">
-              {weekDays.map((day, index) => (
-                <div key={index} className="text-center font-semibold text-gray-500 text-xs py-1">{day}</div>
-              ))}
+          <div className="flex gap-3 text-xs">
+            <div className="flex items-center gap-1">
+              <div className="w-2.5 h-2.5 bg-green-100 rounded border border-green-300"></div>
+              <span className="text-gray-500">Open</span>
             </div>
-            
-            <div className="grid grid-cols-7 gap-2">
-              {calendarDays.map((day, index) => {
-                if (day === null) {
-                  return <div key={`empty-${index}`} className="bg-gray-50 rounded-lg p-2 min-h-[80px] border border-gray-100"></div>;
-                }
-                
-                const dayStatus = getDayStatus(day);
-                const dayAppointments = getAppointmentsForDay(day);
-                const hasAppointments = dayAppointments.length > 0;
-                const statusCounts = getAppointmentStatusCounts(day);
-                
-                return (
-                  <div 
-                    key={day}
-                    onClick={() => handleDayClick(day)}
-                    className={`${getCalendarCellStyle(dayStatus)} rounded-lg p-2 min-h-[80px] border transition-all duration-200 cursor-pointer hover:shadow-md`}
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <span className={`font-semibold text-sm ${getCalendarCellTextColor(dayStatus)}`}>
-                        {day}
-                      </span>
-                      {hasAppointments && (
-                        <span className="text-xs px-1.5 py-0.5 rounded-full bg-gray-200 text-gray-700">
-                          {dayAppointments.length}
-                        </span>
-                      )}
-                    </div>
-                    
-                    <div className="flex flex-wrap gap-0.5 mt-1">
-                      {statusCounts.pending > 0 && (
-                        <div className="flex items-center gap-0.5 bg-yellow-100 rounded-full px-1.5 py-0.5">
-                          <AlertCircle size={8} className="text-yellow-600" />
-                          <span className="text-[8px] font-medium text-yellow-700">{statusCounts.pending}</span>
-                        </div>
-                      )}
-                      {statusCounts.confirmed > 0 && (
-                        <div className="flex items-center gap-0.5 bg-green-100 rounded-full px-1.5 py-0.5">
-                          <CheckCircle size={8} className="text-green-600" />
-                          <span className="text-[8px] font-medium text-green-700">{statusCounts.confirmed}</span>
-                        </div>
-                      )}
-                      {statusCounts.completed > 0 && (
-                        <div className="flex items-center gap-0.5 bg-blue-100 rounded-full px-1.5 py-0.5">
-                          <CheckCircle size={8} className="text-blue-600" />
-                          <span className="text-[8px] font-medium text-blue-700">{statusCounts.completed}</span>
-                        </div>
-                      )}
-                      {statusCounts.cancelled > 0 && (
-                        <div className="flex items-center gap-0.5 bg-red-100 rounded-full px-1.5 py-0.5">
-                          <XCircle size={8} className="text-red-600" />
-                          <span className="text-[8px] font-medium text-red-700">{statusCounts.cancelled}</span>
-                        </div>
-                      )}
-                    </div>
-                    
-                    {hasAppointments && (
-                      <div className="space-y-0.5 mt-1">
-                        <div className="text-xs text-gray-600 truncate">
-                          {dayAppointments[0]?.customer_name?.split(' ')[0]} - {formatTime(dayAppointments[0]?.appointment_time)}
-                        </div>
-                        {dayAppointments.length > 1 && (
-                          <div className="text-xs text-gray-400">+{dayAppointments.length - 1} more</div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+            <div className="flex items-center gap-1">
+              <div className="w-2.5 h-2.5 bg-red-100 rounded border border-red-300"></div>
+              <span className="text-gray-500">Closed</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <div className="w-2.5 h-2.5 bg-white rounded border border-gray-200"></div>
+              <span className="text-gray-500">No Schedule</span>
             </div>
           </div>
         </div>
-      )}
+
+        <div className="p-4">
+          <div className="grid grid-cols-7 gap-2 mb-2">
+            {weekDays.map((day, index) => (
+              <div key={index} className="text-center font-semibold text-gray-500 text-xs py-1">{day}</div>
+            ))}
+          </div>
+          
+          <div className="grid grid-cols-7 gap-2">
+            {calendarDays.map((day, index) => {
+              if (day === null) {
+                return <div key={`empty-${index}`} className="bg-gray-50 rounded-lg p-2 min-h-[80px] border border-gray-100"></div>;
+              }
+              
+              const dayStatus = getDayStatus(day);
+              const dayAppointments = getAppointmentsForDay(day);
+              const hasAppointments = dayAppointments.length > 0;
+              const statusCounts = getAppointmentStatusCounts(day);
+              
+              return (
+                <div 
+                  key={day}
+                  onClick={() => handleDayClick(day)}
+                  className={`${getCalendarCellStyle(dayStatus)} rounded-lg p-2 min-h-[80px] border transition-all duration-200 cursor-pointer hover:shadow-md`}
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span className={`font-semibold text-sm ${getCalendarCellTextColor(dayStatus)}`}>
+                      {day}
+                    </span>
+                    {hasAppointments && (
+                      <span className="text-xs px-1.5 py-0.5 rounded-full bg-gray-200 text-gray-700">
+                        {dayAppointments.length}
+                      </span>
+                    )}
+                  </div>
+                  
+                  <div className="flex flex-wrap gap-0.5 mt-1">
+                    {statusCounts.pending > 0 && (
+                      <div className="flex items-center gap-0.5 bg-yellow-100 rounded-full px-1.5 py-0.5">
+                        <AlertCircle size={8} className="text-yellow-600" />
+                        <span className="text-[8px] font-medium text-yellow-700">{statusCounts.pending}</span>
+                      </div>
+                    )}
+                    {statusCounts.confirmed > 0 && (
+                      <div className="flex items-center gap-0.5 bg-green-100 rounded-full px-1.5 py-0.5">
+                        <CheckCircle size={8} className="text-green-600" />
+                        <span className="text-[8px] font-medium text-green-700">{statusCounts.confirmed}</span>
+                      </div>
+                    )}
+                    {statusCounts.completed > 0 && (
+                      <div className="flex items-center gap-0.5 bg-blue-100 rounded-full px-1.5 py-0.5">
+                        <CheckCircle size={8} className="text-blue-600" />
+                        <span className="text-[8px] font-medium text-blue-700">{statusCounts.completed}</span>
+                      </div>
+                    )}
+                    {statusCounts.cancelled > 0 && (
+                      <div className="flex items-center gap-0.5 bg-red-100 rounded-full px-1.5 py-0.5">
+                        <XCircle size={8} className="text-red-600" />
+                        <span className="text-[8px] font-medium text-red-700">{statusCounts.cancelled}</span>
+                      </div>
+                    )}
+                  </div>
+                  
+                  {hasAppointments && (
+                    <div className="space-y-0.5 mt-1">
+                      <div className="text-xs text-gray-600 truncate">
+                        {dayAppointments[0]?.customer_name?.split(' ')[0]} - {formatTime(dayAppointments[0]?.appointment_time)}
+                      </div>
+                      {dayAppointments.length > 1 && (
+                        <div className="text-xs text-gray-400">+{dayAppointments.length - 1} more</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
 
       {/* Day Options Modal */}
       {showModal && selectedDay && !selectedDayAppointments.length && (
@@ -1238,19 +1147,8 @@ function Appointments() {
               >
                 <Settings size={18} />
                 <div className="text-left">
-                  <p className="font-semibold">Edit Schedule</p>
-                  <p className="text-xs text-gray-500">Set open/close hours for this day</p>
-                </div>
-              </button>
-
-              <button
-                onClick={handleAssignStaffToSchedule}
-                className="w-full flex items-center gap-3 px-4 py-3 bg-green-50 text-green-700 rounded-lg hover:bg-green-100 transition-colors"
-              >
-                <UsersIcon size={18} />
-                <div className="text-left">
-                  <p className="font-semibold">Assign Staff</p>
-                  <p className="text-xs text-gray-500">Assign staff to work on this day</p>
+                  <p className="font-semibold">Edit Schedule & Staff</p>
+                  <p className="text-xs text-gray-500">Set hours and assign staff in one step</p>
                 </div>
               </button>
             </div>
@@ -1275,7 +1173,7 @@ function Appointments() {
         </div>
       )}
 
-      {/* Appointment Details Modal - Now with View Full Details button */}
+      {/* Appointment Details Modal */}
       {showModal && selectedDayAppointments.length > 0 && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden max-h-[80vh]">
@@ -1332,7 +1230,6 @@ function Appointments() {
                         </div>
                       </div>
 
-                      {/* Service Details */}
                       <div className="ml-10">
                         {isMultipleServices ? (
                           <div className="space-y-1">
@@ -1367,7 +1264,6 @@ function Appointments() {
                         </div>
                       </div>
 
-                      {/* Action Buttons */}
                       <div className="mt-3 ml-10 flex gap-2 flex-wrap">
                         {isPending && (
                           <>
@@ -1411,7 +1307,6 @@ function Appointments() {
                           </div>
                         )}
 
-                        {/* View Full Details Button - Navigates to AppointmentDetails */}
                         <button 
                           onClick={() => navigate(`/dashboard/appointments/${appointment.appointment_id}`)}
                           className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 bg-pink-500 hover:bg-pink-600 text-white rounded-md transition-colors text-xs font-medium"
@@ -1429,98 +1324,172 @@ function Appointments() {
         </div>
       )}
 
-      {/* Edit Schedule Modal */}
+      {/* ✅ Unified Schedule + Staff Modal */}
       {showScheduleModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
-            <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-5 py-3 flex items-center justify-between">
-              <h2 className="text-lg font-bold text-white">Edit Business Schedule</h2>
-              <button 
-                onClick={() => { 
-                  setShowScheduleModal(false); 
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden max-h-[90vh]">
+            <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-5 py-3 flex items-center justify-between sticky top-0 z-10">
+              <div>
+                <h2 className="text-lg font-bold text-white">Schedule & Staff</h2>
+                <p className="text-pink-100 text-xs mt-0.5">
+                  {formatFullDate(scheduleFormData.business_date)}
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setShowScheduleModal(false);
                   resetScheduleForm();
-                }} 
+                }}
                 className="text-white hover:bg-white/20 rounded-lg p-1"
               >
                 <X size={20} />
               </button>
             </div>
 
-            <form onSubmit={handleSaveSchedule} className="p-5 space-y-4">
-              <div>
-                <label className="block text-gray-700 text-xs font-semibold mb-1">
-                  Business Date *
-                </label>
-                <input
-                  type="date"
-                  name="business_date"
-                  value={scheduleFormData.business_date}
-                  disabled
-                  className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg bg-gray-50 text-gray-500"
-                />
+            <form onSubmit={handleSaveSchedule} className="overflow-y-auto" style={{ maxHeight: 'calc(90vh - 60px)' }}>
+              <div className="p-5 space-y-4">
+                {/* Business Hours */}
+                <div>
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                    Business Hours
+                  </h3>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-gray-700 text-xs font-semibold mb-1">
+                        Open Time *
+                      </label>
+                      <input
+                        type="time"
+                        value={scheduleFormData.open_time}
+                        onChange={(e) => setScheduleFormData(prev => ({ ...prev, open_time: e.target.value }))}
+                        className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-gray-700 text-xs font-semibold mb-1">
+                        Close Time *
+                      </label>
+                      <input
+                        type="time"
+                        value={scheduleFormData.close_time}
+                        onChange={(e) => setScheduleFormData(prev => ({ ...prev, close_time: e.target.value }))}
+                        className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <label className="flex items-center gap-2 cursor-pointer mt-3">
+                    <input
+                      type="checkbox"
+                      checked={scheduleFormData.is_open}
+                      onChange={(e) => setScheduleFormData(prev => ({ ...prev, is_open: e.target.checked }))}
+                      className="w-3.5 h-3.5 text-pink-500 border-gray-300 rounded focus:ring-pink-500"
+                    />
+                    <span className="text-gray-700 text-sm font-semibold">
+                      Salon open on this day
+                    </span>
+                  </label>
+                  <p className="text-[10px] text-gray-500 mt-1 ml-5">
+                    Uncheck if the salon is closed on this day
+                  </p>
+                </div>
+
+                {/* Staff Assignment — multi-select */}
+                <div className="border-t border-gray-100 pt-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                      Staff ({selectedStaffIds.length} selected)
+                    </h3>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={selectAllStaff}
+                        className="text-[10px] font-semibold text-pink-600 hover:text-pink-700"
+                      >
+                        Select All
+                      </button>
+                      <span className="text-gray-300">|</span>
+                      <button
+                        type="button"
+                        onClick={clearAllStaff}
+                        className="text-[10px] font-semibold text-gray-500 hover:text-gray-700"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  </div>
+
+                  {staffList.length === 0 ? (
+                    <div className="bg-gray-50 rounded-lg p-4 text-center">
+                      <UsersIcon size={24} className="text-gray-300 mx-auto mb-1" />
+                      <p className="text-xs text-gray-500">No staff members available</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5 max-h-64 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+                      {staffList.map((staff) => {
+                        const isSelected = selectedStaffIds.includes(staff.id);
+                        return (
+                          <button
+                            type="button"
+                            key={staff.id}
+                            onClick={() => toggleStaffSelection(staff.id)}
+                            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg border-2 transition-all text-left ${
+                              isSelected
+                                ? 'border-pink-500 bg-pink-50'
+                                : 'border-gray-200 bg-white hover:border-pink-200'
+                            }`}
+                          >
+                            <div
+                              className={`w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 ${
+                                isSelected ? 'bg-pink-500 border-pink-500' : 'border-gray-300'
+                              }`}
+                            >
+                              {isSelected && <CheckCircle size={14} className="text-white" />}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className={`text-sm font-semibold truncate ${isSelected ? 'text-pink-700' : 'text-gray-800'}`}>
+                                {staff.name}
+                              </p>
+                              {staff.specialties && (
+                                <p className="text-[10px] text-gray-500 truncate">
+                                  {Array.isArray(staff.specialties)
+                                    ? staff.specialties.join(', ')
+                                    : staff.specialties}
+                                </p>
+                              )}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {selectedStaffIds.length > 0 && (
+                    <p className="text-[10px] text-gray-500 mt-2">
+                      {selectedStaffIds.length} staff member{selectedStaffIds.length !== 1 ? 's' : ''} will be assigned to this date
+                    </p>
+                  )}
+                </div>
               </div>
 
-              <div>
-                <label className="block text-gray-700 text-xs font-semibold mb-1">
-                  Open Time *
-                </label>
-                <input
-                  type="time"
-                  name="open_time"
-                  value={scheduleFormData.open_time}
-                  onChange={(e) => setScheduleFormData(prev => ({ ...prev, open_time: e.target.value }))}
-                  className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-gray-700 text-xs font-semibold mb-1">
-                  Close Time *
-                </label>
-                <input
-                  type="time"
-                  name="close_time"
-                  value={scheduleFormData.close_time}
-                  onChange={(e) => setScheduleFormData(prev => ({ ...prev, close_time: e.target.value }))}
-                  className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    name="is_open"
-                    checked={scheduleFormData.is_open}
-                    onChange={(e) => setScheduleFormData(prev => ({ ...prev, is_open: e.target.checked }))}
-                    className="w-3.5 h-3.5 text-pink-500 border-gray-300 rounded focus:ring-pink-500"
-                  />
-                  <span className="text-gray-700 text-sm font-semibold">
-                    Salon Open on this day
-                  </span>
-                </label>
-                <p className="text-[10px] text-gray-500 mt-1 ml-5">
-                  Uncheck if the salon is closed on this day
-                </p>
-              </div>
-
-              <div className="flex gap-2 pt-3">
+              {/* Actions */}
+              <div className="border-t border-gray-100 px-5 py-3 flex gap-2 sticky bottom-0 bg-white">
                 <button
                   type="button"
-                  onClick={() => { 
-                    setShowScheduleModal(false); 
+                  onClick={() => {
+                    setShowScheduleModal(false);
                     resetScheduleForm();
                   }}
-                  className="flex-1 px-3 py-1.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium"
+                  className="flex-1 px-3 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSavingSchedule}
-                  className="flex-1 px-3 py-1.5 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 text-sm font-medium disabled:opacity-50 flex items-center justify-center gap-1.5"
+                  className="flex-1 px-3 py-2 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 text-sm font-medium disabled:opacity-50 flex items-center justify-center gap-1.5"
                 >
                   {isSavingSchedule ? (
                     <>
@@ -1530,94 +1499,7 @@ function Appointments() {
                   ) : (
                     <>
                       <Save size={14} />
-                      Save Schedule
-                    </>
-                  )}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Assign Staff Modal */}
-      {showAssignStaffModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
-            <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-5 py-3 flex items-center justify-between">
-              <h2 className="text-lg font-bold text-white">Assign Staff to Schedule</h2>
-              <button 
-                onClick={() => { 
-                  setShowAssignStaffModal(false); 
-                  resetAssignStaffForm();
-                }} 
-                className="text-white hover:bg-white/20 rounded-lg p-1"
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            <form onSubmit={handleAssignStaff} className="p-5 space-y-4">
-              <div>
-                <label className="block text-gray-700 text-xs font-semibold mb-1">
-                  Select Staff *
-                </label>
-                <select
-                  name="staff_id"
-                  value={assignStaffFormData.staff_id}
-                  onChange={(e) => setAssignStaffFormData(prev => ({ ...prev, staff_id: e.target.value }))}
-                  className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
-                  required
-                >
-                  <option value="">Select a staff member...</option>
-                  {staffList.map(staff => (
-                    <option key={staff.id} value={staff.id}>
-                      {staff.name}
-                    </option>
-                  ))}
-                </select>
-                <p className="text-xs text-gray-500 mt-1">
-                  Choose which staff member will work on this day
-                </p>
-              </div>
-
-              <div>
-                <label className="block text-gray-700 text-xs font-semibold mb-1">
-                  Business Date
-                </label>
-                <input
-                  type="text"
-                  value={formatFullDate(selectedDateSchedule?.date)}
-                  disabled
-                  className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg bg-gray-50 text-gray-500"
-                />
-              </div>
-
-              <div className="flex gap-2 pt-3">
-                <button
-                  type="button"
-                  onClick={() => { 
-                    setShowAssignStaffModal(false); 
-                    resetAssignStaffForm();
-                  }}
-                  className="flex-1 px-3 py-1.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isAssigningStaff}
-                  className="flex-1 px-3 py-1.5 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 text-sm font-medium disabled:opacity-50 flex items-center justify-center gap-1.5"
-                >
-                  {isAssigningStaff ? (
-                    <>
-                      <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                      Assigning...
-                    </>
-                  ) : (
-                    <>
-                      <UsersIcon size={14} />
-                      Assign Staff
+                      Save Schedule & Staff
                     </>
                   )}
                 </button>
@@ -1633,28 +1515,8 @@ function Appointments() {
       {/* Cancel/Refund Modal */}
       <CancelModal />
 
-      {/* List View - Now redirects to AppointmentDetails */}
-      {viewMode === 'list' && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center">
-          <div className="w-20 h-20 bg-gradient-to-r from-pink-100 to-pink-200 rounded-full flex items-center justify-center mx-auto mb-4">
-            <Eye size={32} className="text-pink-600" />
-          </div>
-          <h3 className="text-lg font-semibold text-gray-800 mb-2">Switch to List View</h3>
-          <p className="text-gray-500 text-sm mb-4">
-            The list view has been moved to the Appointments Details page.
-          </p>
-          <button 
-            onClick={() => navigate('/dashboard/appointments/list')}
-            className="inline-flex items-center gap-2 px-6 py-2.5 bg-pink-500 hover:bg-pink-600 text-white rounded-lg transition-colors text-sm font-medium"
-          >
-            <Eye size={16} />
-            View All Appointments
-          </button>
-        </div>
-      )}
-
       {/* Empty State */}
-      {viewMode === 'calendar' && filteredAppointments.length === 0 && !isLoading && (
+      {filteredAppointments.length === 0 && !isLoading && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 text-center">
           <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
             <Calendar size={28} className="text-gray-400" />

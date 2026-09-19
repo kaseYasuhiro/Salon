@@ -73,7 +73,8 @@ const getAppointmentRevenue = (appt) => {
 };
 
 // ─────────────────────────────────────────────────────────────
-// Toast — minimal, no dependencies. Auto-dismisses after 3s.
+// Toast — matches the style used across other components:
+// solid colored pill, white icon, auto-dismisses after 3s.
 // ─────────────────────────────────────────────────────────────
 function Toast({ message, type = 'success', onClose }) {
   useEffect(() => {
@@ -81,21 +82,30 @@ function Toast({ message, type = 'success', onClose }) {
     return () => clearTimeout(t);
   }, [onClose]);
 
-  const styles =
+  const bgColor =
     type === 'success'
-      ? 'bg-green-50 border-green-200 text-green-800'
+      ? 'bg-green-500'
+      : type === 'warning'
+      ? 'bg-yellow-500'
       : type === 'error'
-      ? 'bg-red-50 border-red-200 text-red-800'
-      : 'bg-blue-50 border-blue-200 text-blue-800';
+      ? 'bg-red-500'
+      : 'bg-blue-500';
 
-  const Icon = type === 'success' ? CheckCircle : type === 'error' ? XCircle : AlertCircle;
+  const Icon =
+    type === 'success'
+      ? CheckCircle
+      : type === 'warning'
+      ? AlertCircle
+      : type === 'error'
+      ? XCircle
+      : AlertCircle;
 
   return (
-    <div className="fixed top-6 right-6 z-[100]">
-      <div className={`flex items-start gap-3 min-w-[280px] max-w-md px-4 py-3 border rounded-xl shadow-lg ${styles}`}>
-        <Icon size={18} className="flex-shrink-0 mt-0.5" />
-        <p className="text-sm font-medium flex-1">{message}</p>
-        <button onClick={onClose} className="opacity-60 hover:opacity-100 flex-shrink-0">
+    <div className="fixed top-4 right-4 z-[100] animate-slide-in">
+      <div className={`rounded-lg shadow-lg p-4 flex items-center gap-3 ${bgColor} text-white min-w-[300px] max-w-md`}>
+        <Icon size={20} className="flex-shrink-0" />
+        <span className="text-sm font-medium flex-1">{message}</span>
+        <button onClick={onClose} className="ml-auto hover:bg-white/20 rounded-lg p-1 flex-shrink-0">
           <X size={16} />
         </button>
       </div>
@@ -179,7 +189,6 @@ function QrCodeModal({ open, qrData, onClose, onUploaded }) {
 
       onUploaded?.();
     } catch (error) {
-      console.error('Error uploading QR code:', error);
       const msg = error.response?.data?.errors
         ? Object.values(error.response.data.errors).flat().join('\n')
         : error.response?.data?.message || 'Failed to upload QR code. Please try again.';
@@ -357,9 +366,6 @@ function Dashboard() {
     const storedToken = getToken();
     setToken(storedToken);
 
-    console.log('User from store:', user);
-    console.log('Token from storage:', storedToken);
-
     if (!user || !storedToken) {
       navigate('/');
     }
@@ -389,11 +395,9 @@ function Dashboard() {
   const fetchAllAppointments = async () => {
     try {
       const response = await api.get('/all-appointments');
-      console.log('All appointments (raw):', response.data);
 
       if (Array.isArray(response.data)) {
         const grouped = groupByAppointment(response.data);
-        console.log('Grouped appointments:', grouped);
 
         const counts = { confirmed: 0, pending: 0, completed: 0, cancelled: 0 };
         grouped.forEach(appt => {
@@ -415,7 +419,6 @@ function Dashboard() {
         return grouped;
       }
     } catch (error) {
-      console.error('Error fetching appointments:', error);
       return [];
     }
   };
@@ -423,7 +426,6 @@ function Dashboard() {
   const fetchServices = async () => {
     try {
       const response = await api.get('/services');
-      console.log('Services:', response.data);
       if (Array.isArray(response.data)) {
         const activeServices = response.data.filter(s => s.service_status === 'active').length;
         setDashboardStats(prev => ({
@@ -432,14 +434,13 @@ function Dashboard() {
         }));
       }
     } catch (error) {
-      console.error('Error fetching services:', error);
+      // silently ignore
     }
   };
 
   const fetchInventory = async () => {
     try {
       const response = await api.get('/inventory');
-      console.log('Inventory:', response.data);
       if (Array.isArray(response.data)) {
         setDashboardStats(prev => ({
           ...prev,
@@ -447,14 +448,13 @@ function Dashboard() {
         }));
       }
     } catch (error) {
-      console.error('Error fetching inventory:', error);
+      // silently ignore
     }
   };
 
   const fetchStaff = async () => {
     try {
       const response = await api.get('/employees');
-      console.log('Staff:', response.data);
       if (Array.isArray(response.data)) {
         setDashboardStats(prev => ({
           ...prev,
@@ -462,58 +462,53 @@ function Dashboard() {
         }));
       }
     } catch (error) {
-      console.error('Error fetching staff:', error);
+      // silently ignore
     }
   };
 
   const fetchFeedbacks = async () => {
     try {
       const response = await api.get('/feedbacks');
-      console.log('Feedbacks:', response.data);
       if (Array.isArray(response.data)) {
         setFeedbacks(response.data);
       }
     } catch (error) {
-      console.error('Error fetching feedbacks:', error);
+      // silently ignore
     }
   };
 
   const fetchRemittances = async () => {
     try {
       const response = await api.get('/remittance');
-      console.log('Remittances:', response.data);
       if (Array.isArray(response.data)) {
         setRemittances(response.data);
         processWeeklyRemittances(response.data);
       }
     } catch (error) {
-      console.error('Error fetching remittances:', error);
+      // silently ignore
     }
   };
 
   const fetchStaffList = async () => {
     try {
       const response = await api.get('/staff-list');
-      console.log('Staff list:', response.data);
       if (Array.isArray(response.data)) {
         setStaffList(response.data);
       }
     } catch (error) {
-      console.error('Error fetching staff list:', error);
+      // silently ignore
     }
   };
 
   const fetchCommissions = async () => {
     try {
       const response = await api.get('/employee/commission');
-      console.log('Commissions:', response.data);
       if (Array.isArray(response.data)) {
         setCommissionsData(response.data);
       } else {
         setCommissionsData([]);
       }
     } catch (error) {
-      console.error('Error fetching commissions:', error);
       setCommissionsData([]);
     }
   };
@@ -523,11 +518,9 @@ function Dashboard() {
     setIsLoadingQr(true);
     try {
       const response = await api.get('/qr-code');
-      console.log('QR code:', response.data);
       setQrData(response.data);
       return response.data;
     } catch (error) {
-      console.error('Error fetching QR code:', error);
       setQrData(null);
       return null;
     } finally {
@@ -616,7 +609,7 @@ function Dashboard() {
         setServicePerformance(calculateServicePerformance(serviceRows));
       }
     } catch (error) {
-      console.error('Error fetching performance data:', error);
+      // silently ignore
     } finally {
       setIsLoadingPerformance(false);
     }
@@ -697,7 +690,7 @@ function Dashboard() {
 
       setFrequentCustomers(customersArray);
     } catch (error) {
-      console.error('Error fetching frequent customers:', error);
+      // silently ignore
     }
   };
 
@@ -850,7 +843,6 @@ function Dashboard() {
       await logout();
       navigate('/');
     } catch (error) {
-      console.log("Logout Error.", error);
       navigate('/');
     }
   };
@@ -1771,8 +1763,8 @@ function Dashboard() {
                     {isEmployeesRoute && 'Employees'}
                     {isInventoryRoute && 'Inventory'}
                     {isProductsRoute && 'Products'}
-                    {isReportsRoute && 'Reports'}
-                    {isSalesRoute && 'Sales'}
+                    {isReportsRoute && 'Incidents'}
+                    {isSalesRoute && 'Income'}
                     {isInventoryReportsRoute && 'Inventory Reports'}
                     {isRemittancesRoute && 'Remittances'}
                     {isDashboardRoute && 'Dashboard'}

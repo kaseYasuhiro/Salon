@@ -448,9 +448,6 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
                       source={{ uri: qrImageUrl }}
                       className="w-40 h-40"
                       resizeMode="contain"
-                      onError={(e) =>
-                        console.log("QR image failed:", qrImageUrl, e.nativeEvent.error)
-                      }
                     />
                   </View>
                 ) : (
@@ -627,7 +624,6 @@ export default function CustomerDashboard() {
       setStaff(staffData);
       return staffData;
     } catch (error) {
-      console.log("Error fetching staff:", error);
       return [];
     }
   };
@@ -643,7 +639,6 @@ export default function CustomerDashboard() {
       setGcashNumber(data?.gcash_number || null);
       return data;
     } catch (error) {
-      console.log("Error fetching QR code:", error);
       setQrImageUrl(null);
       setGcashNumber(null);
       return null;
@@ -657,7 +652,6 @@ export default function CustomerDashboard() {
     setIsLoading(true);
     try {
       const response = await api.get("/appointments");
-      console.log("Raw appointments response:", response.data);
 
       const activeStaff = staffOverride ?? staff;
 
@@ -799,7 +793,6 @@ export default function CustomerDashboard() {
 
       return groupedAppointments;
     } catch (error) {
-      console.log("Error fetching appointments:", error);
       return [];
     } finally {
       setIsLoading(false);
@@ -826,7 +819,6 @@ export default function CustomerDashboard() {
       setServices(servicesData);
       return servicesData;
     } catch (error) {
-      console.log("Error fetching services:", error);
       return [];
     }
   };
@@ -857,7 +849,6 @@ export default function CustomerDashboard() {
         });
       }
     } catch (error) {
-      console.error('Error picking image:', error);
       Alert.alert('Error', 'Failed to pick image. Please try again.');
     }
   };
@@ -982,7 +973,6 @@ export default function CustomerDashboard() {
       await fetchStaff();
       await fetchUserAppointments();
     } catch (error: any) {
-      console.error("Payment error:", error);
       Alert.alert(
         "Payment Failed",
         error.response?.data?.message || "Failed to process payment. Please try again."
@@ -1042,7 +1032,6 @@ export default function CustomerDashboard() {
       await logout();
       router.replace("/");
     } catch (error) {
-      console.log("Logout Error.", error);
       router.replace("/");
     }
   };

@@ -172,8 +172,6 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
   const [gcashNumber, setGcashNumber] = useState<string | null>(null);
   const [isLoadingQr, setIsLoadingQr] = useState(false);
 
-  const MAX_APPOINTMENTS_PER_TIME = 3;
-
   const { user } = useAuth();
 
   // ✅ Helper to build the full image URL from a stored path
@@ -193,7 +191,6 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
       setStaff(staffData);
       return staffData;
     } catch (error) {
-      console.log("Error fetching staff:", error);
       return [];
     }
   };
@@ -219,7 +216,6 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
       setServices(servicesData);
       return servicesData;
     } catch (error) {
-      console.log("Error fetching services:", error);
       return [];
     }
   };
@@ -232,7 +228,6 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
       setServiceSpecialties(specialtiesData);
       return specialtiesData;
     } catch (error) {
-      console.log("Error fetching service specialties:", error);
       return [];
     }
   };
@@ -245,7 +240,6 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
       setBusinessSchedules(schedulesData);
       return schedulesData;
     } catch (error) {
-      console.error('Error fetching business schedules:', error);
       return [];
     }
   };
@@ -258,7 +252,6 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
       setStaffAssignments(assignmentsData);
       return assignmentsData;
     } catch (error) {
-      console.error('Error fetching staff assignments:', error);
       return [];
     }
   };
@@ -277,7 +270,6 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
       setStaffFeedbacks(staffFeedbacksData);
       return staffFeedbacksData;
     } catch (error) {
-      console.log("Error fetching staff feedbacks:", error);
       return [];
     }
   };
@@ -307,7 +299,6 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
       setAllAppointments(appointmentsData);
       return appointmentsData;
     } catch (error) {
-      console.error('Error fetching all appointments:', error);
       return [];
     }
   };
@@ -327,7 +318,6 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
       setMasterHairColors(colorsData);
       return colorsData;
     } catch (error) {
-      console.error('Error fetching hair colors:', error);
       return [];
     }
   };
@@ -353,7 +343,6 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
 
       return servicesWithAdjustments;
     } catch (error) {
-      console.error('Error fetching service price adjustments:', error);
       return [];
     }
   };
@@ -368,7 +357,6 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
       setGcashNumber(data?.gcash_number || null);
       return data;
     } catch (error) {
-      console.log("Error fetching QR code:", error);
       setQrImageUrl(null);
       setGcashNumber(null);
       return null;
@@ -384,10 +372,8 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
           'Content-Type': 'multipart/form-data',
         },
       });
-      console.log("Booking completed:", response.data);
       return response.data;
     } catch (error) {
-      console.log("Error completing booking:", error);
       throw error;
     }
   };
@@ -610,25 +596,6 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     });
   };
 
-  const getAppointmentCountForTimeRange = (date: Date, time: string, durationMinutes: number): number => {
-    return getAppointmentsForTimeRange(date, time, durationMinutes).length;
-  };
-
-  const isTimeSlotAvailable = (date: Date, time: string): boolean => {
-    const totalDuration = getTotalDuration();
-    const count = getAppointmentCountForTimeRange(date, time, totalDuration);
-    return count < MAX_APPOINTMENTS_PER_TIME;
-  };
-
-  const getTimeSlotStatus = (date: Date, time: string): 'available' | 'partial' | 'full' => {
-    const totalDuration = getTotalDuration();
-    const count = getAppointmentCountForTimeRange(date, time, totalDuration);
-
-    if (count === 0) return 'available';
-    if (count < MAX_APPOINTMENTS_PER_TIME) return 'partial';
-    return 'full';
-  };
-
   const getTimeSlotsForDate = (date: Date): string[] => {
     const scheduleStatus = getScheduleStatus(date);
     if (scheduleStatus.status !== 'open' || !scheduleStatus.schedule) return [];
@@ -653,7 +620,6 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
         });
       }
     } catch (error) {
-      console.error('Error picking image:', error);
       Alert.alert('Error', 'Failed to pick image. Please try again.');
     }
   };
@@ -767,15 +733,6 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
   };
 
   const handleTimeSelect = (time: string) => {
-    if (!isTimeSlotAvailable(selectedDateForModal!, time)) {
-      const totalDuration = getTotalDuration();
-      Alert.alert(
-        "Time Slot Full",
-        `This time slot already has ${MAX_APPOINTMENTS_PER_TIME} appointment(s) within the ${totalDuration}-minute service duration. Please choose another time.`
-      );
-      return;
-    }
-
     const [hours, minutes] = time.split(':');
     const newDateTime = new Date(selectedDateForModal!);
     newDateTime.setHours(parseInt(hours), parseInt(minutes), 0);
@@ -845,7 +802,6 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
       }
 
       const result = await completeBooking(formData);
-      console.log("Booking response:", result);
 
       const paymentMethodLabel = 'GCash';
       const staffName = getStaffName(selectedStaffId);
@@ -884,7 +840,6 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
       setShowReceipt(true);
 
     } catch (error: any) {
-      console.error("Booking error:", error);
       if (error.response?.data?.errors) {
         const errorMessages = Object.values(error.response.data.errors).flat().join('\n');
         Alert.alert("Validation Error", errorMessages);
@@ -973,7 +928,6 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
       const average = parseFloat((total / staffReviews.length).toFixed(1));
       return { average, count: staffReviews.length };
     } catch (error) {
-      console.error(`Error getting rating for staff ${staffId}:`, error);
       return { average: 0, count: 0 };
     }
   };
@@ -1177,27 +1131,12 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                   Select Time for {selectedDateForModal?.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
                 </Text>
                 <Text className="text-xs text-gray-400">
-                  Duration: {totalDuration} minutes • Max {MAX_APPOINTMENTS_PER_TIME} appointment(s) per slot
+                  Duration: {totalDuration} minutes
                 </Text>
               </View>
               <TouchableOpacity onPress={() => { setShowTimePickerModal(false); setSelectedDateForModal(null); }}>
                 <Ionicons name="close" size={24} color="#9ca3af" />
               </TouchableOpacity>
-            </View>
-
-            <View className="flex-row items-center justify-between mb-3 px-2">
-              <View className="flex-row items-center gap-2">
-                <View className="w-3 h-3 rounded-full bg-green-500" />
-                <Text className="text-xs text-gray-600">Available</Text>
-              </View>
-              <View className="flex-row items-center gap-2">
-                <View className="w-3 h-3 rounded-full bg-yellow-500" />
-                <Text className="text-xs text-gray-600">Partial ({MAX_APPOINTMENTS_PER_TIME - 1} left)</Text>
-              </View>
-              <View className="flex-row items-center gap-2">
-                <View className="w-3 h-3 rounded-full bg-red-500" />
-                <Text className="text-xs text-gray-600">Full</Text>
-              </View>
             </View>
 
             {availableTimeSlots.length === 0 ? (
@@ -1211,75 +1150,22 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
               <ScrollView showsVerticalScrollIndicator={false} className="max-h-96">
                 <View className="flex-row flex-wrap justify-between">
                   {availableTimeSlots.map((time) => {
-                    const status = getTimeSlotStatus(selectedDateForModal!, time);
-                    const appointmentCount = getAppointmentCountForTimeRange(selectedDateForModal!, time, totalDuration);
-                    const isAvailable = status !== 'full';
                     const isSelected = selectedTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }) === time;
-
-                    let statusColor = 'bg-gray-100';
-                    let statusTextColor = 'text-gray-700';
-                    let borderColor = 'border-gray-200';
-
-                    if (isSelected) {
-                      statusColor = 'bg-pink-500';
-                      statusTextColor = 'text-white';
-                      borderColor = 'border-pink-500';
-                    } else if (status === 'available') {
-                      statusColor = 'bg-green-50';
-                      statusTextColor = 'text-green-700';
-                      borderColor = 'border-green-200';
-                    } else if (status === 'partial') {
-                      statusColor = 'bg-yellow-50';
-                      statusTextColor = 'text-yellow-700';
-                      borderColor = 'border-yellow-200';
-                    } else {
-                      statusColor = 'bg-red-50';
-                      statusTextColor = 'text-red-500';
-                      borderColor = 'border-red-200';
-                    }
 
                     return (
                       <TouchableOpacity
                         key={time}
-                        className={`w-[30%] py-3 mb-3 rounded-xl border-2 ${borderColor} items-center ${isSelected ? 'shadow-lg' : ''}`}
+                        className={`w-[30%] py-3 mb-3 rounded-xl border-2 items-center ${
+                          isSelected ? 'border-pink-500' : 'border-gray-200'
+                        }`}
                         style={{
-                          backgroundColor: isSelected ? '#ec4899' : (statusColor === 'bg-pink-500' ? '#ec4899' : undefined),
-                          opacity: isAvailable ? 1 : 0.6
+                          backgroundColor: isSelected ? '#ec4899' : 'white',
                         }}
-                        onPress={() => isAvailable && handleTimeSelect(time)}
-                        disabled={!isAvailable}
+                        onPress={() => handleTimeSelect(time)}
                       >
-                        <Text className={isSelected ? 'text-white font-bold' : statusTextColor}>
+                        <Text className={isSelected ? 'text-white font-bold' : 'text-gray-700'}>
                           {time}
                         </Text>
-                        {!isSelected && (
-                          <View className="flex-row items-center mt-1">
-                            {status === 'available' ? (
-                              <Ionicons name="checkmark-circle" size={12} color="#22c55e" />
-                            ) : status === 'partial' ? (
-                              <View className="flex-row items-center">
-                                <Ionicons name="time-outline" size={10} color="#eab308" />
-                                <Text className="text-[8px] text-yellow-600 ml-0.5">
-                                  {MAX_APPOINTMENTS_PER_TIME - appointmentCount} left
-                                </Text>
-                              </View>
-                            ) : (
-                              <Ionicons name="close-circle" size={12} color="#ef4444" />
-                            )}
-                            {appointmentCount > 0 && (
-                              <Text className="text-[8px] ml-1 text-gray-400">
-                                ({appointmentCount}/{MAX_APPOINTMENTS_PER_TIME})
-                              </Text>
-                            )}
-                          </View>
-                        )}
-                        {isSelected && (
-                          <View className="mt-1">
-                            <Text className="text-[8px] text-white/80">
-                              {appointmentCount}/{MAX_APPOINTMENTS_PER_TIME} booked • {totalDuration}min
-                            </Text>
-                          </View>
-                        )}
                       </TouchableOpacity>
                     );
                   })}
@@ -1504,13 +1390,6 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                                     source={{ uri: profileImage }}
                                     className="w-full h-48"
                                     resizeMode="cover"
-                                    onError={(e) =>
-                                      console.log(
-                                        "Staff image failed:",
-                                        profileImage,
-                                        e.nativeEvent.error
-                                      )
-                                    }
                                   />
                                 ) : (
                                   <View
@@ -2099,9 +1978,6 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                         source={{ uri: qrImageUrl }}
                         className="w-40 h-40"
                         resizeMode="contain"
-                        onError={(e) =>
-                          console.log("QR image failed:", qrImageUrl, e.nativeEvent.error)
-                        }
                       />
                     </View>
                   ) : (

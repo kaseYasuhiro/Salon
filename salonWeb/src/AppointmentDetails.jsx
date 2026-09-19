@@ -273,7 +273,6 @@ const PaymentProofModal = ({ selectedPaymentData, setSelectedPaymentData, setSho
                   alt="Payment Proof" 
                   className="w-full h-full object-contain"
                   onError={(e) => {
-                    console.error('Image failed to load:', proofUrl);
                     e.target.style.display = 'none';
                     const parent = e.target.parentElement;
                     if (parent) {
@@ -489,7 +488,6 @@ const AppointmentDetails = () => {
     setIsLoadingDates(true);
     try {
       const response = await api.get('/daysched');
-      console.log('Business schedules:', response.data);
       
       if (Array.isArray(response.data)) {
         const today = new Date().toISOString().split('T')[0];
@@ -498,10 +496,8 @@ const AppointmentDetails = () => {
           .map(schedule => schedule.business_date)
           .sort();
         setOpenScheduleDates(futureOpenDates);
-        console.log('Future open dates:', futureOpenDates);
       }
     } catch (error) {
-      console.error('Error fetching open schedule dates:', error);
       showToast('Failed to fetch available dates', 'error');
     } finally {
       setIsLoadingDates(false);
@@ -513,7 +509,6 @@ const AppointmentDetails = () => {
     setIsLoading(true);
     try {
       const response = await api.get('/all-appointments');
-      console.log('All appointments:', response.data);
       
       if (Array.isArray(response.data)) {
         const appointmentMap = new Map();
@@ -630,7 +625,6 @@ const AppointmentDetails = () => {
         }
       }
     } catch (error) {
-      console.error('Error fetching appointments:', error);
       setError('Failed to fetch appointments');
       showToast('Failed to fetch appointments', 'error');
     } finally {
@@ -643,13 +637,11 @@ const AppointmentDetails = () => {
     setIsLoadingDetail(true);
     try {
       const response = await api.get(`/appointment/${appointmentId}`);
-      console.log('Appointment details:', response.data);
       setSelectedAppointment(response.data);
       setShowAppointmentDetail(true);
       
       navigate(`/dashboard/appointments/${appointmentId}`, { replace: true });
     } catch (error) {
-      console.error('Error fetching appointment details:', error);
       showToast('Failed to fetch appointment details', 'error');
       const found = appointments.find(a => a.id === appointmentId);
       if (found) {
@@ -665,10 +657,8 @@ const AppointmentDetails = () => {
   const fetchPaymentDetails = async (appointmentId) => {
     try {
       const response = await api.get(`/appointment/payment-details/${appointmentId}`);
-      console.log('Payment details:', response.data);
       return response.data;
     } catch (error) {
-      console.error('Error fetching payment details:', error);
       showToast('Failed to fetch payment details', 'error');
       return null;
     }
@@ -678,7 +668,6 @@ const AppointmentDetails = () => {
   const fetchPaymentProof = async (appointmentId) => {
     try {
       const response = await api.get(`/appointment/payment?appointment_id=${appointmentId}`);
-      console.log('Payment data:', response.data);
       
       if (response.data && response.data.length > 0) {
         const payment = response.data.find(p => p.billing?.appointment_id === appointmentId);
@@ -693,7 +682,6 @@ const AppointmentDetails = () => {
         showToast('No payment record found for this appointment.', 'warning');
       }
     } catch (error) {
-      console.error('Error fetching payment proof:', error);
       showToast(error.response?.data?.message || 'Failed to fetch payment data', 'error');
     }
   };
@@ -711,7 +699,6 @@ const AppointmentDetails = () => {
         status: newStatus
       });
       
-      console.log('Appointment status updated:', response.data);
       showToast(`Appointment ${newStatus === 'confirmed' ? 'confirmed' : 'updated'} successfully!`, 'success');
       
       await fetchAllAppointments();
@@ -720,7 +707,6 @@ const AppointmentDetails = () => {
       }
       
     } catch (error) {
-      console.error('Error updating appointment status:', error);
       showToast(error.response?.data?.message || 'Failed to update appointment status', 'error');
     } finally {
       setIsUpdating(false);
@@ -753,7 +739,6 @@ const AppointmentDetails = () => {
       
       setShowCancelModal(true);
     } catch (error) {
-      console.error('Error opening cancel modal:', error);
       showToast('Failed to load payment details', 'error');
     }
   };
@@ -787,7 +772,6 @@ const AppointmentDetails = () => {
         refund_amount: cancelFormData.refund_amount
       });
       
-      console.log('Appointment cancelled with refund:', response.data);
       showToast('Appointment cancelled and refund processed successfully!', 'success');
       
       setShowCancelModal(false);
@@ -798,7 +782,6 @@ const AppointmentDetails = () => {
       }
       
     } catch (error) {
-      console.error('Error cancelling appointment:', error);
       showToast(error.response?.data?.message || 'Failed to cancel appointment', 'error');
     } finally {
       setIsProcessingCancel(false);
@@ -826,7 +809,6 @@ const AppointmentDetails = () => {
         appointment_time: rescheduleFormData.appointment_time + ':00'
       });
       
-      console.log('Appointment rescheduled:', response.data);
       showToast('Appointment rescheduled successfully!', 'success');
       
       setShowRescheduleModal(false);
@@ -837,7 +819,6 @@ const AppointmentDetails = () => {
       }
       
     } catch (error) {
-      console.error('Error rescheduling appointment:', error);
       showToast(error.response?.data?.message || 'Failed to reschedule appointment', 'error');
     } finally {
       setIsRescheduling(false);

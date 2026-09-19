@@ -85,12 +85,41 @@ function InventoryReports() {
     return 'in_stock';
   };
 
+  // ✅ Helper: build a "First Last" full name from any common nested shape
+  const getFullName = (person) => {
+    if (!person) return null;
+
+    // Direct first_name / last_name
+    if (person.first_name || person.last_name) {
+      return `${person.first_name || ''} ${person.last_name || ''}`.trim() || null;
+    }
+
+    // Nested under `user`
+    if (person.user && (person.user.first_name || person.user.last_name)) {
+      return `${person.user.first_name || ''} ${person.user.last_name || ''}`.trim() || null;
+    }
+
+    // Nested under `employee`
+    if (person.employee && (person.employee.first_name || person.employee.last_name)) {
+      return `${person.employee.first_name || ''} ${person.employee.last_name || ''}`.trim() || null;
+    }
+
+    // Nested under `employees`
+    if (person.employees && (person.employees.first_name || person.employees.last_name)) {
+      return `${person.employees.first_name || ''} ${person.employees.last_name || ''}`.trim() || null;
+    }
+
+    // Fallback: a pre-formatted `name` field
+    if (person.name) return person.name;
+
+    return null;
+  };
+
   // Fetch inventory
   const fetchInventory = async () => {
     setIsLoading(true);
     try {
       const response = await api.get('/inventory');
-      console.log('Fetched inventory:', response.data);
 
       if (Array.isArray(response.data)) {
         const transformedData = response.data.map(item => {
@@ -143,7 +172,6 @@ function InventoryReports() {
         }));
       }
     } catch (error) {
-      console.error('Error fetching inventory:', error);
       showToast('Failed to fetch inventory', 'error');
     } finally {
       setIsLoading(false);
@@ -155,7 +183,6 @@ function InventoryReports() {
     setIsLoadingTransactions(true);
     try {
       const response = await api.get('/inventory/transactions');
-      console.log('Fetched inventory transactions:', response.data);
 
       if (Array.isArray(response.data)) {
         setTransactions(response.data);
@@ -175,7 +202,6 @@ function InventoryReports() {
         }));
       }
     } catch (error) {
-      console.error('Error fetching inventory transactions:', error);
       showToast('Failed to fetch transactions', 'error');
     } finally {
       setIsLoadingTransactions(false);
@@ -187,7 +213,6 @@ function InventoryReports() {
     setIsLoadingExpenses(true);
     try {
       const response = await api.get('/expenses');
-      console.log('Fetched expenses:', response.data);
 
       const raw = Array.isArray(response.data)
         ? response.data
@@ -202,9 +227,11 @@ function InventoryReports() {
           amount: parseFloat(item.amount) || 0,
           expense_date: item.expense_date || (item.created_at ? item.created_at.split('T')[0] : null),
           description: item.description || 'N/A',
+          // ✅ Full name resolution: prefer first_name + last_name from any nested shape
           recorded_by:
-            item.employees?.name ||
-            item.employee?.name ||
+            getFullName(item.employees) ||
+            getFullName(item.employee) ||
+            getFullName(item.user) ||
             item.recorded_by_name ||
             (item.recorded_by ? `User #${item.recorded_by}` : 'N/A'),
           stock_amount: item.stock_amount || 0,
@@ -224,7 +251,6 @@ function InventoryReports() {
         totalExpenses
       }));
     } catch (error) {
-      console.error('Error fetching expenses:', error);
       showToast('Failed to fetch expenses', 'error');
       setExpenses([]);
     } finally {
@@ -755,7 +781,6 @@ function InventoryReports() {
                 <th className="px-4 py-3 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Usage Left</th>
                 <th className="px-4 py-3 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Reorder Level</th>
                 <th className="px-4 py-3 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Status</th>
-                {/* ✅ New Actions column */}
                 <th className="px-4 py-3 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
@@ -815,7 +840,6 @@ function InventoryReports() {
                     <td className="px-4 py-3">
                       {getStatusBadge(item.status)}
                     </td>
-                    {/* ✅ Per-product history button */}
                     <td className="px-4 py-3 whitespace-nowrap">
                       <button
                         onClick={() => handleOpenTransactionsModal(item)}

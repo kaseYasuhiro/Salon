@@ -61,7 +61,7 @@ class HairColorsController extends Controller
         $hairColor = HairColors::where('id', $id)->first();
 
         $hairColor->update([
-            'color_name' => $request->hair_color,
+            'color_name' => $request->color_name,
             'color_code' => $request->color_code,
             'is_active' => $request->is_active
         ]);

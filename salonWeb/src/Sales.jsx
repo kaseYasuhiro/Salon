@@ -183,7 +183,9 @@ function Sales() {
     try {
       const response = await api.get('/report');
       if (Array.isArray(response.data)) setReports(response.data);
-    } catch (error) { console.error('Error fetching reports:', error); }
+    } catch (error) {
+      // silently ignore
+    }
   };
 
   const getWrittenOffAmountForDate = (dateStr) => {
@@ -204,14 +206,18 @@ function Sales() {
     try {
       const response = await api.get('/staff-list');
       if (Array.isArray(response.data)) setStaffList(response.data);
-    } catch (error) { console.error('Error fetching staff list:', error); }
+    } catch (error) {
+      // silently ignore
+    }
   };
 
   const fetchServices = async () => {
     try {
       const response = await api.get('/services');
       if (Array.isArray(response.data)) setServices(response.data);
-    } catch (error) { console.error('Error fetching services:', error); }
+    } catch (error) {
+      // silently ignore
+    }
   };
 
   const fetchExpenses = async () => {
@@ -222,14 +228,18 @@ function Sales() {
         const total = response.data.reduce((sum, exp) => sum + (parseFloat(exp.amount) || 0), 0);
         setSalesData(prev => ({ ...prev, totalExpenses: total }));
       }
-    } catch (error) { console.error('Error fetching expenses:', error); }
+    } catch (error) {
+      // silently ignore
+    }
   };
 
   const fetchCommissions = async () => {
     try {
       const response = await api.get('/employee/commission');
       setCommissionsData(Array.isArray(response.data) ? response.data : []);
-    } catch (error) { setCommissionsData([]); }
+    } catch (error) {
+      setCommissionsData([]);
+    }
   };
 
   // ============================================================
@@ -519,7 +529,6 @@ function Sales() {
         }));
       }
     } catch (error) {
-      console.error('Error fetching sales data:', error);
       showToast('Failed to fetch sales data', 'error');
     } finally {
       setIsLoadingSales(false);
@@ -591,7 +600,6 @@ function Sales() {
         }));
       }
     } catch (error) {
-      console.error('Error fetching profit data:', error);
       showToast('Failed to fetch profit data', 'error');
     } finally {
       setIsLoadingProfit(false);

@@ -28,43 +28,29 @@ function App() {
   setIsLocalLoading(true);
 
   try {
-    console.log("1. Calling login API...");
     await login({ email, password });
-    console.log("2. Login API completed");
 
-    console.log("3. Checking for user data...");
     let currentUser = useAuth.getState().user;
-    console.log("Initial user:", currentUser);
     
     let retries = 0;
     while (!currentUser && retries < 10) {
       await new Promise(resolve => setTimeout(resolve, 500));
       currentUser = useAuth.getState().user;
       retries++;
-      console.log(`Waiting for user data... attempt ${retries}, user:`, currentUser);
     }
 
-    console.log("4. Final user after polling:", currentUser);
-
     if (currentUser) {
-      console.log("5. User role:", currentUser.role);
-      console.log("6. User full data:", currentUser);
-      
       if (currentUser.role === 'admin' || currentUser.role === 'owner') {
-        console.log("7. Access granted, navigating to dashboard...");
         navigate('/dashboard');
       } else {
-        console.log("7. Access denied - role is:", currentUser.role);
         alert("Access Denied. Owner Access Only.");
         await useAuth.getState().logout();
       }
     } else {
-      console.log("5. No user found after login");
       alert("Login Failed: Unable to Fetch User Information");
     }
 
   } catch (error) {
-    console.error("Login error:", error);
     let errorMessage = "Invalid Email or Password";
     if (error.response?.data?.message) {
       errorMessage = error.response.data.message;
@@ -81,17 +67,11 @@ function App() {
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex">
       {/* Left Side - Branding Section */}
       <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-pink-600 to-pink-800 relative overflow-hidden">
-        <div className="absolute top-10 left-10 opacity-20">
-          <div className="text-6xl">✂️</div>
-        </div>
-        <div className="absolute bottom-10 right-10 opacity-20">
-          <div className="text-6xl">✨</div>
-        </div>
         <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 opacity-10">
           <Crown size={200} className="text-white" />
         </div>
         
-        <div className="relative z-10 flex flex-col justify-center items-center text-white p-12">
+        <div className="relative z-10 flex flex-col justify-center items-center text-white p-12 w-full">
           <div className="max-w-md text-center">
             <div className="mb-8 flex justify-center">
               <div className="bg-white/20 p-4 rounded-2xl backdrop-blur-sm">

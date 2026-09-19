@@ -61,6 +61,24 @@ function Employees() {
     }, 3000);
   };
 
+  // Get full image URL
+  const getImageUrl = (imagePath) => {
+    if (!imagePath) return null;
+    if (imagePath.startsWith('http')) return imagePath;
+    if (imagePath.startsWith('/storage/')) return `http://192.168.100.73:8000${imagePath}`;
+    return `http://192.168.100.73:8000/storage/${imagePath}`;
+  };
+
+  // Resolve profile image from either flat or nested shape
+  const getEmployeeProfileImage = (employee) => {
+    if (!employee) return null;
+    // Nested shape (from /employee/specialties and /employees)
+    if (employee.user?.profile_image) return employee.user.profile_image;
+    // Flat shape (fallback)
+    if (employee.profile_image) return employee.profile_image;
+    return null;
+  };
+
   // Sort employees by created_at (most recent first) or by id
   const sortEmployeesByRecent = (employeesArray) => {
     return [...employeesArray].sort((a, b) => {
@@ -80,12 +98,11 @@ function Employees() {
   const fetchStaffFeedbacks = async () => {
     try {
       const response = await api.get('/feedbacks/staff');
-      console.log('Fetched staff feedbacks:', response.data);
       if (Array.isArray(response.data)) {
         setStaffFeedbacks(response.data);
       }
     } catch (error) {
-      console.error('Error fetching staff feedbacks:', error);
+      // silently ignore
     }
   };
 
@@ -93,12 +110,11 @@ function Employees() {
   const fetchSpecialtiesList = async () => {
     try {
       const response = await api.get('/specialties');
-      console.log('Available specialties:', response.data);
       if (Array.isArray(response.data)) {
         setSpecialtiesList(response.data);
       }
     } catch (error) {
-      console.error('Error fetching specialties list:', error);
+      // silently ignore
     }
   };
 
@@ -106,7 +122,6 @@ function Employees() {
   const fetchEmployeeCommissions = async () => {
     try {
       const response = await api.get('/employee/commission');
-      console.log('Fetched employee commissions:', response.data);
       
       const commissionMap = {};
       if (Array.isArray(response.data)) {
@@ -116,7 +131,7 @@ function Employees() {
       }
       setEmployeeCommissions(commissionMap);
     } catch (error) {
-      console.error('Error fetching employee commissions:', error);
+      // silently ignore
     }
   };
 
@@ -125,7 +140,6 @@ function Employees() {
     try {
       setIsRefreshing(true);
       const response = await api.get('/walk-in/staff');
-      console.log('Fetched walk-in authorizations:', response.data);
       
       if (Array.isArray(response.data)) {
         const authMap = {};
@@ -163,7 +177,7 @@ function Employees() {
         });
       }
     } catch (error) {
-      console.error('Error fetching walk-in authorizations:', error);
+      // silently ignore
     } finally {
       setIsRefreshing(false);
     }
@@ -174,7 +188,6 @@ function Employees() {
     setIsLoading(true);
     try {
       const response = await api.get('/employee/specialties');
-      console.log('Fetched employees with specialties:', response.data);
       
       if (Array.isArray(response.data)) {
         // Sort employees by most recent first
@@ -191,7 +204,7 @@ function Employees() {
         });
       }
     } catch (error) {
-      console.error('Error fetching employees:', error);
+      // silently ignore
     } finally {
       setIsLoading(false);
     }
@@ -256,11 +269,7 @@ function Employees() {
         walk_in_authorized: hasWalkIn ? employeeFormData.walk_in_authorized : null
       };
 
-      console.log('Saving all changes with:', updateData);
-
       const response = await api.post('/employees/update-all', updateData);
-      
-      console.log('Update response:', response.data);
 
       if (response.data.success) {
         showToast(response.data.message, 'success');
@@ -282,7 +291,6 @@ function Employees() {
       }
 
     } catch (error) {
-      console.error('Error saving all changes:', error);
       showToast(error.response?.data?.message || 'Error saving changes. Please try again.', 'error');
     } finally {
       setIsSavingAll(false);
@@ -369,7 +377,6 @@ function Employees() {
       resetForm();
       refreshAllData();
     } catch (error) {
-      console.error('Error adding employee:', error);
       if (error.response?.data?.message) {
         setFormError(error.response.data.message);
       } else if (error.response?.data?.errors) {
@@ -407,7 +414,6 @@ function Employees() {
       resetForm();
       refreshAllData();
     } catch (error) {
-      console.error('Error updating employee:', error);
       setFormError(error.response?.data?.message || 'Error updating employee');
     } finally {
       setIsLoading(false);
@@ -422,7 +428,6 @@ function Employees() {
         showToast(response.data.message || 'Staff member deleted successfully!', 'success');
         refreshAllData();
       } catch (error) {
-        console.error('Error deleting employee:', error);
         showToast(error.response?.data?.message || 'Error deleting employee', 'error');
       }
     }
@@ -616,6 +621,7 @@ function Employees() {
             const reviewCount = getStaffReviewCount(employee.id);
             const isAuthorized = walkInAuthorizations[employee.id] || false;
             const commission = employeeCommissions[employee.id] || 0;
+            const imageUrl = getImageUrl(getEmployeeProfileImage(employee));
             
             return (
               <div 
@@ -624,11 +630,28 @@ function Employees() {
                 className="bg-white rounded-xl shadow-sm hover:shadow-lg transition-all duration-300 border border-gray-100 overflow-hidden cursor-pointer group"
               >
                 <div className="relative h-24 bg-gradient-to-r from-pink-50 to-purple-50 flex items-center justify-center">
-                  <div className="w-14 h-14 bg-gradient-to-r from-pink-500 to-pink-600 rounded-xl flex items-center justify-center shadow-lg">
-                    <span className="text-white text-xl font-bold">
-                      {getInitials(employee.first_name, employee.last_name)}
-                    </span>
-                  </div>
+                  {imageUrl ? (
+                    <div className="w-14 h-14 rounded-xl overflow-hidden shadow-lg ring-2 ring-white">
+                      <img 
+                        src={imageUrl} 
+                        alt={`${employee.first_name} ${employee.last_name}`}
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          e.target.style.display = 'none';
+                          const parent = e.target.parentElement;
+                          if (parent) {
+                            parent.innerHTML = `<div class="w-full h-full bg-gradient-to-r from-pink-500 to-pink-600 flex items-center justify-center"><span class="text-white text-xl font-bold">${getInitials(employee.first_name, employee.last_name)}</span></div>`;
+                          }
+                        }}
+                      />
+                    </div>
+                  ) : (
+                    <div className="w-14 h-14 bg-gradient-to-r from-pink-500 to-pink-600 rounded-xl flex items-center justify-center shadow-lg">
+                      <span className="text-white text-xl font-bold">
+                        {getInitials(employee.first_name, employee.last_name)}
+                      </span>
+                    </div>
+                  )}
                   {employee.staff_specialties && employee.staff_specialties.length > 0 && (
                     <div className="absolute bottom-1.5 right-1.5 bg-white rounded-full px-1.5 py-0.5 shadow-md">
                       <div className="flex items-center gap-0.5">
@@ -776,6 +799,7 @@ function Employees() {
                   const reviewCount = getStaffReviewCount(employee.id);
                   const isAuthorized = walkInAuthorizations[employee.id] || false;
                   const commission = employeeCommissions[employee.id] || 0;
+                  const imageUrl = getImageUrl(getEmployeeProfileImage(employee));
                   
                   return (
                     <tr 
@@ -787,11 +811,28 @@ function Employees() {
                         className="px-4 py-3 whitespace-nowrap cursor-pointer"
                       >
                         <div className="flex items-center gap-2">
-                          <div className="w-8 h-8 bg-gradient-to-r from-pink-500 to-pink-600 rounded-lg flex items-center justify-center">
-                            <span className="text-white text-xs font-bold">
-                              {getInitials(employee.first_name, employee.last_name)}
-                            </span>
-                          </div>
+                          {imageUrl ? (
+                            <div className="w-8 h-8 rounded-lg overflow-hidden">
+                              <img 
+                                src={imageUrl} 
+                                alt={`${employee.first_name} ${employee.last_name}`}
+                                className="w-full h-full object-cover"
+                                onError={(e) => {
+                                  e.target.style.display = 'none';
+                                  const parent = e.target.parentElement;
+                                  if (parent) {
+                                    parent.innerHTML = `<div class="w-full h-full bg-gradient-to-r from-pink-500 to-pink-600 flex items-center justify-center"><span class="text-white text-xs font-bold">${getInitials(employee.first_name, employee.last_name)}</span></div>`;
+                                  }
+                                }}
+                              />
+                            </div>
+                          ) : (
+                            <div className="w-8 h-8 bg-gradient-to-r from-pink-500 to-pink-600 rounded-lg flex items-center justify-center">
+                              <span className="text-white text-xs font-bold">
+                                {getInitials(employee.first_name, employee.last_name)}
+                              </span>
+                            </div>
+                          )}
                           <div>
                             <p className="text-sm font-semibold text-gray-900">
                               {employee.first_name} {employee.last_name}
@@ -1078,11 +1119,28 @@ function Employees() {
               {/* Employee Info */}
               <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
                 <div className="flex items-center gap-4">
-                  <div className="w-14 h-14 bg-gradient-to-r from-pink-500 to-pink-600 rounded-xl flex items-center justify-center shadow-lg flex-shrink-0">
-                    <span className="text-white text-xl font-bold">
-                      {getInitials(selectedEmployee.first_name, selectedEmployee.last_name)}
-                    </span>
-                  </div>
+                  {getImageUrl(getEmployeeProfileImage(selectedEmployee)) ? (
+                    <div className="w-14 h-14 rounded-xl overflow-hidden shadow-lg flex-shrink-0">
+                      <img 
+                        src={getImageUrl(getEmployeeProfileImage(selectedEmployee))} 
+                        alt={`${selectedEmployee.first_name} ${selectedEmployee.last_name}`}
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          e.target.style.display = 'none';
+                          const parent = e.target.parentElement;
+                          if (parent) {
+                            parent.innerHTML = `<div class="w-full h-full bg-gradient-to-r from-pink-500 to-pink-600 flex items-center justify-center"><span class="text-white text-xl font-bold">${getInitials(selectedEmployee.first_name, selectedEmployee.last_name)}</span></div>`;
+                          }
+                        }}
+                      />
+                    </div>
+                  ) : (
+                    <div className="w-14 h-14 bg-gradient-to-r from-pink-500 to-pink-600 rounded-xl flex items-center justify-center shadow-lg flex-shrink-0">
+                      <span className="text-white text-xl font-bold">
+                        {getInitials(selectedEmployee.first_name, selectedEmployee.last_name)}
+                      </span>
+                    </div>
+                  )}
                   <div>
                     <h3 className="font-semibold text-gray-800 text-base">
                       {selectedEmployee.first_name} {selectedEmployee.last_name}

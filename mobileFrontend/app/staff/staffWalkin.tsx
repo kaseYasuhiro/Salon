@@ -200,7 +200,6 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
   const fetchStaff = async () => {
     try {
       const response = await api.get("/employee/specialties");
-      console.log("Fetched staff with specialties:", response.data);
       
       let staffData: StaffMember[] = [];
       if (Array.isArray(response.data)) {
@@ -210,7 +209,6 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
       setStaff(staffData);
       return staffData;
     } catch (error) {
-      console.log("Error fetching staff:", error);
       return [];
     }
   };
@@ -219,7 +217,6 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
   const fetchServices = async () => {
     try {
       const response = await api.get("/services");
-      console.log("Fetched services:", response.data);
       
       let servicesData: Service[] = [];
       if (Array.isArray(response.data)) {
@@ -239,7 +236,6 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
       setServices(servicesData);
       return servicesData;
     } catch (error) {
-      console.log("Error fetching services:", error);
       return [];
     }
   };
@@ -248,7 +244,6 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
   const fetchServiceSpecialties = async () => {
     try {
       const response = await api.get("/services/specialties");
-      console.log("Fetched service specialties:", response.data);
       
       let specialtiesData: any[] = [];
       if (Array.isArray(response.data)) {
@@ -258,7 +253,6 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
       setServiceSpecialties(specialtiesData);
       return specialtiesData;
     } catch (error) {
-      console.log("Error fetching service specialties:", error);
       return [];
     }
   };
@@ -267,7 +261,6 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
   const fetchStaffFeedbacks = async () => {
     try {
       const response = await api.get("/feedbacks/staff");
-      console.log("Raw staff feedbacks response:", response.data);
       
       let staffFeedbacksData: StaffFeedback[] = [];
       if (Array.isArray(response.data)) {
@@ -278,11 +271,9 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
         }));
       }
       
-      console.log("Processed staff feedbacks:", staffFeedbacksData);
       setStaffFeedbacks(staffFeedbacksData);
       return staffFeedbacksData;
     } catch (error) {
-      console.log("Error fetching staff feedbacks:", error);
       return [];
     }
   };
@@ -292,7 +283,6 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
     setIsLoadingWalkIns(true);
     try {
       const response = await api.get('/walk-in');
-      console.log('Fetched walk-ins:', response.data);
       
       let walkInsData: WalkIn[] = [];
       if (Array.isArray(response.data)) {
@@ -313,11 +303,9 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
       const currentStaffId = user?.id;
       const filteredWalkIns = walkInsData.filter(w => w.stylist_id === currentStaffId);
       
-      console.log('Processed walk-ins:', filteredWalkIns);
       setWalkIns(filteredWalkIns);
       return filteredWalkIns;
     } catch (error) {
-      console.error('Error fetching walk-ins:', error);
       return [];
     } finally {
       setIsLoadingWalkIns(false);
@@ -329,12 +317,10 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
     try {
       const userData = user;
       if (!userData?.id) {
-        console.log("No user ID found");
         return [];
       }
       
       const response = await api.get(`/staff/${userData.id}/appointments`);
-      console.log("Staff appointments response:", response.data);
       
       let appointmentsData: StaffAppointment[] = [];
       if (Array.isArray(response.data)) {
@@ -359,23 +345,18 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
         }));
       }
       
-      console.log("Processed staff appointments:", appointmentsData);
       setStaffAppointments(appointmentsData);
       return appointmentsData;
     } catch (error) {
-      console.log("Error fetching staff appointments:", error);
       return [];
     }
   };
 
-  // Fetch payment proof for appointment - FIXED
+  // Fetch payment proof for appointment
   const fetchPaymentProof = async (appointmentId: number) => {
     try {
-      console.log(`Fetching payment proof for appointment ID: ${appointmentId}`);
-      
       // Get the payment data for this specific appointment
       const response = await api.get(`/appointment/payment?appointment_id=${appointmentId}`);
-      console.log('Payment data response:', response.data);
       
       if (!response.data) {
         Alert.alert('No Payment Found', 'No payment record found for this appointment.');
@@ -386,13 +367,6 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
       
       // Handle array response
       if (Array.isArray(response.data)) {
-        console.log('All payments found:', response.data.map((p: any) => ({
-          id: p.id,
-          appointment_id: p.billing?.appointment_id || p.appointment_id,
-          payment_type: p.billing?.payment_type || p.payment_type,
-          billing_id: p.billing_id
-        })));
-        
         // First, try to find a payment that matches the appointment ID AND has a payment proof
         const matchingPayment = response.data.find((item: any) => {
           const itemAppointmentId = item.billing?.appointment_id || item.appointment_id;
@@ -401,12 +375,6 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
         
         if (matchingPayment) {
           paymentData = matchingPayment;
-          console.log('Found matching payment for appointment:', paymentData);
-        } else {
-          console.warn(`No payment found for appointment ID: ${appointmentId}`);
-          console.log('Available appointment IDs in payments:', 
-            response.data.map((p: any) => p.billing?.appointment_id || p.appointment_id)
-          );
         }
       } 
       // Handle single object response
@@ -415,9 +383,6 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
         
         if (itemAppointmentId === appointmentId) {
           paymentData = response.data;
-          console.log('Found matching payment for appointment:', paymentData);
-        } else {
-          console.warn(`Payment found but appointment ID mismatch. Expected: ${appointmentId}, Got: ${itemAppointmentId}`);
         }
       }
       
@@ -426,7 +391,6 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
         const actualAppointmentId = paymentData.billing?.appointment_id || paymentData.appointment_id;
         
         if (actualAppointmentId && actualAppointmentId !== appointmentId) {
-          console.warn(`Payment found for different appointment: Expected ${appointmentId}, got ${actualAppointmentId}`);
           Alert.alert('Data Mismatch', 'Payment data does not match this appointment. Please try again.');
           return;
         }
@@ -442,7 +406,6 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
         Alert.alert('No Payment Found', `No payment record found for appointment #${appointmentId}.`);
       }
     } catch (error: any) {
-      console.error('Error fetching payment proof:', error);
       Alert.alert('Error', error.response?.data?.message || 'Failed to fetch payment data');
     }
   };
@@ -465,7 +428,6 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
         is_finished: isFinished
       });
       
-      console.log('Walk-in updated:', response.data);
       Alert.alert(
         'Success', 
         isFinished === 1 ? 'Walk-in marked as completed!' : 'Walk-in marked as pending!'
@@ -475,31 +437,23 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
       setSelectedWalkIn(null);
       await fetchWalkIns();
     } catch (error: any) {
-      console.error('Error updating walk-in:', error);
       Alert.alert('Error', error.response?.data?.message || 'Failed to update walk-in');
     } finally {
       setIsUpdatingWalkIn(false);
     }
   };
 
-  // Update appointment status - FIXED to use the correct route
+  // Update appointment status
   const updateAppointmentStatus = async (appointment: StaffAppointment, newStatus: string) => {
     setIsUpdatingAppointment(true);
     try {
       // Use the correct ID field - the appointment might have 'appointment_id' or 'id'
       const appointmentId = appointment.appointment_id || appointment.id;
       
-      console.log("Updating appointment:", {
-        appointmentId,
-        newStatus,
-        appointment
-      });
-      
       const response = await api.put(`/appointments/update/${appointmentId}`, {
         status: newStatus
       });
       
-      console.log('Appointment status updated:', response.data);
       Alert.alert(
         'Success', 
         newStatus === 'confirmed' ? 'Appointment confirmed successfully!' : 'Appointment cancelled successfully!'
@@ -509,8 +463,6 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
       setSelectedAppointment(null);
       await fetchStaffAppointments();
     } catch (error: any) {
-      console.error('Error updating appointment:', error);
-      console.error('Error response:', error.response?.data);
       Alert.alert('Error', error.response?.data?.message || 'Failed to update appointment');
     } finally {
       setIsUpdatingAppointment(false);
@@ -526,10 +478,8 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
         stylist_id: data.stylist_id,
         is_finished: data.is_finished !== undefined ? data.is_finished : 0
       });
-      console.log('Walk-in submitted:', response.data);
       return response.data;
     } catch (error) {
-      console.error('Error submitting walk-in:', error);
       throw error;
     }
   };
@@ -539,7 +489,6 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
     setIsCheckingAuth(true);
     try {
       const response = await api.get('/walk-in/staff');
-      console.log('Walk-in authorization data:', response.data);
       
       if (Array.isArray(response.data)) {
         const currentStaffId = user?.id;
@@ -547,13 +496,9 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
           (auth: WalkInAuthorization) => auth.staff_id === currentStaffId
         );
         
-        console.log('Auth data for staff:', authData);
-        
         const isAuthorizedWalkIn = 
           authData?.isAuthorizedForWalkin === 1 || 
           authData?.isAuthorizedForWalkIn === 1;
-        
-        console.log('Is authorized:', isAuthorizedWalkIn);
         
         setIsAuthorized(isAuthorizedWalkIn);
         
@@ -565,7 +510,6 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
         setShowUnauthorizedModal(true);
       }
     } catch (error) {
-      console.error('Error checking walk-in authorization:', error);
       setIsAuthorized(false);
       setShowUnauthorizedModal(true);
     } finally {
@@ -577,12 +521,11 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
   const fetchBusinessSchedules = async () => {
     try {
       const response = await api.get('/daysched');
-      console.log('Fetched business schedules:', response.data);
       if (Array.isArray(response.data)) {
         setLocalBusinessSchedules(response.data);
       }
     } catch (error) {
-      console.error('Error fetching business schedules:', error);
+      // silently ignore
     }
   };
 
@@ -590,12 +533,11 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
   const fetchStaffAssignments = async () => {
     try {
       const response = await api.get('/assign');
-      console.log('Fetched staff assignments:', response.data);
       if (Array.isArray(response.data)) {
         setLocalStaffAssignments(response.data);
       }
     } catch (error) {
-      console.error('Error fetching staff assignments:', error);
+      // silently ignore
     }
   };
 
@@ -693,7 +635,6 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
         is_finished: 0
       };
       
-      console.log("Submitting walk-in with data:", data);
       await submitWalkIn(data);
       
       Alert.alert("Success", "Walk-in customer added successfully!");
@@ -709,7 +650,6 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
         onSuccess();
       }
     } catch (error: any) {
-      console.error("Error submitting walk-in:", error);
       Alert.alert("Error", error.response?.data?.message || "Failed to add walk-in customer");
     } finally {
       setIsProcessing(false);
@@ -763,7 +703,6 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
         count: staffReviews.length 
       };
     } catch (error) {
-      console.error(`Error getting rating for staff ${staffId}:`, error);
       return { average: 0, count: 0 };
     }
   };

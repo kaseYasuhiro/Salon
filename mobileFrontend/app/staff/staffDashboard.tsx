@@ -139,6 +139,18 @@ interface LossDamage {
 }
 
 // ─────────────────────────────────────────────────────────────
+// Shared image URL helper
+// ─────────────────────────────────────────────────────────────
+const BASE_URL = 'http://192.168.100.73:8000';
+
+const getImageUrl = (imagePath: string | null | undefined): string | null => {
+  if (!imagePath) return null;
+  if (imagePath.startsWith('http')) return imagePath;
+  if (imagePath.startsWith('/storage/')) return `${BASE_URL}${imagePath}`;
+  return `${BASE_URL}/storage/${imagePath}`;
+};
+
+// ─────────────────────────────────────────────────────────────
 // Incident Report Page
 // ─────────────────────────────────────────────────────────────
 const IncidentReportPage = ({ onBack, userId, onSuccess }: { onBack: () => void, userId: number, onSuccess?: () => void }) => {
@@ -176,7 +188,6 @@ const IncidentReportPage = ({ onBack, userId, onSuccess }: { onBack: () => void,
       const response = await api.get('/employees');
       if (Array.isArray(response.data)) setStaffList(response.data);
     } catch (error) {
-      console.error('Error fetching staff list:', error);
       Alert.alert('Error', 'Failed to load staff list');
     } finally {
       setIsLoadingStaff(false);
@@ -189,7 +200,6 @@ const IncidentReportPage = ({ onBack, userId, onSuccess }: { onBack: () => void,
       const response = await api.get('/inventory');
       if (Array.isArray(response.data)) setInventoryItems(response.data);
     } catch (error) {
-      console.error('Error fetching inventory items:', error);
       Alert.alert('Error', 'Failed to load inventory items');
     } finally {
       setIsLoadingInventory(false);
@@ -233,7 +243,6 @@ const IncidentReportPage = ({ onBack, userId, onSuccess }: { onBack: () => void,
       if (onSuccess) onSuccess();
       onBack();
     } catch (error: any) {
-      console.error('Error submitting report:', error);
       Alert.alert('Error', error.response?.data?.message || 'Failed to submit report. Please try again.');
     } finally {
       setIsSubmitting(false);
@@ -517,30 +526,265 @@ const IncidentReportPage = ({ onBack, userId, onSuccess }: { onBack: () => void,
 };
 
 // ─────────────────────────────────────────────────────────────
-// Profile Page
+// Change Password Section (matches customerSettingsTab)
 // ─────────────────────────────────────────────────────────────
-const ProfilePage = ({ onBack, userId, userData, onUpdate }: { onBack: () => void, userId: number, userData: any, onUpdate?: () => void }) => {
-  const [profileImage, setProfileImage] = useState<string | null>(userData?.profile_image || null);
-  const [isChangingPassword, setIsChangingPassword] = useState(false);
+const ChangePasswordSection = ({ onBack, userId }: { onBack: () => void; userId: number }) => {
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
+
+  const handleUpdatePassword = async () => {
+    if (!password || !confirmPassword) {
+      Alert.alert("Error", "Please fill in all fields.");
+      return;
+    }
+    if (password !== confirmPassword) {
+      Alert.alert("Error", "Passwords do not match.");
+      return;
+    }
+    if (password.length < 6) {
+      Alert.alert("Error", "Password must be at least 6 characters long.");
+      return;
+    }
+
+    setIsUpdatingPassword(true);
+    try {
+      await api.post(`/user/${userId}/password`, {
+        password: password,
+        password_confirmation: confirmPassword
+      });
+      Alert.alert("Success", "Password updated successfully!");
+      onBack();
+    } catch (error: any) {
+      Alert.alert("Error", error.response?.data?.message || "Failed to update password. Please try again.");
+    } finally {
+      setIsUpdatingPassword(false);
+    }
+  };
+
+  return (
+    <View className="flex-1 bg-gray-50">
+      <View className="px-5 pt-12 pb-4" style={{ backgroundColor: '#ec4899' }}>
+        <View className="flex-row items-center justify-between">
+          <TouchableOpacity onPress={onBack} className="p-1">
+            <Ionicons name="arrow-back" size={24} color="white" />
+          </TouchableOpacity>
+          <Text className="text-white text-lg font-semibold">Change Password</Text>
+          <View style={{ width: 32 }} />
+        </View>
+      </View>
+
+      <ScrollView className="flex-1 p-5">
+        <View className="bg-white rounded-2xl p-6 shadow-sm mb-5">
+          <View className="items-center mb-6">
+            <View className="w-20 h-20 bg-pink-100 rounded-full items-center justify-center mb-3">
+              <Ionicons name="lock-closed-outline" size={40} color="#ec4899" />
+            </View>
+            <Text className="text-gray-800 text-lg font-semibold text-center">
+              Update Your Password
+            </Text>
+            <Text className="text-gray-500 text-sm text-center mt-1">
+              Choose a strong password to keep your account secure
+            </Text>
+          </View>
+
+          <View className="space-y-4">
+            <View>
+              <Text className="text-gray-700 text-sm font-semibold mb-2">New Password *</Text>
+              <View className="flex-row items-center border border-gray-200 rounded-lg px-3 bg-gray-50">
+                <Ionicons name="lock-closed-outline" size={18} color="#9ca3af" />
+                <TextInput
+                  secureTextEntry
+                  value={password}
+                  onChangeText={setPassword}
+                  placeholder="Enter new password"
+                  placeholderTextColor="#9ca3af"
+                  className="flex-1 py-3 ml-2 text-gray-800"
+                />
+              </View>
+              <Text className="text-xs text-gray-500 mt-1">Minimum 6 characters</Text>
+            </View>
+
+            <View>
+              <Text className="text-gray-700 text-sm font-semibold mb-2">Confirm Password *</Text>
+              <View className="flex-row items-center border border-gray-200 rounded-lg px-3 bg-gray-50">
+                <Ionicons name="lock-closed-outline" size={18} color="#9ca3af" />
+                <TextInput
+                  secureTextEntry
+                  value={confirmPassword}
+                  onChangeText={setConfirmPassword}
+                  placeholder="Confirm your new password"
+                  placeholderTextColor="#9ca3af"
+                  className="flex-1 py-3 ml-2 text-gray-800"
+                />
+              </View>
+            </View>
+
+            {password !== confirmPassword && confirmPassword !== '' && (
+              <View className="bg-red-50 border border-red-200 rounded-lg p-3 flex-row items-center gap-2">
+                <Ionicons name="alert-circle" size={16} color="#ef4444" />
+                <Text className="text-red-600 text-sm">Passwords do not match</Text>
+              </View>
+            )}
+
+            {password.length > 0 && password.length < 6 && (
+              <View className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 flex-row items-center gap-2">
+                <Ionicons name="alert-circle" size={16} color="#eab308" />
+                <Text className="text-yellow-600 text-sm">Password must be at least 6 characters</Text>
+              </View>
+            )}
+          </View>
+        </View>
+
+        <View className="flex-row gap-3 mb-5">
+          <TouchableOpacity
+            onPress={onBack}
+            className="flex-1 py-3 rounded-xl border border-gray-300 bg-white"
+          >
+            <Text className="text-gray-700 text-center font-semibold">Cancel</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={handleUpdatePassword}
+            disabled={isUpdatingPassword || !password || !confirmPassword || password !== confirmPassword || password.length < 6}
+            className="flex-1 py-3 rounded-xl"
+            style={{
+              backgroundColor: (isUpdatingPassword || !password || !confirmPassword || password !== confirmPassword || password.length < 6)
+                ? '#f9a8d4'
+                : '#ec4899'
+            }}
+          >
+            <Text className="text-white text-center font-semibold">
+              {isUpdatingPassword ? 'Updating...' : 'Update Password'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+    </View>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────
+// Update Phone Section (matches customerSettingsTab)
+// ─────────────────────────────────────────────────────────────
+const UpdatePhoneSection = ({ onBack, currentPhone, userId }: { onBack: () => void, currentPhone: string, userId: number }) => {
+  const [phoneNumber, setPhoneNumber] = useState(currentPhone || '');
   const [isUpdatingPhone, setIsUpdatingPhone] = useState(false);
-  const [showPasswordModal, setShowPasswordModal] = useState(false);
-  const [showPhoneModal, setShowPhoneModal] = useState(false);
-  const [phoneNumber, setPhoneNumber] = useState(userData?.phone_number || '');
-  const [passwordForm, setPasswordForm] = useState({ password: '', password_confirmation: '' });
+
+  const handleUpdatePhone = async () => {
+    if (!phoneNumber.trim()) {
+      Alert.alert("Error", "Please enter a phone number.");
+      return;
+    }
+    if (!/^[0-9]{10,11}$/.test(phoneNumber.trim())) {
+      Alert.alert("Error", "Please enter a valid phone number (10-11 digits).");
+      return;
+    }
+
+    setIsUpdatingPhone(true);
+    try {
+      await api.post(`/user/${userId}/phone`, {
+        phone_number: phoneNumber.trim()
+      });
+      Alert.alert("Success", "Phone number updated successfully!");
+      onBack();
+    } catch (error: any) {
+      Alert.alert("Error", error.response?.data?.message || "Failed to update phone number.");
+    } finally {
+      setIsUpdatingPhone(false);
+    }
+  };
+
+  return (
+    <View className="flex-1 bg-gray-50">
+      <View className="px-5 pt-12 pb-4" style={{ backgroundColor: '#ec4899' }}>
+        <View className="flex-row items-center justify-between">
+          <TouchableOpacity onPress={onBack} className="p-1">
+            <Ionicons name="arrow-back" size={24} color="white" />
+          </TouchableOpacity>
+          <Text className="text-white text-lg font-semibold">Update Phone Number</Text>
+          <View style={{ width: 32 }} />
+        </View>
+      </View>
+
+      <ScrollView className="flex-1 p-5">
+        <View className="bg-white rounded-2xl p-6 shadow-sm mb-5">
+          <View className="items-center mb-6">
+            <View className="w-20 h-20 bg-pink-100 rounded-full items-center justify-center mb-3">
+              <Ionicons name="call-outline" size={40} color="#ec4899" />
+            </View>
+            <Text className="text-gray-800 text-lg font-semibold text-center">
+              Update Phone Number
+            </Text>
+            <Text className="text-gray-500 text-sm text-center mt-1">
+              Enter your new phone number below
+            </Text>
+          </View>
+
+          <View>
+            <Text className="text-gray-700 text-sm font-semibold mb-2">Phone Number *</Text>
+            <View className="flex-row items-center border border-gray-200 rounded-lg px-3 bg-gray-50">
+              <Ionicons name="call-outline" size={18} color="#9ca3af" />
+              <TextInput
+                value={phoneNumber}
+                onChangeText={setPhoneNumber}
+                placeholder="Enter phone number"
+                placeholderTextColor="#9ca3af"
+                keyboardType="phone-pad"
+                className="flex-1 py-3 ml-2 text-gray-800"
+              />
+            </View>
+            <Text className="text-xs text-gray-500 mt-1">Enter 10-11 digit phone number</Text>
+          </View>
+        </View>
+
+        <View className="flex-row gap-3 mb-5">
+          <TouchableOpacity
+            onPress={onBack}
+            className="flex-1 py-3 rounded-xl border border-gray-300 bg-white"
+          >
+            <Text className="text-gray-700 text-center font-semibold">Cancel</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={handleUpdatePhone}
+            disabled={isUpdatingPhone || !phoneNumber.trim()}
+            className="flex-1 py-3 rounded-xl"
+            style={{
+              backgroundColor: (isUpdatingPhone || !phoneNumber.trim()) ? '#f9a8d4' : '#ec4899'
+            }}
+          >
+            <Text className="text-white text-center font-semibold">
+              {isUpdatingPhone ? 'Updating...' : 'Update Phone Number'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+    </View>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────
+// Profile Page (matches customerSettingsTab ProfilePage)
+// ─────────────────────────────────────────────────────────────
+const ProfilePage = ({
+  onBack,
+  userId,
+  userData,
+  onProfileImageUpdated,
+}: {
+  onBack: () => void;
+  userId: number;
+  userData: any;
+  onProfileImageUpdated: (newPath: string) => void;
+}) => {
   const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [showChangePassword, setShowChangePassword] = useState(false);
+  const [showUpdatePhone, setShowUpdatePhone] = useState(false);
   const [resolvedUserId, setResolvedUserId] = useState<number | null>(userId || userData?.id || null);
 
   useEffect(() => {
     if (userId) setResolvedUserId(userId);
     else if (userData?.id) setResolvedUserId(userData.id);
   }, [userId, userData?.id]);
-
-  const getImageUrl = (imagePath: string | null) => {
-    if (!imagePath) return null;
-    if (imagePath.startsWith('http')) return imagePath;
-    if (imagePath.startsWith('/storage/')) return `http://192.168.100.73:8000${imagePath}`;
-    return `http://192.168.100.73:8000/storage/${imagePath}`;
-  };
 
   const pickDocument = async () => {
     try {
@@ -552,7 +796,6 @@ const ProfilePage = ({ onBack, userId, userData, onUpdate }: { onBack: () => voi
       const asset = result.assets[0];
       if (asset) uploadProfileImage(asset.uri, asset.name || 'profile.jpg', asset.mimeType || 'image/jpeg');
     } catch (error) {
-      console.error('Error picking document:', error);
       Alert.alert('Error', 'Failed to select image. Please try again.');
     }
   };
@@ -575,86 +818,47 @@ const ProfilePage = ({ onBack, userId, userData, onUpdate }: { onBack: () => voi
         const userResponse = await api.get('/user');
         if (userResponse.data?.profile_image) newPath = userResponse.data.profile_image;
       } catch (e) {
-        console.log('Failed to re-fetch user after upload:', e);
+        // silently ignore
       }
-      if (newPath) setProfileImage(newPath);
-      if (onUpdate) onUpdate();
+      if (newPath) onProfileImageUpdated(newPath);
       Alert.alert('Success', 'Profile picture updated successfully!');
     } catch (error: any) {
-      console.error('Error uploading profile image:', error);
       Alert.alert('Error', error.response?.data?.message || 'Failed to upload profile picture.');
     } finally {
       setIsUploadingImage(false);
     }
   };
 
-  const handleChangePassword = async () => {
-    if (!passwordForm.password || passwordForm.password.length < 6) {
-      Alert.alert('Validation Error', 'Password must be at least 6 characters.');
-      return;
-    }
-    if (passwordForm.password !== passwordForm.password_confirmation) {
-      Alert.alert('Validation Error', 'Passwords do not match.');
-      return;
-    }
-    setIsChangingPassword(true);
-    try {
-      await api.post(`/user/${userId}/password`, {
-        password: passwordForm.password,
-        password_confirmation: passwordForm.password_confirmation
-      });
-      Alert.alert('Success', 'Password updated successfully!');
-      setShowPasswordModal(false);
-      setPasswordForm({ password: '', password_confirmation: '' });
-    } catch (error: any) {
-      console.error('Error updating password:', error);
-      Alert.alert('Error', error.response?.data?.message || 'Failed to update password.');
-    } finally {
-      setIsChangingPassword(false);
-    }
-  };
+  const displayImage = getImageUrl(userData?.profile_image);
 
-  const handleUpdatePhoneNumber = async () => {
-    if (!phoneNumber.trim()) {
-      Alert.alert('Validation Error', 'Please enter a phone number.');
-      return;
-    }
-    if (!/^[0-9]{10,11}$/.test(phoneNumber.trim())) {
-      Alert.alert('Validation Error', 'Please enter a valid phone number (10-11 digits).');
-      return;
-    }
-    setIsUpdatingPhone(true);
-    try {
-      await api.post(`/user/${userId}/phone`, { phone_number: phoneNumber.trim() });
-      Alert.alert('Success', 'Phone number updated successfully!');
-      setShowPhoneModal(false);
-      if (onUpdate) onUpdate();
-    } catch (error: any) {
-      console.error('Error updating phone number:', error);
-      Alert.alert('Error', error.response?.data?.message || 'Failed to update phone number.');
-    } finally {
-      setIsUpdatingPhone(false);
-    }
-  };
+  if (showChangePassword) {
+    return <ChangePasswordSection onBack={() => setShowChangePassword(false)} userId={userId} />;
+  }
 
-  const displayImage = getImageUrl(profileImage);
+  if (showUpdatePhone) {
+    return <UpdatePhoneSection onBack={() => setShowUpdatePhone(false)} currentPhone={userData?.phone_number || ''} userId={userId} />;
+  }
 
   return (
-    <ScrollView className="flex-1 bg-gray-50">
-      <View className="bg-pink-500 px-5 pt-12 pb-4" style={{ borderBottomLeftRadius: 30, borderBottomRightRadius: 30 }}>
+    <View className="flex-1 bg-gray-50">
+      <View className="px-5 pt-12 pb-4" style={{ backgroundColor: '#ec4899' }}>
         <View className="flex-row items-center">
           <TouchableOpacity onPress={onBack} className="p-1 mr-3">
             <Ionicons name="arrow-back" size={24} color="white" />
           </TouchableOpacity>
-          <Text className="text-white text-xl font-semibold">Profile</Text>
+          <Text className="text-white text-lg font-semibold">Profile</Text>
         </View>
       </View>
 
-      <View className="px-5 pt-6">
-        <View className="bg-white rounded-2xl p-6 items-center shadow-sm mb-6">
+      <ScrollView className="flex-1 p-5">
+        <View className="bg-white rounded-2xl p-6 items-center shadow-sm mb-5">
           <TouchableOpacity onPress={pickDocument} className="mb-4">
             {displayImage ? (
-              <Image source={{ uri: displayImage }} className="w-24 h-24 rounded-full border-4 border-pink-200" resizeMode="cover" />
+              <Image
+                source={{ uri: displayImage }}
+                className="w-24 h-24 rounded-full border-4 border-pink-200"
+                resizeMode="cover"
+              />
             ) : (
               <View className="w-24 h-24 bg-pink-100 rounded-full items-center justify-center border-4 border-pink-200">
                 <Ionicons name="person" size={50} color="#ec4899" />
@@ -678,8 +882,11 @@ const ProfilePage = ({ onBack, userId, userData, onUpdate }: { onBack: () => voi
           <Text className="text-gray-400 text-sm">{userData?.phone_number}</Text>
         </View>
 
-        <View className="bg-white rounded-2xl overflow-hidden shadow-sm mb-4">
-          <TouchableOpacity className="flex-row items-center px-5 py-4 border-b border-gray-100" onPress={pickDocument}>
+        <View className="bg-white rounded-2xl overflow-hidden shadow-sm">
+          <TouchableOpacity
+            className="flex-row items-center px-5 py-4 border-b border-gray-100"
+            onPress={pickDocument}
+          >
             <Ionicons name="image-outline" size={22} color="#ec4899" />
             <Text className="ml-3 flex-1 text-gray-700">Change Profile Picture</Text>
             <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
@@ -687,119 +894,24 @@ const ProfilePage = ({ onBack, userId, userData, onUpdate }: { onBack: () => voi
 
           <TouchableOpacity
             className="flex-row items-center px-5 py-4 border-b border-gray-100"
-            onPress={() => { setPhoneNumber(userData?.phone_number || ''); setShowPhoneModal(true); }}
+            onPress={() => setShowUpdatePhone(true)}
           >
             <Ionicons name="call-outline" size={22} color="#ec4899" />
             <Text className="ml-3 flex-1 text-gray-700">Update Phone Number</Text>
             <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
           </TouchableOpacity>
 
-          <TouchableOpacity className="flex-row items-center px-5 py-4" onPress={() => setShowPasswordModal(true)}>
+          <TouchableOpacity
+            className="flex-row items-center px-5 py-4"
+            onPress={() => setShowChangePassword(true)}
+          >
             <Ionicons name="lock-closed-outline" size={22} color="#ec4899" />
             <Text className="ml-3 flex-1 text-gray-700">Change Password</Text>
             <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
           </TouchableOpacity>
         </View>
-
-        <Modal animationType="slide" transparent={true} visible={showPhoneModal}
-          onRequestClose={() => { setShowPhoneModal(false); setPhoneNumber(userData?.phone_number || ''); }}>
-          <View className="flex-1 justify-center items-center bg-black/50">
-            <View className="bg-white rounded-2xl w-full max-w-md mx-4 overflow-hidden">
-              <View className="bg-pink-500 px-6 py-4 flex-row justify-between items-center">
-                <Text className="text-xl font-bold text-white">Update Phone Number</Text>
-                <TouchableOpacity onPress={() => { setShowPhoneModal(false); setPhoneNumber(userData?.phone_number || ''); }}>
-                  <Ionicons name="close" size={24} color="white" />
-                </TouchableOpacity>
-              </View>
-              <View className="p-6">
-                <Text className="text-gray-500 text-sm mb-4">Enter your new phone number below.</Text>
-                <View className="mb-6">
-                  <Text className="text-gray-700 font-semibold text-sm mb-2">Phone Number *</Text>
-                  <View className="flex-row items-center bg-gray-50 rounded-xl px-4 py-3 border border-gray-200">
-                    <Ionicons name="call-outline" size={20} color="#9ca3af" />
-                    <TextInput
-                      value={phoneNumber}
-                      onChangeText={setPhoneNumber}
-                      placeholder="Enter phone number"
-                      keyboardType="phone-pad"
-                      className="flex-1 ml-2 text-gray-800"
-                    />
-                  </View>
-                  <Text className="text-gray-400 text-xs mt-1">Enter 10-11 digit phone number</Text>
-                </View>
-                <View className="flex-row gap-3">
-                  <TouchableOpacity
-                    onPress={() => { setShowPhoneModal(false); setPhoneNumber(userData?.phone_number || ''); }}
-                    className="flex-1 py-3 rounded-xl border border-gray-300">
-                    <Text className="text-gray-600 text-center font-semibold">Cancel</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={handleUpdatePhoneNumber} disabled={isUpdatingPhone} className="flex-1 py-3 rounded-xl bg-pink-500">
-                    <Text className="text-white text-center font-semibold">
-                      {isUpdatingPhone ? 'Updating...' : 'Update Phone Number'}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </View>
-          </View>
-        </Modal>
-
-        <Modal animationType="slide" transparent={true} visible={showPasswordModal}
-          onRequestClose={() => { setShowPasswordModal(false); setPasswordForm({ password: '', password_confirmation: '' }); }}>
-          <View className="flex-1 justify-center items-center bg-black/50">
-            <View className="bg-white rounded-2xl w-full max-w-md mx-4 overflow-hidden">
-              <View className="bg-pink-500 px-6 py-4 flex-row justify-between items-center">
-                <Text className="text-xl font-bold text-white">Change Password</Text>
-                <TouchableOpacity onPress={() => { setShowPasswordModal(false); setPasswordForm({ password: '', password_confirmation: '' }); }}>
-                  <Ionicons name="close" size={24} color="white" />
-                </TouchableOpacity>
-              </View>
-              <View className="p-6">
-                <Text className="text-gray-500 text-sm mb-4">Enter your new password below.</Text>
-                <View className="mb-4">
-                  <Text className="text-gray-700 font-semibold text-sm mb-2">New Password *</Text>
-                  <View className="flex-row items-center bg-gray-50 rounded-xl px-4 py-3 border border-gray-200">
-                    <Ionicons name="lock-closed-outline" size={20} color="#9ca3af" />
-                    <TextInput
-                      value={passwordForm.password}
-                      onChangeText={(text) => setPasswordForm(prev => ({ ...prev, password: text }))}
-                      placeholder="Enter new password"
-                      secureTextEntry
-                      className="flex-1 ml-2 text-gray-800"
-                    />
-                  </View>
-                </View>
-                <View className="mb-6">
-                  <Text className="text-gray-700 font-semibold text-sm mb-2">Confirm Password *</Text>
-                  <View className="flex-row items-center bg-gray-50 rounded-xl px-4 py-3 border border-gray-200">
-                    <Ionicons name="lock-closed-outline" size={20} color="#9ca3af" />
-                    <TextInput
-                      value={passwordForm.password_confirmation}
-                      onChangeText={(text) => setPasswordForm(prev => ({ ...prev, password_confirmation: text }))}
-                      placeholder="Confirm new password"
-                      secureTextEntry
-                      className="flex-1 ml-2 text-gray-800"
-                    />
-                  </View>
-                </View>
-                <View className="flex-row gap-3">
-                  <TouchableOpacity
-                    onPress={() => { setShowPasswordModal(false); setPasswordForm({ password: '', password_confirmation: '' }); }}
-                    className="flex-1 py-3 rounded-xl border border-gray-300">
-                    <Text className="text-gray-600 text-center font-semibold">Cancel</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={handleChangePassword} disabled={isChangingPassword} className="flex-1 py-3 rounded-xl bg-pink-500">
-                    <Text className="text-white text-center font-semibold">
-                      {isChangingPassword ? 'Updating...' : 'Update Password'}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </View>
-          </View>
-        </Modal>
-      </View>
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 };
 
@@ -843,6 +955,9 @@ export default function StaffDashboard() {
   const [lossDamages, setLossDamages] = useState<LossDamage[]>([]);
   const [userData, setUserData] = useState<any>(null);
 
+  // ✅ Shared profile image state (Settings card + Profile page read from here)
+  const [profileImage, setProfileImage] = useState<string | null>(null);
+
   // Schedule state (merged from StaffSchedule) — rendered on Home
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [businessSchedules, setBusinessSchedules] = useState<BusinessSchedule[]>([]);
@@ -855,20 +970,12 @@ export default function StaffDashboard() {
   const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
   const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-  const getImageUrl = (imagePath: string | null | undefined) => {
-    if (!imagePath) return null;
-    if (imagePath.startsWith('http')) return imagePath;
-    if (imagePath.startsWith('/storage/')) return `http://192.168.100.73:8000${imagePath}`;
-    return `http://192.168.100.73:8000/storage/${imagePath}`;
-  };
-
   const fetchUserData = async () => {
     try {
       const response = await api.get('/user');
       setUserData(response.data);
       return response.data;
     } catch (error) {
-      console.error('Error fetching user data:', error);
       return null;
     }
   };
@@ -899,7 +1006,6 @@ export default function StaffDashboard() {
       setStaffAppointments(appointmentsData);
       return appointmentsData;
     } catch (error) {
-      console.log("Error fetching staff appointments:", error);
       return [];
     }
   };
@@ -921,7 +1027,6 @@ export default function StaffDashboard() {
       setEmployeeCommissions(commissionsData);
       return commissionsData;
     } catch (error) {
-      console.error('Error fetching employee commissions:', error);
       return [];
     }
   };
@@ -943,7 +1048,6 @@ export default function StaffDashboard() {
       setRemittances(remittancesData);
       return remittancesData;
     } catch (error) {
-      console.error('Error fetching remittances:', error);
       return [];
     }
   };
@@ -968,7 +1072,6 @@ export default function StaffDashboard() {
       setWalkIns(walkInsData);
       return walkInsData;
     } catch (error) {
-      console.error('Error fetching walk-ins:', error);
       return [];
     }
   };
@@ -996,7 +1099,6 @@ export default function StaffDashboard() {
       setLossDamages(lossDamagesData);
       return lossDamagesData;
     } catch (error) {
-      console.error('Error fetching loss and damage reports:', error);
       return [];
     }
   };
@@ -1009,7 +1111,6 @@ export default function StaffDashboard() {
       });
       return response.data;
     } catch (error) {
-      console.error('Error submitting remittance:', error);
       throw error;
     }
   };
@@ -1019,7 +1120,6 @@ export default function StaffDashboard() {
       const response = await api.post('/report/submit', data);
       return response.data;
     } catch (error) {
-      console.error('Error submitting loss and damage report:', error);
       throw error;
     }
   };
@@ -1029,7 +1129,7 @@ export default function StaffDashboard() {
       const response = await api.get('/inventory');
       if (Array.isArray(response.data)) setInventoryItems(response.data);
     } catch (error) {
-      console.error('Error fetching inventory items:', error);
+      // silently ignore
     }
   };
 
@@ -1083,7 +1183,6 @@ export default function StaffDashboard() {
       setRemitAmount(earnings.profit);
       return earnings;
     } catch (error) {
-      console.error("Error loading remittance data:", error);
       throw error;
     } finally {
       setIsLoadingRemit(false);
@@ -1095,7 +1194,6 @@ export default function StaffDashboard() {
       await loadRemittanceData();
       setShowRemitModal(true);
     } catch (error) {
-      console.error("Error loading remittance data:", error);
       Alert.alert("Error", "Failed to load remittance data. Please try again.");
     }
   };
@@ -1118,7 +1216,6 @@ export default function StaffDashboard() {
       setShowRemitModal(false);
       await Promise.all([fetchStaffAppointments(), fetchEmployeeCommissions(), fetchRemittances(), fetchWalkIns()]);
     } catch (error: any) {
-      console.error('Error submitting remittance:', error);
       Alert.alert('Error', error.response?.data?.message || 'Failed to submit remittance');
     } finally {
       setIsSubmittingRemit(false);
@@ -1152,7 +1249,6 @@ export default function StaffDashboard() {
       setReportFormData({ incident_type: '', category: '', amount: '', description: '', inventory_id: '', transaction_id: '' });
       await fetchLossDamages();
     } catch (error: any) {
-      console.error('Error submitting report:', error);
       Alert.alert('Error', error.response?.data?.message || 'Failed to submit report');
     } finally {
       setIsSubmittingReport(false);
@@ -1189,7 +1285,7 @@ export default function StaffDashboard() {
       const response = await api.get('/daysched');
       if (Array.isArray(response.data)) setBusinessSchedules(response.data);
     } catch (error) {
-      console.error('Error fetching business schedules:', error);
+      // silently ignore
     }
   };
 
@@ -1198,7 +1294,7 @@ export default function StaffDashboard() {
       const response = await api.get('/assign');
       if (Array.isArray(response.data)) setStaffAssignments(response.data);
     } catch (error) {
-      console.error('Error fetching staff assignments:', error);
+      // silently ignore
     }
   };
 
@@ -1284,6 +1380,29 @@ export default function StaffDashboard() {
     }
   }, [user?.id]);
 
+  // ✅ Sync shared profile image with auth context
+  useEffect(() => {
+    if (user?.profile_image && user.profile_image !== profileImage) {
+      setProfileImage(user.profile_image);
+    }
+  }, [user?.profile_image]);
+
+  // ✅ On mount, fetch freshest user data for profile image
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.get('/user');
+        if (!cancelled && res.data?.profile_image) {
+          setProfileImage(res.data.profile_image);
+        }
+      } catch (e) {
+        // silently ignore
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await Promise.all([
@@ -1305,9 +1424,12 @@ export default function StaffDashboard() {
       await logout();
       router.replace("/");
     } catch (error) {
-      console.log("Logout Error.", error);
       router.replace("/");
     }
+  };
+
+  const handleProfileImageUpdated = (newPath: string) => {
+    setProfileImage(newPath);
   };
 
   const RemittanceModal = React.memo(() => {
@@ -1763,7 +1885,10 @@ export default function StaffDashboard() {
           onBack={() => setActiveTab('settings')}
           userId={user?.id || 0}
           userData={userData || user}
-          onUpdate={() => { fetchUserData(); onRefresh(); }}
+          onProfileImageUpdated={(newPath) => {
+            handleProfileImageUpdated(newPath);
+            fetchUserData();
+          }}
         />
       );
     }
@@ -1791,19 +1916,11 @@ export default function StaffDashboard() {
                     You have {todayAppointments.length} appointment(s) today
                   </Text>
                 </View>
+                {/* ✅ Bell icon in the top-right */}
                 <TouchableOpacity
-                  onPress={() => setActiveTab('settings')}
                   style={{ backgroundColor: 'rgba(255,255,255,0.2)', padding: 8, borderRadius: 9999 }}
                 >
-                  {getImageUrl(userData?.profile_image || user?.profile_image) ? (
-                    <Image
-                      source={{ uri: getImageUrl(userData?.profile_image || user?.profile_image)! }}
-                      className="w-8 h-8 rounded-full border-2 border-white"
-                      resizeMode="cover"
-                    />
-                  ) : (
-                    <Ionicons name="person-circle-outline" size={24} color="white" />
-                  )}
+                  <Ionicons name="notifications-outline" size={24} color="white" />
                 </TouchableOpacity>
               </View>
             </View>
@@ -2115,48 +2232,46 @@ export default function StaffDashboard() {
       case 'walkin':
         return <StaffWalkIn onSuccess={() => { onRefresh(); }} />;
 
+      // ✅ Settings tab now matches customerSettingsTab structure
       case 'settings':
         return (
           <ScrollView showsVerticalScrollIndicator={false} className="flex-1">
             <View className="px-5 pt-6">
               <Text className="text-3xl font-bold text-gray-800 mb-6">Settings</Text>
 
-              <TouchableOpacity
-                className="bg-white rounded-2xl p-6 mb-4 items-center shadow-sm"
-                onPress={() => setActiveTab('profile')}
-                activeOpacity={0.7}
-              >
-                {getImageUrl(userData?.profile_image || user?.profile_image) ? (
+              {/* Profile Section Card (like customerSettingsTab) */}
+              <View className="bg-white rounded-2xl p-5 mb-4 items-center" style={{ elevation: 2 }}>
+                {getImageUrl(profileImage) ? (
                   <Image
-                    source={{ uri: getImageUrl(userData?.profile_image || user?.profile_image)! }}
-                    className="w-24 h-24 rounded-full border-4 border-pink-200 mb-3"
+                    source={{ uri: getImageUrl(profileImage)! }}
+                    className="w-20 h-20 rounded-full mb-3"
                     resizeMode="cover"
                   />
                 ) : (
-                  <View className="bg-pink-100 w-24 h-24 rounded-full items-center justify-center border-4 border-pink-200 mb-3">
+                  <View className="bg-pink-100 p-4 rounded-full mb-3">
                     <Ionicons name="person" size={50} color="#ec4899" />
                   </View>
                 )}
-                <Text className="text-xl font-bold text-gray-800">{staffName}</Text>
+                <Text className="text-xl font-bold text-gray-800">
+                  {user?.first_name} {user?.last_name}
+                </Text>
                 <Text className="text-gray-500">Salon Staff</Text>
-                <Text className="text-gray-400 text-sm mt-2">{user?.email}</Text>
-                <Text className="text-gray-400 text-sm">{user?.phone_number}</Text>
-
-                <View className="flex-row items-center mt-3">
-                  <Ionicons name="chevron-forward-circle-outline" size={16} color="#ec4899" />
-                  <Text className="text-pink-500 text-xs font-semibold ml-1">Tap to view profile</Text>
-                </View>
-              </TouchableOpacity>
-
-              <View className="bg-white rounded-2xl overflow-hidden shadow-sm mb-4">
-                <TouchableOpacity className="flex-row items-center px-5 py-4 border-b border-gray-100">
-                  <Ionicons name="notifications-outline" size={22} color="#ec4899" />
-                  <Text className="ml-3 flex-1 text-gray-700">Notifications</Text>
-                  <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
+                <Text className="text-gray-500 text-sm">{user?.email}</Text>
+                <Text className="text-gray-500 text-sm">{user?.phone_number}</Text>
+                <TouchableOpacity
+                  className="bg-pink-500 px-6 py-2 rounded-full mt-3"
+                  onPress={() => setActiveTab('profile')}
+                >
+                  <Text className="text-white font-semibold">View Profile</Text>
                 </TouchableOpacity>
+              </View>
+
+              {/* Account Settings Card (like customerSettingsTab) */}
+              <View className="bg-white rounded-2xl p-5 mb-4" style={{ elevation: 2 }}>
+                <Text className="text-lg font-semibold text-gray-800 mb-3">Account Settings</Text>
 
                 <TouchableOpacity
-                  className="flex-row items-center px-5 py-4 border-b border-gray-100"
+                  className="flex-row items-center py-3 border-b border-gray-100"
                   onPress={() => setActiveTab('profile')}
                 >
                   <Ionicons name="person-outline" size={22} color="#ec4899" />
@@ -2164,8 +2279,14 @@ export default function StaffDashboard() {
                   <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
                 </TouchableOpacity>
 
+                <TouchableOpacity className="flex-row items-center py-3 border-b border-gray-100">
+                  <Ionicons name="notifications-outline" size={22} color="#ec4899" />
+                  <Text className="ml-3 flex-1 text-gray-700">Notifications</Text>
+                  <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
+                </TouchableOpacity>
+
                 <TouchableOpacity
-                  className="flex-row items-center px-5 py-4 border-b border-gray-100"
+                  className="flex-row items-center py-3"
                   onPress={() => setShowReportPage(true)}
                 >
                   <Ionicons name="alert-circle-outline" size={22} color="#ef4444" />
@@ -2174,6 +2295,7 @@ export default function StaffDashboard() {
                 </TouchableOpacity>
               </View>
 
+              {/* Logout */}
               <TouchableOpacity className="bg-red-500 py-4 rounded-xl mb-6" onPress={handleLogout}>
                 <Text className="text-white text-center font-semibold text-lg">Log Out</Text>
               </TouchableOpacity>

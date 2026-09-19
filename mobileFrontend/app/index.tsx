@@ -40,7 +40,6 @@ export default function Login() {
         await new Promise(resolve => setTimeout(resolve, 500));
         currentUser = useAuth.getState().user;
         retries++;
-        console.log(`Waiting for user data... attempt ${retries}`);
       }
 
       if (currentUser) {
@@ -58,8 +57,6 @@ export default function Login() {
         Alert.alert("Login Failed", "Unable to Fetch User Information");
       }
     } catch (error: any) {
-      console.log("Login error:", error);
-
       // Check if email is not verified
       if (error.isEmailNotVerified) {
         const verificationEmail = error.email || email;
@@ -88,7 +85,6 @@ export default function Login() {
                     params: { email: verificationEmail }
                   });
                 } catch (otpError: any) {
-                  console.error("Error sending OTP:", otpError);
                   Alert.alert(
                     "Error",
                     otpError.response?.data?.message || "Failed to send verification code. Please try again."
