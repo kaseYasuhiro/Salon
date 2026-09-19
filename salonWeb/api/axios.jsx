@@ -1,8 +1,8 @@
-import axiosClient from "axios";
+import axiosLib from "axios";
 import { getToken } from "../services/auth-storage";
 
-const axios = axiosClient.create({
-  baseURL: "http://192.168.100.73:8000/api",
+const axios = axiosLib.create({
+  baseURL: import.meta.env.VITE_API_URL,
   headers: {
     Accept: "application/json",
   },
