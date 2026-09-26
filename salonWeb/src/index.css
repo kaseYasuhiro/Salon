@@ -1,0 +1,27 @@
+@import "tailwindcss";
+
+/* Add this to your main CSS file */
+
+/* Hide scrollbar utility */
+@utility scrollbar-hide {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE and Edge */
+  
+  &::-webkit-scrollbar {
+    display: none; /* Chrome, Brave, Safari, Opera */
+    width: 0px;
+    height: 0px;
+  }
+}
+
+/* Show scrollbar (if you need to toggle) */
+@utility scrollbar-default {
+  scrollbar-width: auto;
+  -ms-overflow-style: auto;
+  
+  &::-webkit-scrollbar {
+    display: block;
+    width: auto;
+    height: auto;
+  }
+}

@@ -1,0 +1,1518 @@
+import React, { useState, useEffect, useCallback } from "react";
+import { View, Text, TouchableOpacity, ScrollView, Alert, RefreshControl, TextInput, Modal } from "react-native";
+import { Ionicons } from '@expo/vector-icons';
+import { useAuth } from "@/contexts/auth-context";
+import api from '@/api/axios';
+
+// ─────────────────────────────────────────────────────────────
+// Types
+// ─────────────────────────────────────────────────────────────
+interface Transaction {
+  id: number;
+  appointment_id: number;
+  customer_id: number;
+  service_id: number;
+  assigned_employee_id?: number;
+  total_amount: number;
+  payment_type: string;
+  payment_method: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+  appointment?: {
+    id: number;
+    appointment_date: string;
+    appointment_time: string;
+    status: string;
+    service_status: string;
+    service_name: string;
+    duration_minutes: number;
+    price: string;
+    assigned_employee_id?: number;
+  };
+  service?: {
+    id: number;
+    service_name: string;
+    description: string;
+    price: number;
+    duration_minutes: number;
+  };
+  assigned_employee?: {
+    id: number;
+    first_name: string;
+    last_name: string;
+    email: string;
+    phone_number: string;
+  };
+}
+
+interface Appointment {
+  id: number;
+  customer_id: number;
+  appointment_date: string;
+  appointment_time: string;
+  status: string;
+  service_status: string;
+  services: Array<{
+    service_name: string;
+    duration_minutes: number;
+    price: string;
+    service_status: string;
+  }>;
+  service_names: string[];
+  total_price: number;
+  total_duration: number;
+  assigned_employee_id?: number;
+  stylist_name?: string;
+  stylist_id?: number;
+  billing_total_amount?: number | null;
+  billing_paid_amount?: number | null;
+  billing_balance?: number | null;
+  service_name?: string;
+  duration_minutes?: number;
+  price?: string;
+}
+
+interface Feedback {
+  id: number;
+  customer_id: number;
+  appointment_id: number;
+  rating: number;
+  comments: string;
+  created_at?: string;
+  updated_at?: string;
+  customer_name?: string;
+  service_name?: string;
+}
+
+interface StaffFeedback {
+  id: number;
+  staff_id: number;
+  appointment_id?: number;
+  customer_id?: number;
+  rating: number;
+  comments?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+interface StaffMember {
+  id: number;
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone_number: string;
+  role: string;
+  profile_image?: string;
+  staff_specialties: Array<{
+    id: number;
+    staff_id: number;
+    specialty_id: number;
+    is_active: number;
+    specialties?: {
+      id: number;
+      specialty_name: string;
+    };
+  }>;
+}
+
+// ✅ Refund record shape (matches backend `refunds` table)
+interface Refund {
+  id: number;
+  payment_id: number;
+  appointment_id: number;
+  refund_amount: number | string;
+  refund_method: string;
+  reference_number?: string | null;
+  refund_reason?: string | null;
+  status: string; // 'pending' | 'completed' | 'failed'
+  processed_at?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+interface CustomerHistoryProps {
+  onOpenFeedbackPage?: (appointment: any) => void;
+  refreshTrigger?: number;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Feedback Page
+// ─────────────────────────────────────────────────────────────
+const FeedbackPage = ({ 
+  appointment, 
+  onBack, 
+  onSubmit 
+}: { 
+  appointment: any; 
+  onBack: () => void; 
+  onSubmit: (serviceRating: number, staffRating: number, comment: string) => Promise<void>;
+}) => {
+  const [serviceRating, setServiceRating] = useState<number>(0);
+  const [staffRating, setStaffRating] = useState<number>(0);
+  const [feedbackComment, setFeedbackComment] = useState<string>('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const formatDate = (date: string) => {
+    if (!date) return '';
+    const d = new Date(date);
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  };
+
+  const handleSubmit = async () => {
+    if (serviceRating === 0) {
+      Alert.alert("Rating Required", "Please rate the service before submitting.");
+      return;
+    }
+
+    if (staffRating === 0) {
+      Alert.alert("Rating Required", "Please rate the stylist before submitting.");
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      await onSubmit(serviceRating, staffRating, feedbackComment);
+      onBack();
+    } catch (error) {
+      // Error is already handled in the parent
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <View className="flex-1 bg-gray-50">
+      <View
+        className="px-5 pt-12 pb-4"
+        style={{ backgroundColor: '#ec4899' }}
+      >
+        <View className="flex-row items-center justify-between">
+          <TouchableOpacity onPress={onBack} className="p-1">
+            <Ionicons name="arrow-back" size={24} color="white" />
+          </TouchableOpacity>
+          <Text className="text-white text-lg font-semibold">Leave Feedback</Text>
+          <View style={{ width: 32 }} />
+        </View>
+      </View>
+
+      <ScrollView className="flex-1 p-5">
+        <View className="bg-white rounded-2xl p-6 shadow-sm mb-5">
+          <Text className="text-gray-800 text-lg font-bold text-center mb-2">
+            {appointment.service_names?.join(' + ') || appointment.service_name || 'Appointment'}
+          </Text>
+          <Text className="text-gray-500 text-sm text-center">
+            {formatDate(appointment.appointment_date)} at {appointment.appointment_time}
+          </Text>
+          {appointment.stylist_name && appointment.stylist_name !== 'Not assigned' && (
+            <Text className="text-gray-500 text-sm text-center mt-1">
+              Stylist: <Text className="font-semibold">{appointment.stylist_name}</Text>
+            </Text>
+          )}
+          {appointment.services && appointment.services.length > 1 && (
+            <View className="mt-2 pt-2 border-t border-gray-100">
+              <Text className="text-gray-400 text-xs text-center">
+                {appointment.services.length} services included
+              </Text>
+            </View>
+          )}
+        </View>
+
+        <View className="bg-white rounded-2xl p-6 shadow-sm mb-5">
+          <Text className="text-gray-800 text-lg font-semibold text-center mb-2">
+            Rate the Service
+          </Text>
+          <Text className="text-gray-500 text-sm text-center mb-4">
+            How was the overall service quality?
+          </Text>
+
+          <View className="flex-row justify-center gap-3 mb-2">
+            {[1, 2, 3, 4, 5].map((star) => (
+              <TouchableOpacity
+                key={`service-${star}`}
+                onPress={() => setServiceRating(star)}
+                className="p-1"
+              >
+                <Ionicons 
+                  name={star <= serviceRating ? "star" : "star-outline"} 
+                  size={40} 
+                  color={star <= serviceRating ? "#fbbf24" : "#d1d5db"} 
+                />
+              </TouchableOpacity>
+            ))}
+          </View>
+          <Text className="text-center text-gray-400 text-xs">
+            {serviceRating > 0 ? `${serviceRating} / 5` : 'Tap a star to rate'}
+          </Text>
+        </View>
+
+        <View className="bg-white rounded-2xl p-6 shadow-sm mb-5">
+          <Text className="text-gray-800 text-lg font-semibold text-center mb-2">
+            Rate the Stylist
+          </Text>
+          <Text className="text-gray-500 text-sm text-center mb-4">
+            How was your experience with {appointment.stylist_name || 'the stylist'}?
+          </Text>
+
+          <View className="flex-row justify-center gap-3 mb-2">
+            {[1, 2, 3, 4, 5].map((star) => (
+              <TouchableOpacity
+                key={`staff-${star}`}
+                onPress={() => setStaffRating(star)}
+                className="p-1"
+              >
+                <Ionicons 
+                  name={star <= staffRating ? "star" : "star-outline"} 
+                  size={40} 
+                  color={star <= staffRating ? "#fbbf24" : "#d1d5db"} 
+                />
+              </TouchableOpacity>
+            ))}
+          </View>
+          <Text className="text-center text-gray-400 text-xs">
+            {staffRating > 0 ? `${staffRating} / 5` : 'Tap a star to rate'}
+          </Text>
+        </View>
+
+        <View className="bg-white rounded-2xl p-6 shadow-sm mb-5">
+          <View className="border-t border-gray-100 pt-4">
+            <Text className="text-gray-700 text-sm font-semibold mb-3">
+              Share your thoughts (Optional)
+            </Text>
+            <TextInput
+              multiline
+              numberOfLines={5}
+              value={feedbackComment}
+              onChangeText={setFeedbackComment}
+              placeholder="Tell us about your experience with the service and stylist..."
+              className="border border-gray-200 rounded-xl p-4 text-gray-700 min-h-[120px] text-base"
+              textAlignVertical="top"
+            />
+          </View>
+        </View>
+
+        <View className="flex-row gap-3 mb-5">
+          <TouchableOpacity
+            onPress={onBack}
+            className="flex-1 py-3 rounded-xl border border-gray-300 bg-white"
+          >
+            <Text className="text-gray-700 text-center font-semibold">Cancel</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={handleSubmit}
+            disabled={isSubmitting}
+            className="flex-1 py-3 rounded-xl"
+            style={{ backgroundColor: isSubmitting ? '#f9a8d4' : '#ec4899' }}
+          >
+            <Text className="text-white text-center font-semibold">
+              {isSubmitting ? 'Submitting...' : 'Submit Feedback'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+    </View>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────
+// View Comment Modal
+// ─────────────────────────────────────────────────────────────
+interface ViewCommentModalProps {
+  visible: boolean;
+  appointment: Appointment | null;
+  serviceFeedback: Feedback | null;
+  staffFeedback: StaffFeedback | null;
+  stylistName: string;
+  onClose: () => void;
+}
+
+const ViewCommentModal: React.FC<ViewCommentModalProps> = ({
+  visible,
+  appointment,
+  serviceFeedback,
+  staffFeedback,
+  stylistName,
+  onClose,
+}) => {
+  if (!appointment) return null;
+
+  const formatDate = (date: string) => {
+    if (!date) return '';
+    const d = new Date(date);
+    return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+  };
+
+  const renderStars = (rating: number, size: number = 20) => {
+    const stars = [];
+    for (let i = 0; i < 5; i++) {
+      stars.push(
+        <Ionicons
+          key={i}
+          name={i < rating ? "star" : "star-outline"}
+          size={size}
+          color={i < rating ? "#fbbf24" : "#d1d5db"}
+        />
+      );
+    }
+    return stars;
+  };
+
+  const serviceRating = serviceFeedback?.rating || 0;
+  const stylistRating = staffFeedback?.rating || 0;
+  const comments = serviceFeedback?.comments || staffFeedback?.comments || '';
+  const submittedDate = serviceFeedback?.created_at || staffFeedback?.created_at;
+
+  return (
+    <Modal
+      transparent={true}
+      animationType="slide"
+      visible={visible}
+      onRequestClose={onClose}
+    >
+      <View className="flex-1 justify-center items-center bg-black/50 p-4">
+        <View className="bg-white rounded-2xl overflow-hidden w-full" style={{ minWidth: 320, maxHeight: '85%' }}>
+          <View className="px-6 py-4" style={{ backgroundColor: '#ec4899' }}>
+            <View className="flex-row justify-between items-center">
+              <View className="flex-1">
+                <Text className="text-white text-lg font-bold">Your Feedback</Text>
+                <Text className="text-white/80 text-xs mt-0.5">
+                  Submitted review for this appointment
+                </Text>
+              </View>
+              <TouchableOpacity onPress={onClose} className="p-1">
+                <Ionicons name="close" size={24} color="white" />
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <ScrollView showsVerticalScrollIndicator={false} className="p-5">
+            <View className="bg-pink-50 rounded-xl p-4 mb-4">
+              <Text className="text-gray-500 text-xs">Appointment</Text>
+              <Text className="text-gray-800 font-bold text-base mt-0.5">
+                {appointment.service_names?.join(' + ') || appointment.service_name || 'Appointment'}
+              </Text>
+              <View className="flex-row items-center mt-1">
+                <Ionicons name="calendar-outline" size={12} color="#9ca3af" />
+                <Text className="text-gray-500 text-xs ml-1">
+                  {formatDate(appointment.appointment_date)}
+                </Text>
+              </View>
+              <View className="flex-row items-center mt-0.5">
+                <Ionicons name="time-outline" size={12} color="#9ca3af" />
+                <Text className="text-gray-500 text-xs ml-1">
+                  {appointment.appointment_time}
+                </Text>
+              </View>
+              {stylistName && stylistName !== 'Not assigned' && (
+                <View className="flex-row items-center mt-0.5">
+                  <Ionicons name="person-outline" size={12} color="#9ca3af" />
+                  <Text className="text-gray-500 text-xs ml-1">
+                    Stylist: <Text className="font-semibold text-gray-700">{stylistName}</Text>
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            <View className="bg-white rounded-xl p-4 mb-3 border border-gray-100">
+              <View className="flex-row items-center justify-between mb-2">
+                <Text className="text-gray-700 text-sm font-semibold">Service Rating</Text>
+                <Text className="text-yellow-600 font-bold text-sm">
+                  {serviceRating > 0 ? `${serviceRating}/5` : 'N/A'}
+                </Text>
+              </View>
+              <View className="flex-row items-center gap-1">
+                {renderStars(serviceRating, 22)}
+              </View>
+            </View>
+
+            <View className="bg-white rounded-xl p-4 mb-3 border border-gray-100">
+              <View className="flex-row items-center justify-between mb-2">
+                <Text className="text-gray-700 text-sm font-semibold">
+                  Stylist Rating {stylistName && stylistName !== 'Not assigned' && `(${stylistName})`}
+                </Text>
+                <Text className="text-yellow-600 font-bold text-sm">
+                  {stylistRating > 0 ? `${stylistRating}/5` : 'N/A'}
+                </Text>
+              </View>
+              <View className="flex-row items-center gap-1">
+                {renderStars(stylistRating, 22)}
+              </View>
+            </View>
+
+            <View className="bg-white rounded-xl p-4 mb-3 border border-gray-100">
+              <Text className="text-gray-700 text-sm font-semibold mb-2">
+                Your Comment
+              </Text>
+              {comments && comments.trim().length > 0 ? (
+                <View className="bg-gray-50 rounded-lg p-3">
+                  <Text className="text-gray-700 text-sm italic leading-5">
+                    "{comments}"
+                  </Text>
+                </View>
+              ) : (
+                <View className="bg-gray-50 rounded-lg p-3 items-center">
+                  <Ionicons name="chatbubble-outline" size={20} color="#d1d5db" />
+                  <Text className="text-gray-400 text-xs mt-1">
+                    No comment was added
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            {submittedDate && (
+              <View className="items-center mt-1 mb-3">
+                <Text className="text-gray-400 text-[10px]">
+                  Submitted on {new Date(submittedDate).toLocaleDateString('en-US', {
+                    month: 'short',
+                    day: 'numeric',
+                    year: 'numeric',
+                  })}
+                </Text>
+              </View>
+            )}
+
+            <TouchableOpacity
+              onPress={onClose}
+              className="py-3 rounded-xl mt-2"
+              style={{ backgroundColor: '#ec4899' }}
+            >
+              <Text className="text-white text-center font-semibold">Close</Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────
+// ✅ Refund Details Modal
+// ─────────────────────────────────────────────────────────────
+interface RefundDetailsModalProps {
+  visible: boolean;
+  appointment: Appointment | null;
+  refund: Refund | null;
+  stylistName: string;
+  onClose: () => void;
+}
+
+const RefundDetailsModal: React.FC<RefundDetailsModalProps> = ({
+  visible,
+  appointment,
+  refund,
+  stylistName,
+  onClose,
+}) => {
+  if (!appointment) return null;
+
+  const formatDateTime = (date?: string | null) => {
+    if (!date) return '—';
+    const d = new Date(date);
+    if (isNaN(d.getTime())) return '—';
+    return d.toLocaleDateString('en-US', {
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric',
+    });
+  };
+
+  const formatCurrency = (value: number | string | null | undefined) => {
+    const num = parseFloat(String(value ?? 0)) || 0;
+    return `₱${num.toLocaleString()}`;
+  };
+
+  const capitalize = (s?: string | null) =>
+    s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : '—';
+
+  const getRefundStatusColor = (status?: string) => {
+    switch ((status || '').toLowerCase()) {
+      case 'completed': return { bg: '#dcfce7', text: '#15803d' };
+      case 'pending':   return { bg: '#fef3c7', text: '#b45309' };
+      case 'failed':    return { bg: '#fee2e2', text: '#b91c1c' };
+      default:          return { bg: '#f3f4f6', text: '#374151' };
+    }
+  };
+
+  const statusColor = getRefundStatusColor(refund?.status);
+
+  return (
+    <Modal
+      transparent={true}
+      animationType="slide"
+      visible={visible}
+      onRequestClose={onClose}
+    >
+      <View className="flex-1 justify-center items-center bg-black/50 p-4">
+        <View
+          className="bg-white rounded-2xl overflow-hidden w-full"
+          style={{ minWidth: 320, maxHeight: '85%' }}
+        >
+          {/* Header */}
+          <View className="px-6 py-4" style={{ backgroundColor: '#dc2626' }}>
+            <View className="flex-row justify-between items-center">
+              <View className="flex-1">
+                <Text className="text-white text-lg font-bold">Refund Details</Text>
+                <Text className="text-white/80 text-xs mt-0.5">
+                  Cancellation and refund information
+                </Text>
+              </View>
+              <TouchableOpacity onPress={onClose} className="p-1">
+                <Ionicons name="close" size={24} color="white" />
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <ScrollView showsVerticalScrollIndicator={false} className="p-5">
+            {/* Appointment summary */}
+            <View className="bg-red-50 rounded-xl p-4 mb-4">
+              <Text className="text-gray-500 text-xs">Appointment</Text>
+              <Text className="text-gray-800 font-bold text-base mt-0.5">
+                {appointment.service_names?.join(' + ') || appointment.service_name || 'Appointment'}
+              </Text>
+              <View className="flex-row items-center mt-1">
+                <Ionicons name="calendar-outline" size={12} color="#9ca3af" />
+                <Text className="text-gray-500 text-xs ml-1">
+                  {formatDateTime(appointment.appointment_date)}
+                </Text>
+              </View>
+              <View className="flex-row items-center mt-0.5">
+                <Ionicons name="time-outline" size={12} color="#9ca3af" />
+                <Text className="text-gray-500 text-xs ml-1">
+                  {appointment.appointment_time}
+                </Text>
+              </View>
+              {stylistName && stylistName !== 'Not assigned' && (
+                <View className="flex-row items-center mt-0.5">
+                  <Ionicons name="person-outline" size={12} color="#9ca3af" />
+                  <Text className="text-gray-500 text-xs ml-1">
+                    Stylist: <Text className="font-semibold text-gray-700">{stylistName}</Text>
+                  </Text>
+                </View>
+              )}
+              <View className="flex-row items-center mt-0.5">
+                <Ionicons name="pricetag-outline" size={12} color="#9ca3af" />
+                <Text className="text-gray-500 text-xs ml-1">
+                  Appointment ID: <Text className="font-semibold text-gray-700">#{appointment.id}</Text>
+                </Text>
+              </View>
+            </View>
+
+            {!refund ? (
+              <View className="bg-gray-50 rounded-xl p-5 items-center">
+                <Ionicons name="document-text-outline" size={32} color="#d1d5db" />
+                <Text className="text-gray-500 text-sm mt-2">
+                  No refund record found for this appointment
+                </Text>
+              </View>
+            ) : (
+              <>
+                {/* Refund amount */}
+                <View className="bg-white rounded-xl p-4 mb-3 border border-gray-100">
+                  <View className="flex-row items-center justify-between mb-1">
+                    <Text className="text-gray-700 text-sm font-semibold">
+                      Refund Amount
+                    </Text>
+                    <Text className="text-red-600 font-bold text-lg">
+                      {formatCurrency(refund.refund_amount)}
+                    </Text>
+                  </View>
+                  <View className="flex-row items-center justify-between">
+                    <Text className="text-gray-500 text-xs">Refund Status</Text>
+                    <View
+                      className="px-2 py-0.5 rounded-full"
+                      style={{ backgroundColor: statusColor.bg }}
+                    >
+                      <Text
+                        className="text-xs font-semibold capitalize"
+                        style={{ color: statusColor.text }}
+                      >
+                        {refund.status || 'pending'}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+
+                {/* Method + Reference */}
+                <View className="bg-white rounded-xl p-4 mb-3 border border-gray-100">
+                  <View className="flex-row items-center justify-between mb-2">
+                    <Text className="text-gray-700 text-sm font-semibold">
+                      Refund Method
+                    </Text>
+                    <View className="flex-row items-center gap-1">
+                      <Ionicons
+                        name={
+                          (refund.refund_method || '').toLowerCase() === 'gcash'
+                            ? 'phone-portrait-outline'
+                            : 'cash-outline'
+                        }
+                        size={16}
+                        color="#ec4899"
+                      />
+                      <Text className="text-gray-800 font-semibold text-sm">
+                        {capitalize(refund.refund_method)}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {refund.reference_number ? (
+                    <View className="bg-gray-50 rounded-lg p-3 mt-1">
+                      <Text className="text-gray-500 text-xs mb-1">
+                        Reference Number
+                      </Text>
+                      <Text className="text-gray-800 font-semibold text-sm">
+                        {refund.reference_number}
+                      </Text>
+                    </View>
+                  ) : (
+                    <View className="bg-gray-50 rounded-lg p-3 mt-1 items-center">
+                      <Text className="text-gray-400 text-xs">
+                        No reference number provided
+                      </Text>
+                    </View>
+                  )}
+                </View>
+
+                {/* Reason */}
+                <View className="bg-white rounded-xl p-4 mb-3 border border-gray-100">
+                  <Text className="text-gray-700 text-sm font-semibold mb-2">
+                    Cancellation Reason
+                  </Text>
+                  {refund.refund_reason && refund.refund_reason.trim().length > 0 ? (
+                    <View className="bg-gray-50 rounded-lg p-3">
+                      <Text className="text-gray-700 text-sm italic leading-5">
+                        "{refund.refund_reason}"
+                      </Text>
+                    </View>
+                  ) : (
+                    <View className="bg-gray-50 rounded-lg p-3 items-center">
+                      <Ionicons name="chatbubble-outline" size={20} color="#d1d5db" />
+                      <Text className="text-gray-400 text-xs mt-1">
+                        No reason provided
+                      </Text>
+                    </View>
+                  )}
+                </View>
+
+                {/* Processed date */}
+                <View className="bg-white rounded-xl p-4 mb-3 border border-gray-100">
+                  <View className="flex-row items-center justify-between">
+                    <Text className="text-gray-700 text-sm font-semibold">
+                      Processed On
+                    </Text>
+                    <Text className="text-gray-600 text-sm">
+                      {formatDateTime(refund.processed_at || refund.created_at)}
+                    </Text>
+                  </View>
+                </View>
+              </>
+            )}
+
+            <TouchableOpacity
+              onPress={onClose}
+              className="py-3 rounded-xl mt-2"
+              style={{ backgroundColor: '#dc2626' }}
+            >
+              <Text className="text-white text-center font-semibold">Close</Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────
+// Main History Tab
+// ─────────────────────────────────────────────────────────────
+export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger }: CustomerHistoryProps) {
+  const [showFeedbackPage, setShowFeedbackPage] = useState(false);
+  const [selectedAppointmentForFeedback, setSelectedAppointmentForFeedback] = useState<any>(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const [showCommentModal, setShowCommentModal] = useState(false);
+  const [selectedAppointmentForComment, setSelectedAppointmentForComment] = useState<Appointment | null>(null);
+
+  // ✅ Refund modal state
+  const [showRefundModal, setShowRefundModal] = useState(false);
+  const [selectedAppointmentForRefund, setSelectedAppointmentForRefund] = useState<Appointment | null>(null);
+
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
+  const [staffFeedbacks, setStaffFeedbacks] = useState<StaffFeedback[]>([]);
+  const [staff, setStaff] = useState<StaffMember[]>([]);
+  const [refunds, setRefunds] = useState<Refund[]>([]); // ✅ new
+  const [isLoading, setIsLoading] = useState(false);
+
+  const { user } = useAuth();
+
+  const fetchUserAppointments = async () => {
+    try {
+      const response = await api.get("/appointments");
+
+      let transactionsData: any[] = [];
+      if (Array.isArray(response.data)) {
+        transactionsData = response.data;
+      }
+
+      const appointmentMap = new Map<number, {
+        id: number;
+        customer_id: number;
+        appointment_date: string;
+        appointment_time: string;
+        status: string;
+        services: Array<{
+          service_name: string;
+          duration_minutes: number;
+          price: string;
+          service_status: string;
+        }>;
+        assigned_employee_id?: number;
+        stylist_name?: string;
+        billing_total_amount?: number | null;
+        billing_paid_amount?: number | null;
+        billing_balance?: number | null;
+      }>();
+
+      transactionsData.forEach((item: any) => {
+        const appointmentId = item.id;
+
+        if (!appointmentMap.has(appointmentId)) {
+          appointmentMap.set(appointmentId, {
+            id: appointmentId,
+            customer_id: item.customer_id,
+            appointment_date: item.appointment_date,
+            appointment_time: item.appointment_time,
+            status: item.status,
+            services: [],
+            assigned_employee_id: item.assigned_employee_id,
+            stylist_name: item.stylist_name,
+            billing_total_amount: item.billing_total_amount ?? null,
+            billing_paid_amount: item.billing_paid_amount ?? null,
+            billing_balance: item.billing_balance ?? null,
+          });
+        }
+
+        const appointment = appointmentMap.get(appointmentId)!;
+        appointment.services.push({
+          service_name: item.service_name || 'Unknown Service',
+          duration_minutes: item.duration_minutes || 0,
+          price: item.price || '0',
+          service_status: item.service_status || 'pending'
+        });
+      });
+
+      const groupedAppointments: Appointment[] = Array.from(appointmentMap.values()).map((appointment) => {
+        const serviceNames = appointment.services.map(s => s.service_name);
+        const totalDuration = appointment.services.reduce((sum, s) => sum + s.duration_minutes, 0);
+        const basePriceSum = appointment.services.reduce((sum, s) => sum + parseFloat(s.price || '0'), 0);
+
+        const totalPrice = (appointment.billing_total_amount != null && appointment.billing_total_amount > 0)
+          ? appointment.billing_total_amount
+          : basePriceSum;
+
+        const overallStatus = appointment.services.some(s => s.service_status === 'pending') 
+          ? 'pending' 
+          : appointment.services.every(s => s.service_status === 'completed') 
+            ? 'completed' 
+            : 'in_progress';
+
+        let stylistName = appointment.stylist_name;
+        if (!stylistName && appointment.assigned_employee_id) {
+          const staffMember = staff.find(s => s.id === appointment.assigned_employee_id);
+          if (staffMember) {
+            stylistName = `${staffMember.first_name} ${staffMember.last_name}`;
+          }
+        }
+
+        return {
+          id: appointment.id,
+          customer_id: appointment.customer_id,
+          appointment_date: appointment.appointment_date,
+          appointment_time: appointment.appointment_time,
+          status: appointment.status,
+          services: appointment.services,
+          service_names: serviceNames,
+          total_price: totalPrice,
+          total_duration: totalDuration,
+          assigned_employee_id: appointment.assigned_employee_id,
+          stylist_name: stylistName || 'Not assigned',
+          stylist_id: appointment.assigned_employee_id,
+          billing_total_amount: appointment.billing_total_amount ?? totalPrice,
+          billing_paid_amount: appointment.billing_paid_amount ?? 0,
+          billing_balance: appointment.billing_balance ?? (totalPrice / 2),
+          service_name: serviceNames.join(' + '),
+          duration_minutes: totalDuration,
+          price: totalPrice.toString(),
+          service_status: overallStatus
+        };
+      });
+
+      setAppointments(groupedAppointments);
+      return groupedAppointments;
+    } catch (error) {
+      return [];
+    }
+  };
+
+  const fetchUserTransactions = async () => {
+    try {
+      const response = await api.get("/transactions");
+      let transactionsData: Transaction[] = [];
+      if (Array.isArray(response.data)) {
+        transactionsData = response.data.map((item: any) => ({
+          id: item.id,
+          appointment_id: item.appointment_id,
+          customer_id: item.customer_id,
+          service_id: item.service_id,
+          assigned_employee_id: item.assigned_employee_id,
+          total_amount: parseFloat(item.total_amount) || 0,
+          payment_type: item.payment_type,
+          payment_method: item.payment_method,
+          status: item.status,
+          created_at: item.created_at,
+          updated_at: item.updated_at,
+          appointment: item.appointment,
+          service: item.service,
+          assigned_employee: item.assigned_employee
+        }));
+      }
+      setTransactions(transactionsData);
+      return transactionsData;
+    } catch (error) {
+      return [];
+    }
+  };
+
+  const fetchFeedbacks = async () => {
+    try {
+      const response = await api.get("/feedbacks");
+      let feedbacksData: Feedback[] = [];
+      if (Array.isArray(response.data)) {
+        feedbacksData = response.data;
+      }
+      setFeedbacks(feedbacksData);
+      return feedbacksData;
+    } catch (error) {
+      return [];
+    }
+  };
+
+  const fetchStaffFeedbacks = async () => {
+    try {
+      const response = await api.get("/feedbacks/staff");
+      let staffFeedbacksData: StaffFeedback[] = [];
+      if (Array.isArray(response.data)) {
+        staffFeedbacksData = response.data.map((item: any) => ({
+          id: item.id || 0,
+          staff_id: item.staff_id || 0,
+          appointment_id: item.appointment_id ?? null,
+          customer_id: item.customer_id ?? null,
+          rating: parseFloat(item.rating) || 0,
+          comments: item.comments || ''
+        }));
+      }
+      setStaffFeedbacks(staffFeedbacksData);
+      return staffFeedbacksData;
+    } catch (error) {
+      return [];
+    }
+  };
+
+  const fetchStaff = async () => {
+    try {
+      const response = await api.get("/employee/specialties");
+      let staffData: StaffMember[] = [];
+      if (Array.isArray(response.data)) {
+        staffData = response.data;
+      }
+      setStaff(staffData);
+      return staffData;
+    } catch (error) {
+      return [];
+    }
+  };
+
+  // ✅ Fetch refunds
+  const fetchRefunds = async () => {
+    try {
+      const response = await api.get("/refunds");
+
+      let refundsData: Refund[] = [];
+
+      // Handle both `{ data: [...] }` (paginated) and `[...]` shapes
+      const raw = response.data;
+      if (Array.isArray(raw)) {
+        refundsData = raw;
+      } else if (raw && Array.isArray(raw.data)) {
+        refundsData = raw.data;
+      }
+
+      refundsData = refundsData.map((item: any) => ({
+        id: item.id,
+        payment_id: item.payment_id,
+        appointment_id: item.appointment_id,
+        refund_amount: item.refund_amount,
+        refund_method: item.refund_method,
+        reference_number: item.reference_number ?? null,
+        refund_reason: item.refund_reason ?? null,
+        status: item.status,
+        processed_at: item.processed_at ?? null,
+        created_at: item.created_at,
+        updated_at: item.updated_at,
+      }));
+
+      setRefunds(refundsData);
+      return refundsData;
+    } catch (error) {
+      return [];
+    }
+  };
+
+  const submitFeedback = async (data: { appointment_id: number; customer_id: number; rating: number; comments: string }) => {
+    const response = await api.post("/feedbacks/submit", {
+      appointment_id: data.appointment_id,
+      customer_id: data.customer_id,
+      rating: data.rating,
+      comments: data.comments
+    });
+    return response.data;
+  };
+
+  const submitStaffFeedback = async (data: { staff_id: number; customer_id: number; rating: number; comments: string }) => {
+    const response = await api.post("/feedbacks/staff/submit", {
+      staff_id: data.staff_id,
+      customer_id: data.customer_id,
+      rating: data.rating,
+      comments: data.comments
+    });
+    return response.data;
+  };
+
+  const formatDate = (date: string) => {
+    if (!date) return '';
+    const d = new Date(date);
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  };
+
+  const getStatusColor = (status: string) => {
+    switch(status) {
+      case 'confirmed': return 'bg-green-100 text-green-700';
+      case 'pending': return 'bg-yellow-100 text-yellow-700';
+      case 'completed': return 'bg-blue-100 text-blue-700';
+      case 'cancelled': return 'bg-red-100 text-red-700';
+      default: return 'bg-gray-100 text-gray-700';
+    }
+  };
+
+  const hasFeedback = (appointmentId: number) => {
+    return feedbacks.filter(f => f.appointment_id === appointmentId).length > 0;
+  };
+
+  const getFeedbackRating = (appointmentId: number) => {
+    const feedbacksForAppointment = feedbacks.filter(f => f.appointment_id === appointmentId);
+    if (feedbacksForAppointment.length > 0) {
+      return feedbacksForAppointment[0].rating;
+    }
+    return null;
+  };
+
+  const getServiceFeedbackForAppointment = (appointmentId: number): Feedback | null => {
+    const list = feedbacks.filter(f => f.appointment_id === appointmentId);
+    return list.length > 0 ? list[0] : null;
+  };
+
+  const getStaffFeedbackForAppointment = (appointment: Appointment): StaffFeedback | null => {
+    const stylistId = appointment.stylist_id || appointment.assigned_employee_id;
+    if (!stylistId) return null;
+    const list = staffFeedbacks.filter(
+      f => f.staff_id === stylistId &&
+      (f.customer_id == null || f.customer_id === user?.id)
+    );
+    return list.length > 0 ? list[0] : null;
+  };
+
+  // ✅ Find refund for a given appointment
+  const getRefundForAppointment = (appointmentId: number): Refund | null => {
+    const list = refunds
+      .filter(r => r.appointment_id === appointmentId)
+      .sort((a, b) => {
+        const da = new Date(a.created_at || a.processed_at || 0).getTime();
+        const db = new Date(b.created_at || b.processed_at || 0).getTime();
+        return db - da;
+      });
+    return list.length > 0 ? list[0] : null;
+  };
+
+  const getStaffName = (staffId: number) => {
+    if (!staffId) return null;
+    const staffMember = staff.find(s => s.id === staffId);
+    return staffMember ? `${staffMember.first_name} ${staffMember.last_name}` : null;
+  };
+
+  const getStylistNameForAppointment = (appointment: Appointment) => {
+    if (appointment.stylist_name && appointment.stylist_name !== 'Not assigned') {
+      return appointment.stylist_name;
+    }
+    if (appointment.assigned_employee_id) {
+      const name = getStaffName(appointment.assigned_employee_id);
+      if (name) return name;
+    }
+    if (transactions.length > 0) {
+      const transaction = transactions.find(t => t.appointment_id === appointment.id);
+      if (transaction?.assigned_employee) {
+        return `${transaction.assigned_employee.first_name} ${transaction.assigned_employee.last_name}`;
+      }
+      if (transaction?.assigned_employee_id) {
+        const name = getStaffName(transaction.assigned_employee_id);
+        if (name) return name;
+      }
+    }
+    return 'Not assigned';
+  };
+
+  const getStylistIdForAppointment = (appointmentId: number) => {
+    const appointment = appointments.find(a => a.id === appointmentId);
+    if (appointment && appointment.assigned_employee_id) {
+      return appointment.assigned_employee_id;
+    }
+    const transaction = transactions.find(t => t.appointment_id === appointmentId);
+    if (transaction?.assigned_employee_id) {
+      return transaction.assigned_employee_id;
+    }
+    return null;
+  };
+
+  const handleOpenFeedbackPage = (appointment: Appointment) => {
+    const stylistName = getStylistNameForAppointment(appointment);
+    const stylistId = getStylistIdForAppointment(appointment.id);
+
+    const enrichedAppointment = {
+      ...appointment,
+      stylist_name: stylistName,
+      stylist_id: stylistId,
+      assigned_employee_id: stylistId
+    };
+
+    if (onOpenFeedbackPage) {
+      onOpenFeedbackPage(enrichedAppointment);
+    } else {
+      setSelectedAppointmentForFeedback(enrichedAppointment);
+      setShowFeedbackPage(true);
+    }
+  };
+
+  const handleCloseFeedbackPage = () => {
+    setShowFeedbackPage(false);
+    setSelectedAppointmentForFeedback(null);
+  };
+
+  const handleViewComment = (appointment: Appointment) => {
+    setSelectedAppointmentForComment(appointment);
+    setShowCommentModal(true);
+  };
+
+  const handleCloseCommentModal = () => {
+    setShowCommentModal(false);
+    setSelectedAppointmentForComment(null);
+  };
+
+  // ✅ Refund modal handlers
+  const handleViewRefund = (appointment: Appointment) => {
+    setSelectedAppointmentForRefund(appointment);
+    setShowRefundModal(true);
+  };
+
+  const handleCloseRefundModal = () => {
+    setShowRefundModal(false);
+    setSelectedAppointmentForRefund(null);
+  };
+
+  const handleSubmitFeedback = async (serviceRating: number, staffRating: number, comment: string) => {
+    const customerId = user?.id;
+
+    if (!customerId || customerId === 0) {
+      Alert.alert("Error", "Please log in again to submit feedback.");
+      throw new Error("No customer ID");
+    }
+
+    await submitFeedback({
+      appointment_id: selectedAppointmentForFeedback.id,
+      customer_id: customerId,
+      rating: serviceRating,
+      comments: comment
+    });
+
+    if (selectedAppointmentForFeedback.stylist_id || selectedAppointmentForFeedback.assigned_employee_id) {
+      const staffId = selectedAppointmentForFeedback.stylist_id || selectedAppointmentForFeedback.assigned_employee_id;
+      await submitStaffFeedback({
+        staff_id: staffId,
+        customer_id: customerId,
+        rating: staffRating,
+        comments: comment
+      });
+    } else {
+      Alert.alert("Warning", "No stylist was assigned to this appointment. Staff feedback was not submitted.");
+    }
+
+    Alert.alert("Thank You!", "Your feedback has been submitted successfully.");
+    await Promise.all([
+      fetchUserAppointments(),
+      fetchUserTransactions(),
+      fetchFeedbacks(),
+      fetchStaffFeedbacks(),
+      fetchRefunds()
+    ]);
+  };
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await Promise.all([
+      fetchUserAppointments(),
+      fetchUserTransactions(),
+      fetchFeedbacks(),
+      fetchStaffFeedbacks(),
+      fetchStaff(),
+      fetchRefunds()
+    ]);
+    setRefreshing(false);
+  }, []);
+
+  useEffect(() => {
+    setIsLoading(true);
+    Promise.all([
+      fetchUserAppointments(),
+      fetchUserTransactions(),
+      fetchFeedbacks(),
+      fetchStaffFeedbacks(),
+      fetchStaff(),
+      fetchRefunds()
+    ]).finally(() => setIsLoading(false));
+  }, []);
+
+  useEffect(() => {
+    if (refreshTrigger) {
+      Promise.all([
+        fetchUserAppointments(),
+        fetchUserTransactions(),
+        fetchFeedbacks(),
+        fetchStaffFeedbacks(),
+        fetchStaff(),
+        fetchRefunds()
+      ]);
+    }
+  }, [refreshTrigger]);
+
+  const renderStars = (rating: number) => {
+    const stars = [];
+    for (let i = 0; i < 5; i++) {
+      stars.push(
+        <Ionicons 
+          key={i} 
+          name={i < rating ? "star" : "star-outline"} 
+          size={14} 
+          color={i < rating ? "#fbbf24" : "#d1d5db"} 
+        />
+      );
+    }
+    return stars;
+  };
+
+  const filteredAppointments = appointments.filter(
+    (item) => item.status === 'completed' || item.status === 'cancelled'
+  );
+
+  if (showFeedbackPage && selectedAppointmentForFeedback) {
+    return (
+      <FeedbackPage 
+        appointment={selectedAppointmentForFeedback}
+        onBack={handleCloseFeedbackPage}
+        onSubmit={handleSubmitFeedback}
+      />
+    );
+  }
+
+  const commentModalServiceFeedback = selectedAppointmentForComment
+    ? getServiceFeedbackForAppointment(selectedAppointmentForComment.id)
+    : null;
+
+  const commentModalStaffFeedback = selectedAppointmentForComment
+    ? getStaffFeedbackForAppointment(selectedAppointmentForComment)
+    : null;
+
+  const commentModalStylistName = selectedAppointmentForComment
+    ? getStylistNameForAppointment(selectedAppointmentForComment)
+    : 'Not assigned';
+
+  // ✅ Refund modal props
+  const refundModalRefund = selectedAppointmentForRefund
+    ? getRefundForAppointment(selectedAppointmentForRefund.id)
+    : null;
+
+  const refundModalStylistName = selectedAppointmentForRefund
+    ? getStylistNameForAppointment(selectedAppointmentForRefund)
+    : 'Not assigned';
+
+  return (
+    <>
+      <ScrollView 
+        showsVerticalScrollIndicator={false} 
+        className="flex-1"
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#ec4899']} />
+        }
+      >
+        <View className="px-5 pt-6">
+          <Text className="text-3xl font-bold text-gray-800 mb-2">History</Text>
+          <Text className="text-gray-500 mb-6">Your completed and cancelled appointments</Text>
+
+          {isLoading ? (
+            <View className="py-10">
+              <Text className="text-center text-gray-500">Loading history...</Text>
+            </View>
+          ) : filteredAppointments.length === 0 ? (
+            <View className="bg-white rounded-2xl p-8 items-center" style={{ elevation: 2 }}>
+              <Ionicons name="document-text-outline" size={50} color="#d1d5db" />
+              <Text className="text-gray-500 text-center mt-3">No completed or cancelled appointments</Text>
+            </View>
+          ) : (
+            filteredAppointments.map((item) => {
+              const hasGivenFeedback = hasFeedback(item.id);
+              const existingRating = getFeedbackRating(item.id);
+              const isCompleted = item.status === 'completed';
+              const isCancelled = item.status === 'cancelled';
+              const isMultipleServices = item.services && item.services.length > 1;
+              const services = item.services || [];
+              const serviceNames = item.service_names || ['No Service'];
+
+              const stylistName = getStylistNameForAppointment(item);
+              const stylistId = getStylistIdForAppointment(item.id);
+
+              const grandTotal = item.billing_total_amount ?? item.total_price ?? 0;
+              const paidAmount = item.billing_paid_amount ?? 0;
+              const balance = item.billing_balance ?? (grandTotal - paidAmount);
+
+              const canViewReview = isCompleted && hasGivenFeedback;
+
+              // ✅ refund info for cancelled appointments
+              const refund = isCancelled ? getRefundForAppointment(item.id) : null;
+
+              return (
+                <View key={item.id} className="bg-white rounded-2xl p-4 mb-3 shadow-sm">
+                  <TouchableOpacity
+                    activeOpacity={canViewReview ? 0.7 : 1}
+                    disabled={!canViewReview}
+                    onPress={() => canViewReview && handleViewComment(item)}
+                  >
+                    <View className="flex-row justify-between items-start">
+                      <View className="flex-1">
+                        <View className="flex-row flex-wrap items-center">
+                          <Text className="font-semibold text-gray-800 text-lg">
+                            {serviceNames.join(' + ')}
+                          </Text>
+                          {isMultipleServices && (
+                            <View className="ml-2 bg-pink-100 px-2 py-0.5 rounded-full">
+                              <Text className="text-pink-600 text-xs font-semibold">
+                                {services.length} services
+                              </Text>
+                            </View>
+                          )}
+                        </View>
+
+                        {isMultipleServices && services.length > 0 && (
+                          <View className="mt-1">
+                            {services.map((service, index) => (
+                              <View key={index} className="flex-row items-center mt-0.5">
+                                <View className="w-1.5 h-1.5 bg-pink-400 rounded-full mr-2" />
+                                <Text className="text-gray-500 text-xs">
+                                  {service.service_name} ({service.duration_minutes} mins)
+                                </Text>
+                              </View>
+                            ))}
+                          </View>
+                        )}
+
+                        <View className="flex-row items-center mt-1">
+                          <Ionicons name="calendar-outline" size={12} color="#9ca3af" />
+                          <Text className="text-gray-400 text-xs ml-1">{formatDate(item.appointment_date)}</Text>
+                        </View>
+                        <View className="flex-row items-center mt-1">
+                          <Ionicons name="time-outline" size={12} color="#9ca3af" />
+                          <Text className="text-gray-400 text-xs ml-1">{item.appointment_time}</Text>
+                        </View>
+
+                        <View className="flex-row items-center mt-1">
+                          <Ionicons name="person-outline" size={12} color="#9ca3af" />
+                          <Text className="text-gray-400 text-xs ml-1">
+                            Stylist: <Text className="font-medium text-gray-600">{stylistName}</Text>
+                          </Text>
+                        </View>
+
+                        {isMultipleServices && (
+                          <View className="flex-row items-center mt-1">
+                            <Ionicons name="hourglass-outline" size={12} color="#9ca3af" />
+                            <Text className="text-gray-400 text-xs ml-1">Total: {item.total_duration} mins</Text>
+                          </View>
+                        )}
+
+                        <View className="flex-row items-center mt-1">
+                          <Ionicons name="cash-outline" size={12} color="#9ca3af" />
+                          <Text className="text-gray-400 text-xs ml-1">
+                            Total: ₱{grandTotal.toLocaleString()}
+                          </Text>
+                        </View>
+
+                        {balance > 0 && (
+                          <View className="flex-row items-center mt-1">
+                            <Ionicons name="alert-circle-outline" size={12} color="#f59e0b" />
+                            <Text className="text-orange-500 text-xs ml-1">
+                              Balance: ₱{balance.toLocaleString()}
+                            </Text>
+                          </View>
+                        )}
+
+                        {/* ✅ Refund summary chip for cancelled appointments */}
+                        {isCancelled && refund && (
+                          <View className="flex-row items-center mt-1">
+                            <Ionicons name="refresh-outline" size={12} color="#dc2626" />
+                            <Text className="text-red-500 text-xs ml-1">
+                              Refund: ₱{parseFloat(String(refund.refund_amount || 0)).toLocaleString()}
+                              {' · '}
+                              <Text className="capitalize">{refund.refund_method}</Text>
+                              {' · '}
+                              <Text className="capitalize">{refund.status}</Text>
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+
+                      <Text className="text-pink-500 font-semibold">
+                        ₱{grandTotal.toLocaleString()}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+
+                  <View className="mt-3 pt-2 border-t border-gray-100">
+                    <View className="flex-row items-center justify-between">
+                      <View className={`px-2 py-0.5 rounded-full self-start ${getStatusColor(item.status)}`}>
+                        <Text className="text-xs font-semibold capitalize">{item.status}</Text>
+                      </View>
+
+                      {/* Rate — no stylist assigned */}
+                      {isCompleted && !hasGivenFeedback && (!stylistId || stylistName === 'Not assigned') && (
+                        <TouchableOpacity 
+                          onPress={() => {
+                            Alert.alert(
+                              "No Stylist Assigned",
+                              "This appointment has no stylist assigned. You can still rate the service, but stylist rating will be skipped.",
+                              [
+                                { text: "Cancel", style: "cancel" },
+                                { 
+                                  text: "Continue", 
+                                  onPress: () => {
+                                    const appointmentWithoutStylist = {
+                                      ...item,
+                                      stylist_name: 'Not assigned',
+                                      stylist_id: null,
+                                      assigned_employee_id: null
+                                    };
+                                    setSelectedAppointmentForFeedback(appointmentWithoutStylist);
+                                    setShowFeedbackPage(true);
+                                  }
+                                }
+                              ]
+                            );
+                          }}
+                          className="flex-row items-center gap-1 px-3 py-1.5 bg-yellow-50 rounded-full"
+                        >
+                          <Ionicons name="star-outline" size={14} color="#eab308" />
+                          <Text className="text-xs font-semibold text-yellow-600">Rate Service</Text>
+                        </TouchableOpacity>
+                      )}
+
+                      {/* Rate — stylist assigned */}
+                      {isCompleted && !hasGivenFeedback && stylistId && stylistName !== 'Not assigned' && (
+                        <TouchableOpacity 
+                          onPress={() => handleOpenFeedbackPage(item)}
+                          className="flex-row items-center gap-1 px-3 py-1.5 bg-yellow-50 rounded-full"
+                        >
+                          <Ionicons name="star-outline" size={14} color="#eab308" />
+                          <Text className="text-xs font-semibold text-yellow-600">Rate</Text>
+                        </TouchableOpacity>
+                      )}
+
+                      {/* Already-rated badge */}
+                      {isCompleted && hasGivenFeedback && (
+                        <TouchableOpacity
+                          onPress={() => handleViewComment(item)}
+                          activeOpacity={0.7}
+                          className="flex-row items-center gap-1 px-3 py-1.5 bg-green-50 rounded-full"
+                        >
+                          <View className="flex-row items-center gap-0.5">
+                            {renderStars(existingRating || 0)}
+                          </View>
+                          <Text className="text-xs font-semibold text-green-600 ml-1">
+                            {Math.round(Number(existingRating) || 0)}/5
+                          </Text>
+                          <Ionicons name="chatbubble-outline" size={12} color="#10b981" />
+                        </TouchableOpacity>
+                      )}
+                    </View>
+
+                    {/* View Review button for already-rated appointments */}
+                    {isCompleted && hasGivenFeedback && (
+                      <TouchableOpacity
+                        onPress={() => handleViewComment(item)}
+                        activeOpacity={0.7}
+                        className="mt-2 flex-row items-center justify-center gap-2 py-2.5 rounded-xl bg-green-50 border border-green-200"
+                      >
+                        <Ionicons name="chatbubble-ellipses-outline" size={16} color="#10b981" />
+                        <Text className="text-green-700 font-semibold text-sm">
+                          View My Review
+                        </Text>
+                        <Ionicons name="chevron-forward" size={14} color="#10b981" />
+                      </TouchableOpacity>
+                    )}
+
+                    {/* ✅ View Refund Details button for cancelled appointments */}
+                    {isCancelled && (
+                      <TouchableOpacity
+                        onPress={() => handleViewRefund(item)}
+                        activeOpacity={0.7}
+                        className="mt-2 flex-row items-center justify-center gap-2 py-2.5 rounded-xl bg-red-50 border border-red-200"
+                      >
+                        <Ionicons name="refresh-circle-outline" size={16} color="#dc2626" />
+                        <Text className="text-red-700 font-semibold text-sm">
+                          View Refund Details
+                        </Text>
+                        <Ionicons name="chevron-forward" size={14} color="#dc2626" />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </View>
+              );
+            })
+          )}
+        </View>
+      </ScrollView>
+
+      <ViewCommentModal
+        visible={showCommentModal}
+        appointment={selectedAppointmentForComment}
+        serviceFeedback={commentModalServiceFeedback}
+        staffFeedback={commentModalStaffFeedback}
+        stylistName={commentModalStylistName}
+        onClose={handleCloseCommentModal}
+      />
+
+      {/* ✅ Refund details modal */}
+      <RefundDetailsModal
+        visible={showRefundModal}
+        appointment={selectedAppointmentForRefund}
+        refund={refundModalRefund}
+        stylistName={refundModalStylistName}
+        onClose={handleCloseRefundModal}
+      />
+    </>
+  );
+}
