@@ -16,6 +16,7 @@ use App\Models\WalkinAuthorization;
 use App\Models\Expenses;
 use App\Models\Otps;
 use App\Models\AppointmentRequests;
+use App\Models\Remittance;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -136,6 +137,11 @@ class User extends Authenticatable
     public function appointmentRequests()
     {
         return $this->hasMany(AppointmentRequests::class, 'customer_id', 'id');
+    }
+
+    public function remittance()
+    {
+        return $this->hasMany(Remittance::class, 'user_id', 'id');
     }
 
 }

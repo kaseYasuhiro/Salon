@@ -95,7 +95,7 @@ class JoinedController extends Controller
 
     public function remittanceReport()
     {
-        return Remittance::with('businessSchedules')->get();
+        return Remittance::with(['businessSchedules', 'user'])->get();
     }
 
     public function employeeCommissions()

@@ -104,10 +104,16 @@ interface WalkIn {
 interface Remittance {
   id?: number;
   business_date_id: number;
+  user_id: number;
   remittance_amount: number;
   created_at?: string;
   updated_at?: string;
   business_schedule?: BusinessSchedule;
+  user?: {
+    id: number;
+    first_name: string;
+    last_name: string;
+  };
 }
 
 interface EmployeeCommission {
@@ -526,7 +532,7 @@ const IncidentReportPage = ({ onBack, userId, onSuccess }: { onBack: () => void,
 };
 
 // ─────────────────────────────────────────────────────────────
-// Change Password Section (matches customerSettingsTab)
+// Change Password Section
 // ─────────────────────────────────────────────────────────────
 const ChangePasswordSection = ({ onBack, userId }: { onBack: () => void; userId: number }) => {
   const [password, setPassword] = useState('');
@@ -534,18 +540,9 @@ const ChangePasswordSection = ({ onBack, userId }: { onBack: () => void; userId:
   const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
 
   const handleUpdatePassword = async () => {
-    if (!password || !confirmPassword) {
-      Alert.alert("Error", "Please fill in all fields.");
-      return;
-    }
-    if (password !== confirmPassword) {
-      Alert.alert("Error", "Passwords do not match.");
-      return;
-    }
-    if (password.length < 6) {
-      Alert.alert("Error", "Password must be at least 6 characters long.");
-      return;
-    }
+    if (!password || !confirmPassword) { Alert.alert("Error", "Please fill in all fields."); return; }
+    if (password !== confirmPassword) { Alert.alert("Error", "Passwords do not match."); return; }
+    if (password.length < 6) { Alert.alert("Error", "Password must be at least 6 characters long."); return; }
 
     setIsUpdatingPassword(true);
     try {
@@ -580,12 +577,8 @@ const ChangePasswordSection = ({ onBack, userId }: { onBack: () => void; userId:
             <View className="w-20 h-20 bg-pink-100 rounded-full items-center justify-center mb-3">
               <Ionicons name="lock-closed-outline" size={40} color="#ec4899" />
             </View>
-            <Text className="text-gray-800 text-lg font-semibold text-center">
-              Update Your Password
-            </Text>
-            <Text className="text-gray-500 text-sm text-center mt-1">
-              Choose a strong password to keep your account secure
-            </Text>
+            <Text className="text-gray-800 text-lg font-semibold text-center">Update Your Password</Text>
+            <Text className="text-gray-500 text-sm text-center mt-1">Choose a strong password to keep your account secure</Text>
           </View>
 
           <View className="space-y-4">
@@ -637,10 +630,7 @@ const ChangePasswordSection = ({ onBack, userId }: { onBack: () => void; userId:
         </View>
 
         <View className="flex-row gap-3 mb-5">
-          <TouchableOpacity
-            onPress={onBack}
-            className="flex-1 py-3 rounded-xl border border-gray-300 bg-white"
-          >
+          <TouchableOpacity onPress={onBack} className="flex-1 py-3 rounded-xl border border-gray-300 bg-white">
             <Text className="text-gray-700 text-center font-semibold">Cancel</Text>
           </TouchableOpacity>
           <TouchableOpacity
@@ -649,8 +639,7 @@ const ChangePasswordSection = ({ onBack, userId }: { onBack: () => void; userId:
             className="flex-1 py-3 rounded-xl"
             style={{
               backgroundColor: (isUpdatingPassword || !password || !confirmPassword || password !== confirmPassword || password.length < 6)
-                ? '#f9a8d4'
-                : '#ec4899'
+                ? '#f9a8d4' : '#ec4899'
             }}
           >
             <Text className="text-white text-center font-semibold">
@@ -664,17 +653,14 @@ const ChangePasswordSection = ({ onBack, userId }: { onBack: () => void; userId:
 };
 
 // ─────────────────────────────────────────────────────────────
-// Update Phone Section (matches customerSettingsTab)
+// Update Phone Section
 // ─────────────────────────────────────────────────────────────
 const UpdatePhoneSection = ({ onBack, currentPhone, userId }: { onBack: () => void, currentPhone: string, userId: number }) => {
   const [phoneNumber, setPhoneNumber] = useState(currentPhone || '');
   const [isUpdatingPhone, setIsUpdatingPhone] = useState(false);
 
   const handleUpdatePhone = async () => {
-    if (!phoneNumber.trim()) {
-      Alert.alert("Error", "Please enter a phone number.");
-      return;
-    }
+    if (!phoneNumber.trim()) { Alert.alert("Error", "Please enter a phone number."); return; }
     if (!/^[0-9]{10,11}$/.test(phoneNumber.trim())) {
       Alert.alert("Error", "Please enter a valid phone number (10-11 digits).");
       return;
@@ -712,12 +698,8 @@ const UpdatePhoneSection = ({ onBack, currentPhone, userId }: { onBack: () => vo
             <View className="w-20 h-20 bg-pink-100 rounded-full items-center justify-center mb-3">
               <Ionicons name="call-outline" size={40} color="#ec4899" />
             </View>
-            <Text className="text-gray-800 text-lg font-semibold text-center">
-              Update Phone Number
-            </Text>
-            <Text className="text-gray-500 text-sm text-center mt-1">
-              Enter your new phone number below
-            </Text>
+            <Text className="text-gray-800 text-lg font-semibold text-center">Update Phone Number</Text>
+            <Text className="text-gray-500 text-sm text-center mt-1">Enter your new phone number below</Text>
           </View>
 
           <View>
@@ -738,10 +720,7 @@ const UpdatePhoneSection = ({ onBack, currentPhone, userId }: { onBack: () => vo
         </View>
 
         <View className="flex-row gap-3 mb-5">
-          <TouchableOpacity
-            onPress={onBack}
-            className="flex-1 py-3 rounded-xl border border-gray-300 bg-white"
-          >
+          <TouchableOpacity onPress={onBack} className="flex-1 py-3 rounded-xl border border-gray-300 bg-white">
             <Text className="text-gray-700 text-center font-semibold">Cancel</Text>
           </TouchableOpacity>
           <TouchableOpacity
@@ -763,7 +742,7 @@ const UpdatePhoneSection = ({ onBack, currentPhone, userId }: { onBack: () => vo
 };
 
 // ─────────────────────────────────────────────────────────────
-// Profile Page (matches customerSettingsTab ProfilePage)
+// Profile Page
 // ─────────────────────────────────────────────────────────────
 const ProfilePage = ({
   onBack,
@@ -854,11 +833,7 @@ const ProfilePage = ({
         <View className="bg-white rounded-2xl p-6 items-center shadow-sm mb-5">
           <TouchableOpacity onPress={pickDocument} className="mb-4">
             {displayImage ? (
-              <Image
-                source={{ uri: displayImage }}
-                className="w-24 h-24 rounded-full border-4 border-pink-200"
-                resizeMode="cover"
-              />
+              <Image source={{ uri: displayImage }} className="w-24 h-24 rounded-full border-4 border-pink-200" resizeMode="cover" />
             ) : (
               <View className="w-24 h-24 bg-pink-100 rounded-full items-center justify-center border-4 border-pink-200">
                 <Ionicons name="person" size={50} color="#ec4899" />
@@ -883,28 +858,19 @@ const ProfilePage = ({
         </View>
 
         <View className="bg-white rounded-2xl overflow-hidden shadow-sm">
-          <TouchableOpacity
-            className="flex-row items-center px-5 py-4 border-b border-gray-100"
-            onPress={pickDocument}
-          >
+          <TouchableOpacity className="flex-row items-center px-5 py-4 border-b border-gray-100" onPress={pickDocument}>
             <Ionicons name="image-outline" size={22} color="#ec4899" />
             <Text className="ml-3 flex-1 text-gray-700">Change Profile Picture</Text>
             <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
           </TouchableOpacity>
 
-          <TouchableOpacity
-            className="flex-row items-center px-5 py-4 border-b border-gray-100"
-            onPress={() => setShowUpdatePhone(true)}
-          >
+          <TouchableOpacity className="flex-row items-center px-5 py-4 border-b border-gray-100" onPress={() => setShowUpdatePhone(true)}>
             <Ionicons name="call-outline" size={22} color="#ec4899" />
             <Text className="ml-3 flex-1 text-gray-700">Update Phone Number</Text>
             <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
           </TouchableOpacity>
 
-          <TouchableOpacity
-            className="flex-row items-center px-5 py-4"
-            onPress={() => setShowChangePassword(true)}
-          >
+          <TouchableOpacity className="flex-row items-center px-5 py-4" onPress={() => setShowChangePassword(true)}>
             <Ionicons name="lock-closed-outline" size={22} color="#ec4899" />
             <Text className="ml-3 flex-1 text-gray-700">Change Password</Text>
             <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
@@ -919,7 +885,6 @@ const ProfilePage = ({
 // Main Dashboard
 // ─────────────────────────────────────────────────────────────
 export default function StaffDashboard() {
-  // ✅ 'schedule' removed — its content is now embedded on Home
   const [activeTab, setActiveTab] = useState<'home' | 'appointments' | 'walkin' | 'settings' | 'profile'>('home');
   const [refreshing, setRefreshing] = useState(false);
 
@@ -955,10 +920,9 @@ export default function StaffDashboard() {
   const [lossDamages, setLossDamages] = useState<LossDamage[]>([]);
   const [userData, setUserData] = useState<any>(null);
 
-  // ✅ Shared profile image state (Settings card + Profile page read from here)
   const [profileImage, setProfileImage] = useState<string | null>(null);
 
-  // Schedule state (merged from StaffSchedule) — rendered on Home
+  // Schedule state
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [businessSchedules, setBusinessSchedules] = useState<BusinessSchedule[]>([]);
   const [staffAssignments, setStaffAssignments] = useState<StaffAssignment[]>([]);
@@ -1039,10 +1003,12 @@ export default function StaffDashboard() {
         remittancesData = response.data.map((item: any) => ({
           id: item.id,
           business_date_id: item.business_date_id,
+          user_id: item.user_id,
           remittance_amount: parseFloat(item.remittance_amount) || 0,
           created_at: item.created_at,
           updated_at: item.updated_at,
-          business_schedule: item.business_schedule
+          business_schedule: item.business_schedule,
+          user: item.user,
         }));
       }
       setRemittances(remittancesData);
@@ -1103,10 +1069,11 @@ export default function StaffDashboard() {
     }
   };
 
-  const submitRemittance = async (data: { business_date_id: number; remittance_amount: number }) => {
+  const submitRemittance = async (data: { business_date_id: number; user_id: number; remittance_amount: number }) => {
     try {
       const response = await api.post('/remittance/submit', {
         business_date_id: data.business_date_id,
+        user_id: data.user_id,
         remittance_amount: data.remittance_amount
       });
       return response.data;
@@ -1203,6 +1170,10 @@ export default function StaffDashboard() {
       Alert.alert('Invalid Amount', 'Remittance amount must be greater than 0');
       return;
     }
+    if (!user?.id) {
+      Alert.alert('Error', 'Unable to determine your account. Please log in again.');
+      return;
+    }
     const todayStr = getTodayDateStr();
     const schedule = businessSchedules.find(s => s.business_date === todayStr);
     if (!schedule) {
@@ -1211,7 +1182,11 @@ export default function StaffDashboard() {
     }
     setIsSubmittingRemit(true);
     try {
-      await submitRemittance({ business_date_id: schedule.id, remittance_amount: remitAmount });
+      await submitRemittance({
+        business_date_id: schedule.id,
+        user_id: user.id,
+        remittance_amount: remitAmount
+      });
       Alert.alert('Success', 'Remittance submitted successfully!');
       setShowRemitModal(false);
       await Promise.all([fetchStaffAppointments(), fetchEmployeeCommissions(), fetchRemittances(), fetchWalkIns()]);
@@ -1255,9 +1230,16 @@ export default function StaffDashboard() {
     }
   };
 
+  // ✅ Today's appointments — EXCLUDES completed ones
   const todayAppointments = staffAppointments.filter(app => {
     const today = getUTCDateString(new Date());
-    return app.appointment_date === today;
+    if (app.appointment_date !== today) return false;
+
+    const isCompleted =
+      app.service_status === 'completed' ||
+      app.status === 'completed';
+
+    return !isCompleted;
   });
 
   const staffCommissionRecord = employeeCommissions.find(c => c.employee_id === user?.id);
@@ -1298,9 +1280,7 @@ export default function StaffDashboard() {
     }
   };
 
-  // ═════════════════════════════════════════════════════════════
-  // Schedule helpers (merged from StaffSchedule)
-  // ═════════════════════════════════════════════════════════════
+  // ── Schedule helpers ──
   const getScheduleForDate = (dateStr: string): BusinessSchedule | null =>
     businessSchedules.find(schedule => schedule.business_date === dateStr) || null;
 
@@ -1380,14 +1360,12 @@ export default function StaffDashboard() {
     }
   }, [user?.id]);
 
-  // ✅ Sync shared profile image with auth context
   useEffect(() => {
     if (user?.profile_image && user.profile_image !== profileImage) {
       setProfileImage(user.profile_image);
     }
   }, [user?.profile_image]);
 
-  // ✅ On mount, fetch freshest user data for profile image
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -1465,12 +1443,7 @@ export default function StaffDashboard() {
     };
 
     return (
-      <Modal
-        animationType="slide"
-        transparent={true}
-        visible={showRemitModal}
-        onRequestClose={() => setShowRemitModal(false)}
-      >
+      <Modal animationType="slide" transparent={true} visible={showRemitModal} onRequestClose={() => setShowRemitModal(false)}>
         <View className="flex-1 justify-center items-center bg-black/50">
           <View className="bg-white rounded-2xl w-full max-w-md mx-4 max-h-[90%] overflow-hidden">
             <View className="bg-pink-500 px-6 py-4 flex-row justify-between items-center">
@@ -1482,6 +1455,15 @@ export default function StaffDashboard() {
 
             <ScrollView className="p-6" showsVerticalScrollIndicator={true} contentContainerStyle={{ paddingBottom: 20 }}>
               <Text className="text-gray-500 text-sm mb-4">Today's Remittance Summary</Text>
+
+              <View className="bg-pink-50 rounded-xl p-3 mb-4">
+                <View className="flex-row items-center gap-2">
+                  <Ionicons name="person-circle-outline" size={18} color="#ec4899" />
+                  <Text className="text-pink-700 text-sm">
+                    Submitting as <Text className="font-bold">{staffName}</Text>
+                  </Text>
+                </View>
+              </View>
 
               <View className="bg-gray-50 rounded-xl p-4 mb-4">
                 <View className="flex-row justify-between items-center mb-2">
@@ -1800,11 +1782,9 @@ export default function StaffDashboard() {
     );
   });
 
-  // Schedule options modal
   const ScheduleOptionsModal = () => {
     if (!selectedSchedule) return null;
     const isAssigned = isStaffAssignedToSchedule(selectedSchedule.id);
-    const assignment = getAssignmentForSchedule(selectedSchedule.id);
 
     return (
       <Modal
@@ -1837,7 +1817,7 @@ export default function StaffDashboard() {
                 </Text>
               </View>
 
-              {isAssigned && assignment && (
+              {isAssigned && (
                 <View className="mb-4 p-3 bg-green-50 rounded-xl">
                   <View className="flex-row items-center gap-2">
                     <Ionicons name="checkmark-circle" size={20} color="#10b981" />
@@ -1899,27 +1879,15 @@ export default function StaffDashboard() {
           <ScrollView
             showsVerticalScrollIndicator={false}
             className="flex-1"
-            refreshControl={
-              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#ec4899']} />
-            }
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#ec4899']} />}
           >
-            <View
-              className="bg-pink-500 px-5 pb-8"
-              style={{ paddingTop: insets.top + 12, borderBottomLeftRadius: 30, borderBottomRightRadius: 30 }}
-            >
+            <View className="bg-pink-500 px-5 pb-8" style={{ paddingTop: insets.top + 12, borderBottomLeftRadius: 30, borderBottomRightRadius: 30 }}>
               <View className="flex-row justify-between items-center">
                 <View>
-                  <Text className="text-white text-2xl font-semibold">
-                    Hello, {staffName.split(' ')[0]}! 👋
-                  </Text>
-                  <Text className="text-white opacity-90 mt-1">
-                    You have {todayAppointments.length} appointment(s) today
-                  </Text>
+                  <Text className="text-white text-2xl font-semibold">Hello, {staffName.split(' ')[0]}! 👋</Text>
+                  <Text className="text-white opacity-90 mt-1">You have {todayAppointments.length} appointment(s) today</Text>
                 </View>
-                {/* ✅ Bell icon in the top-right */}
-                <TouchableOpacity
-                  style={{ backgroundColor: 'rgba(255,255,255,0.2)', padding: 8, borderRadius: 9999 }}
-                >
+                <TouchableOpacity style={{ backgroundColor: 'rgba(255,255,255,0.2)', padding: 8, borderRadius: 9999 }}>
                   <Ionicons name="notifications-outline" size={24} color="white" />
                 </TouchableOpacity>
               </View>
@@ -2041,7 +2009,6 @@ export default function StaffDashboard() {
               )}
             </View>
 
-            {/* Total Earnings Card */}
             <View className="px-5 mt-4 mb-6">
               <View className="rounded-2xl p-5" style={{ backgroundColor: '#ec4899' }}>
                 <View className="flex-row justify-between items-start">
@@ -2066,7 +2033,6 @@ export default function StaffDashboard() {
               </View>
             </View>
 
-            {/* ✅ Work Schedule — calendar + assigned days embedded on Home */}
             <View className="px-5 mb-6">
               <Text className="text-xl font-bold text-gray-800 mb-3">Work Schedule</Text>
 
@@ -2083,10 +2049,7 @@ export default function StaffDashboard() {
                       <Ionicons name="chevron-forward" size={20} color="#ec4899" />
                     </TouchableOpacity>
                   </View>
-                  <TouchableOpacity
-                    onPress={() => setCurrentMonth(new Date())}
-                    className="px-2 py-1 bg-pink-50 rounded-lg"
-                  >
+                  <TouchableOpacity onPress={() => setCurrentMonth(new Date())} className="px-2 py-1 bg-pink-50 rounded-lg">
                     <Text className="text-xs text-pink-600">Today</Text>
                   </TouchableOpacity>
                 </View>
@@ -2138,11 +2101,7 @@ export default function StaffDashboard() {
                           key={date.toISOString()}
                           className={`w-[14.28%] aspect-square p-1 ${isPast ? 'opacity-40' : ''}`}
                           onPress={() => !isPast && handleScheduleClick(date)}
-                          disabled={
-                            isPast ||
-                            scheduleStatus.status === 'closed' ||
-                            scheduleStatus.status === 'no_schedule'
-                          }
+                          disabled={isPast || scheduleStatus.status === 'closed' || scheduleStatus.status === 'no_schedule'}
                         >
                           <View className={`flex-1 items-center justify-center rounded-full ${cellBgColor}`}>
                             <Text
@@ -2232,21 +2191,15 @@ export default function StaffDashboard() {
       case 'walkin':
         return <StaffWalkIn onSuccess={() => { onRefresh(); }} />;
 
-      // ✅ Settings tab now matches customerSettingsTab structure
       case 'settings':
         return (
           <ScrollView showsVerticalScrollIndicator={false} className="flex-1">
             <View className="px-5 pt-6">
               <Text className="text-3xl font-bold text-gray-800 mb-6">Settings</Text>
 
-              {/* Profile Section Card (like customerSettingsTab) */}
               <View className="bg-white rounded-2xl p-5 mb-4 items-center" style={{ elevation: 2 }}>
                 {getImageUrl(profileImage) ? (
-                  <Image
-                    source={{ uri: getImageUrl(profileImage)! }}
-                    className="w-20 h-20 rounded-full mb-3"
-                    resizeMode="cover"
-                  />
+                  <Image source={{ uri: getImageUrl(profileImage)! }} className="w-20 h-20 rounded-full mb-3" resizeMode="cover" />
                 ) : (
                   <View className="bg-pink-100 p-4 rounded-full mb-3">
                     <Ionicons name="person" size={50} color="#ec4899" />
@@ -2258,22 +2211,15 @@ export default function StaffDashboard() {
                 <Text className="text-gray-500">Salon Staff</Text>
                 <Text className="text-gray-500 text-sm">{user?.email}</Text>
                 <Text className="text-gray-500 text-sm">{user?.phone_number}</Text>
-                <TouchableOpacity
-                  className="bg-pink-500 px-6 py-2 rounded-full mt-3"
-                  onPress={() => setActiveTab('profile')}
-                >
+                <TouchableOpacity className="bg-pink-500 px-6 py-2 rounded-full mt-3" onPress={() => setActiveTab('profile')}>
                   <Text className="text-white font-semibold">View Profile</Text>
                 </TouchableOpacity>
               </View>
 
-              {/* Account Settings Card (like customerSettingsTab) */}
               <View className="bg-white rounded-2xl p-5 mb-4" style={{ elevation: 2 }}>
                 <Text className="text-lg font-semibold text-gray-800 mb-3">Account Settings</Text>
 
-                <TouchableOpacity
-                  className="flex-row items-center py-3 border-b border-gray-100"
-                  onPress={() => setActiveTab('profile')}
-                >
+                <TouchableOpacity className="flex-row items-center py-3 border-b border-gray-100" onPress={() => setActiveTab('profile')}>
                   <Ionicons name="person-outline" size={22} color="#ec4899" />
                   <Text className="ml-3 flex-1 text-gray-700">Profile</Text>
                   <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
@@ -2285,17 +2231,13 @@ export default function StaffDashboard() {
                   <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
                 </TouchableOpacity>
 
-                <TouchableOpacity
-                  className="flex-row items-center py-3"
-                  onPress={() => setShowReportPage(true)}
-                >
+                <TouchableOpacity className="flex-row items-center py-3" onPress={() => setShowReportPage(true)}>
                   <Ionicons name="alert-circle-outline" size={22} color="#ef4444" />
                   <Text className="ml-3 flex-1 text-red-600 font-semibold">Report Incident</Text>
                   <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
                 </TouchableOpacity>
               </View>
 
-              {/* Logout */}
               <TouchableOpacity className="bg-red-500 py-4 rounded-xl mb-6" onPress={handleLogout}>
                 <Text className="text-white text-center font-semibold text-lg">Log Out</Text>
               </TouchableOpacity>
@@ -2321,60 +2263,24 @@ export default function StaffDashboard() {
       <ScheduleOptionsModal />
 
       <View className="flex-row justify-around items-center border-t border-gray-200 bg-white py-3">
-        <TouchableOpacity
-          className="items-center py-1 px-5"
-          onPress={() => { setShowReportPage(false); setActiveTab('home'); }}
-        >
-          <Ionicons
-            name={activeTab === 'home' ? "home" : "home-outline"}
-            size={24}
-            color={activeTab === 'home' ? "#ec4899" : "#9ca3af"}
-          />
-          <Text className={`text-xs mt-1 ${activeTab === 'home' ? 'text-pink-500 font-semibold' : 'text-gray-400'}`}>
-            Home
-          </Text>
+        <TouchableOpacity className="items-center py-1 px-5" onPress={() => { setShowReportPage(false); setActiveTab('home'); }}>
+          <Ionicons name={activeTab === 'home' ? "home" : "home-outline"} size={24} color={activeTab === 'home' ? "#ec4899" : "#9ca3af"} />
+          <Text className={`text-xs mt-1 ${activeTab === 'home' ? 'text-pink-500 font-semibold' : 'text-gray-400'}`}>Home</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity
-          className="items-center py-1 px-5"
-          onPress={() => { setShowReportPage(false); setActiveTab('appointments'); }}
-        >
-          <Ionicons
-            name={activeTab === 'appointments' ? "calendar" : "calendar-outline"}
-            size={24}
-            color={activeTab === 'appointments' ? "#ec4899" : "#9ca3af"}
-          />
-          <Text className={`text-xs mt-1 ${activeTab === 'appointments' ? 'text-pink-500 font-semibold' : 'text-gray-400'}`}>
-            Appointments
-          </Text>
+        <TouchableOpacity className="items-center py-1 px-5" onPress={() => { setShowReportPage(false); setActiveTab('appointments'); }}>
+          <Ionicons name={activeTab === 'appointments' ? "calendar" : "calendar-outline"} size={24} color={activeTab === 'appointments' ? "#ec4899" : "#9ca3af"} />
+          <Text className={`text-xs mt-1 ${activeTab === 'appointments' ? 'text-pink-500 font-semibold' : 'text-gray-400'}`}>Appointments</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity
-          className="items-center py-1 px-5"
-          onPress={() => { setShowReportPage(false); setActiveTab('walkin'); }}
-        >
-          <Ionicons
-            name={activeTab === 'walkin' ? "person-add" : "person-add-outline"}
-            size={24}
-            color={activeTab === 'walkin' ? "#ec4899" : "#9ca3af"}
-          />
-          <Text className={`text-xs mt-1 ${activeTab === 'walkin' ? 'text-pink-500 font-semibold' : 'text-gray-400'}`}>
-            Walk-in
-          </Text>
+        <TouchableOpacity className="items-center py-1 px-5" onPress={() => { setShowReportPage(false); setActiveTab('walkin'); }}>
+          <Ionicons name={activeTab === 'walkin' ? "person-add" : "person-add-outline"} size={24} color={activeTab === 'walkin' ? "#ec4899" : "#9ca3af"} />
+          <Text className={`text-xs mt-1 ${activeTab === 'walkin' ? 'text-pink-500 font-semibold' : 'text-gray-400'}`}>Walk-in</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity
-          className="items-center py-1 px-5"
-          onPress={() => { setShowReportPage(false); setActiveTab('settings'); }}
-        >
-          <Ionicons
-            name={activeTab === 'settings' ? "settings" : "settings-outline"}
-            size={24}
-            color={activeTab === 'settings' ? "#ec4899" : "#9ca3af"}
-          />
-          <Text className={`text-xs mt-1 ${activeTab === 'settings' ? 'text-pink-500 font-semibold' : 'text-gray-400'}`}>
-            Settings
-          </Text>
+        <TouchableOpacity className="items-center py-1 px-5" onPress={() => { setShowReportPage(false); setActiveTab('settings'); }}>
+          <Ionicons name={activeTab === 'settings' ? "settings" : "settings-outline"} size={24} color={activeTab === 'settings' ? "#ec4899" : "#9ca3af"} />
+          <Text className={`text-xs mt-1 ${activeTab === 'settings' ? 'text-pink-500 font-semibold' : 'text-gray-400'}`}>Settings</Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>

@@ -116,7 +116,6 @@ interface StaffMember {
   }>;
 }
 
-// ✅ Refund record shape (matches backend `refunds` table)
 interface Refund {
   id: number;
   payment_id: number;
@@ -125,7 +124,7 @@ interface Refund {
   refund_method: string;
   reference_number?: string | null;
   refund_reason?: string | null;
-  status: string; // 'pending' | 'completed' | 'failed'
+  status: string;
   processed_at?: string | null;
   created_at?: string;
   updated_at?: string;
@@ -486,7 +485,7 @@ const ViewCommentModal: React.FC<ViewCommentModalProps> = ({
 };
 
 // ─────────────────────────────────────────────────────────────
-// ✅ Refund Details Modal
+// Refund Details Modal
 // ─────────────────────────────────────────────────────────────
 interface RefundDetailsModalProps {
   visible: boolean;
@@ -547,7 +546,6 @@ const RefundDetailsModal: React.FC<RefundDetailsModalProps> = ({
           className="bg-white rounded-2xl overflow-hidden w-full"
           style={{ minWidth: 320, maxHeight: '85%' }}
         >
-          {/* Header */}
           <View className="px-6 py-4" style={{ backgroundColor: '#dc2626' }}>
             <View className="flex-row justify-between items-center">
               <View className="flex-1">
@@ -563,7 +561,6 @@ const RefundDetailsModal: React.FC<RefundDetailsModalProps> = ({
           </View>
 
           <ScrollView showsVerticalScrollIndicator={false} className="p-5">
-            {/* Appointment summary */}
             <View className="bg-red-50 rounded-xl p-4 mb-4">
               <Text className="text-gray-500 text-xs">Appointment</Text>
               <Text className="text-gray-800 font-bold text-base mt-0.5">
@@ -606,7 +603,6 @@ const RefundDetailsModal: React.FC<RefundDetailsModalProps> = ({
               </View>
             ) : (
               <>
-                {/* Refund amount */}
                 <View className="bg-white rounded-xl p-4 mb-3 border border-gray-100">
                   <View className="flex-row items-center justify-between mb-1">
                     <Text className="text-gray-700 text-sm font-semibold">
@@ -632,7 +628,6 @@ const RefundDetailsModal: React.FC<RefundDetailsModalProps> = ({
                   </View>
                 </View>
 
-                {/* Method + Reference */}
                 <View className="bg-white rounded-xl p-4 mb-3 border border-gray-100">
                   <View className="flex-row items-center justify-between mb-2">
                     <Text className="text-gray-700 text-sm font-semibold">
@@ -672,7 +667,6 @@ const RefundDetailsModal: React.FC<RefundDetailsModalProps> = ({
                   )}
                 </View>
 
-                {/* Reason */}
                 <View className="bg-white rounded-xl p-4 mb-3 border border-gray-100">
                   <Text className="text-gray-700 text-sm font-semibold mb-2">
                     Cancellation Reason
@@ -693,7 +687,6 @@ const RefundDetailsModal: React.FC<RefundDetailsModalProps> = ({
                   )}
                 </View>
 
-                {/* Processed date */}
                 <View className="bg-white rounded-xl p-4 mb-3 border border-gray-100">
                   <View className="flex-row items-center justify-between">
                     <Text className="text-gray-700 text-sm font-semibold">
@@ -732,7 +725,6 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
   const [showCommentModal, setShowCommentModal] = useState(false);
   const [selectedAppointmentForComment, setSelectedAppointmentForComment] = useState<Appointment | null>(null);
 
-  // ✅ Refund modal state
   const [showRefundModal, setShowRefundModal] = useState(false);
   const [selectedAppointmentForRefund, setSelectedAppointmentForRefund] = useState<Appointment | null>(null);
 
@@ -741,7 +733,7 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
   const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
   const [staffFeedbacks, setStaffFeedbacks] = useState<StaffFeedback[]>([]);
   const [staff, setStaff] = useState<StaffMember[]>([]);
-  const [refunds, setRefunds] = useState<Refund[]>([]); // ✅ new
+  const [refunds, setRefunds] = useState<Refund[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
   const { user } = useAuth();
@@ -933,14 +925,12 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
     }
   };
 
-  // ✅ Fetch refunds
   const fetchRefunds = async () => {
     try {
       const response = await api.get("/refunds");
 
       let refundsData: Refund[] = [];
 
-      // Handle both `{ data: [...] }` (paginated) and `[...]` shapes
       const raw = response.data;
       if (Array.isArray(raw)) {
         refundsData = raw;
@@ -1032,7 +1022,6 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
     return list.length > 0 ? list[0] : null;
   };
 
-  // ✅ Find refund for a given appointment
   const getRefundForAppointment = (appointmentId: number): Refund | null => {
     const list = refunds
       .filter(r => r.appointment_id === appointmentId)
@@ -1117,7 +1106,6 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
     setSelectedAppointmentForComment(null);
   };
 
-  // ✅ Refund modal handlers
   const handleViewRefund = (appointment: Appointment) => {
     setSelectedAppointmentForRefund(appointment);
     setShowRefundModal(true);
@@ -1218,9 +1206,15 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
     return stars;
   };
 
-  const filteredAppointments = appointments.filter(
-    (item) => item.status === 'completed' || item.status === 'cancelled'
-  );
+  // ✅ Sort by appointment date/time, latest first
+  const filteredAppointments = appointments
+    .filter((item) => item.status === 'completed' || item.status === 'cancelled')
+    .sort((a, b) => {
+      // Combine date + time into a single comparable string (YYYY-MM-DD HH:MM)
+      const aKey = `${a.appointment_date || ''} ${a.appointment_time || ''}`;
+      const bKey = `${b.appointment_date || ''} ${b.appointment_time || ''}`;
+      return bKey.localeCompare(aKey);
+    });
 
   if (showFeedbackPage && selectedAppointmentForFeedback) {
     return (
@@ -1244,7 +1238,6 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
     ? getStylistNameForAppointment(selectedAppointmentForComment)
     : 'Not assigned';
 
-  // ✅ Refund modal props
   const refundModalRefund = selectedAppointmentForRefund
     ? getRefundForAppointment(selectedAppointmentForRefund.id)
     : null;
@@ -1294,7 +1287,6 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
 
               const canViewReview = isCompleted && hasGivenFeedback;
 
-              // ✅ refund info for cancelled appointments
               const refund = isCancelled ? getRefundForAppointment(item.id) : null;
 
               return (
@@ -1371,7 +1363,6 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
                           </View>
                         )}
 
-                        {/* ✅ Refund summary chip for cancelled appointments */}
                         {isCancelled && refund && (
                           <View className="flex-row items-center mt-1">
                             <Ionicons name="refresh-outline" size={12} color="#dc2626" />
@@ -1398,7 +1389,6 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
                         <Text className="text-xs font-semibold capitalize">{item.status}</Text>
                       </View>
 
-                      {/* Rate — no stylist assigned */}
                       {isCompleted && !hasGivenFeedback && (!stylistId || stylistName === 'Not assigned') && (
                         <TouchableOpacity 
                           onPress={() => {
@@ -1430,7 +1420,6 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
                         </TouchableOpacity>
                       )}
 
-                      {/* Rate — stylist assigned */}
                       {isCompleted && !hasGivenFeedback && stylistId && stylistName !== 'Not assigned' && (
                         <TouchableOpacity 
                           onPress={() => handleOpenFeedbackPage(item)}
@@ -1441,7 +1430,6 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
                         </TouchableOpacity>
                       )}
 
-                      {/* Already-rated badge */}
                       {isCompleted && hasGivenFeedback && (
                         <TouchableOpacity
                           onPress={() => handleViewComment(item)}
@@ -1459,7 +1447,6 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
                       )}
                     </View>
 
-                    {/* View Review button for already-rated appointments */}
                     {isCompleted && hasGivenFeedback && (
                       <TouchableOpacity
                         onPress={() => handleViewComment(item)}
@@ -1474,7 +1461,6 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
                       </TouchableOpacity>
                     )}
 
-                    {/* ✅ View Refund Details button for cancelled appointments */}
                     {isCancelled && (
                       <TouchableOpacity
                         onPress={() => handleViewRefund(item)}
@@ -1505,7 +1491,6 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
         onClose={handleCloseCommentModal}
       />
 
-      {/* ✅ Refund details modal */}
       <RefundDetailsModal
         visible={showRefundModal}
         appointment={selectedAppointmentForRefund}

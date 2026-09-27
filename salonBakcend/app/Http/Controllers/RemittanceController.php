@@ -11,11 +11,13 @@ class RemittanceController extends Controller
     {
         $request->validate([
             'business_date_id' => ['required', 'numeric'],
+            'user_id' => ['required', 'numeric'],
             'remittance_amount' => ['required', 'numeric']
         ]);
 
         Remittance::create([
             'business_date_id' => $request->business_date_id,
+            'user_id' => $request->user_id,
             'remittance_amount' => $request->remittance_amount
         ]);
 

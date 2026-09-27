@@ -91,7 +91,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/appointment/requests', [JoinedController::class, 'appointmentRequestList']);
     Route::post('/appointment/requests/approve/{id}', [AppointmentRequestsController::class, 'approveRequest']);
     Route::post('/appointment/requests/reject/{id}', [AppointmentRequestsController::class, 'rejectRequest']);
-    Route::get('/remittance', [JoinedController::class, 'remittanceReport']);
+    
     Route::post('/employee/commission/add', [EmployeeCommissionController::class, 'addCommission']);
     Route::post('/report/update/{id}', [IncidentReportsController::class, 'updateIncidentReport']);
     Route::get('/report', [JoinedController::class, 'displayIncidentReports']);
@@ -179,3 +179,4 @@ Route::post('/otp/resend', [OTPController::class, 'resendOTP']);
 
 
 
+Route::get('/remittance', [JoinedController::class, 'remittanceReport']);

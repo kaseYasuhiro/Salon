@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import { 
   DollarSign, Search, Calendar, Download, Printer,
-  TrendingUp, TrendingDown, CheckCircle, Clock,
+  CheckCircle, Clock,
   XCircle, Eye, X, User, AlertCircle, RefreshCw,
-  BarChart3, ChevronDown, Users
+  Users
 } from 'lucide-react';
 import api from '../api/axios';
 
@@ -16,7 +16,6 @@ function Remittances() {
   const [selectedRemittance, setSelectedRemittance] = useState(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
 
-  // Real data states
   const [remittances, setRemittances] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -25,21 +24,26 @@ function Remittances() {
   const normalizeRemittance = (item) => {
     const businessDate =
       item.business_schedules?.business_date ||
+      item.business_schedule?.business_date ||
       item.business_date ||
       (item.created_at ? item.created_at.split('T')[0] : null);
 
-    const staffName =
-      item.employees?.name ||
-      item.employee?.name ||
-      item.staff?.name ||
-      item.remitted_by_name ||
-      item.remitted_by ||
-      'Unknown Staff';
+    // ✅ Prefer the related user object, fall back to any raw name fields the API may send
+    const relatedUser = item.user || item.users || null;
+    const staffName = relatedUser
+      ? `${relatedUser.first_name || ''} ${relatedUser.last_name || ''}`.trim() ||
+        relatedUser.name ||
+        'Unknown Staff'
+      : item.remitted_by_name ||
+        item.remitted_by ||
+        item.employee?.name ||
+        'Unknown Staff';
 
     const staffId =
-      item.employee_id ||
-      item.remitted_by_id ||
-      item.employees?.id ||
+      item.user_id ??                       // ✅ primary source
+      relatedUser?.id ??
+      item.employee_id ??
+      item.remitted_by_id ??
       null;
 
     const amountRemitted = parseFloat(item.remittance_amount) || 0;
@@ -75,7 +79,6 @@ function Remittances() {
     };
   };
 
-  // Fetch remittances from API
   const fetchRemittances = async () => {
     setIsLoading(true);
     setError(null);
@@ -114,12 +117,9 @@ function Remittances() {
     const now = new Date();
     now.setHours(0, 0, 0, 0);
 
-    if (period === 'daily') {
-      return now;
-    }
+    if (period === 'daily') return now;
 
     if (period === 'weekly') {
-      // Start of current week (Sunday)
       const day = now.getDay();
       const diff = now.getDate() - day;
       const start = new Date(now);
@@ -128,7 +128,6 @@ function Remittances() {
     }
 
     if (period === 'monthly') {
-      // Start of current month
       return new Date(now.getFullYear(), now.getMonth(), 1);
     }
 
@@ -143,7 +142,6 @@ function Remittances() {
     return `${y}-${m}-${d}`;
   };
 
-  // Remittances filtered by the selected period (daily/weekly/monthly)
   const periodRemittances = (() => {
     const start = getPeriodStart(filterPeriod);
     if (!start) return remittances;
@@ -151,7 +149,6 @@ function Remittances() {
     return remittances.filter(r => r.business_date && r.business_date >= startStr);
   })();
 
-  // Compute summary stats from the PERIOD-filtered data
   const summaryStats = (() => {
     const stats = {
       totalRemitted: 0,
@@ -179,7 +176,6 @@ function Remittances() {
     return stats;
   })();
 
-  // Apply all filters (search, status, date range) on top of the period filter
   const filteredRemittances = periodRemittances.filter(item => {
     if (searchTerm && !item.remitted_by.toLowerCase().includes(searchTerm.toLowerCase())) return false;
     if (filterStatus !== 'all' && item.status !== filterStatus) return false;
@@ -234,9 +230,9 @@ function Remittances() {
   const formatDateTime = (dateString) => {
     if (!dateString) return 'Not submitted';
     const date = new Date(dateString);
-    return date.toLocaleString('en-US', { 
-      month: 'short', 
-      day: 'numeric', 
+    return date.toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
       year: 'numeric',
       hour: 'numeric',
       minute: '2-digit',
@@ -249,7 +245,6 @@ function Remittances() {
     setShowDetailModal(true);
   };
 
-  // Label for the currently selected period
   const periodLabel = (() => {
     if (filterPeriod === 'daily') return 'Today';
     if (filterPeriod === 'weekly') return 'This Week';
@@ -257,7 +252,6 @@ function Remittances() {
     return '';
   })();
 
-  // Detail Modal
   const DetailModal = () => {
     if (!selectedRemittance) return null;
 
@@ -266,7 +260,7 @@ function Remittances() {
         <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
           <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-5 py-3 flex items-center justify-between">
             <h2 className="text-lg font-bold text-white">Remittance Details</h2>
-            <button 
+            <button
               onClick={() => {
                 setShowDetailModal(false);
                 setSelectedRemittance(null);
@@ -278,7 +272,6 @@ function Remittances() {
           </div>
 
           <div className="p-5 space-y-4">
-            {/* Header info */}
             <div className="bg-pink-50/50 rounded-lg p-4">
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
@@ -300,7 +293,6 @@ function Remittances() {
               </p>
             </div>
 
-            {/* Financial Breakdown */}
             <div>
               <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
                 Financial Breakdown
@@ -333,7 +325,6 @@ function Remittances() {
               </div>
             </div>
 
-            {/* Additional Info */}
             <div className="bg-pink-50/50 rounded-lg p-4 space-y-2">
               <div className="flex justify-between text-xs">
                 <span className="text-gray-500">Services Completed</span>
@@ -409,7 +400,7 @@ function Remittances() {
         <div className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 p-4 border border-gray-100">
           <div className="flex items-center justify-between mb-2">
             <div className="bg-pink-50 p-2 rounded-lg">
-              <TrendingUp className="text-pink-600" size={18} />
+              <DollarSign className="text-pink-600" size={18} />
             </div>
           </div>
           <p className="text-xs text-gray-500">Total Earnings</p>
@@ -437,7 +428,7 @@ function Remittances() {
         <div className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 p-4 border border-gray-100">
           <div className="flex items-center justify-between mb-2">
             <div className="bg-red-50 p-2 rounded-lg">
-              <TrendingDown className="text-red-600" size={18} />
+              <DollarSign className="text-red-600" size={18} />
             </div>
           </div>
           <p className="text-xs text-gray-500">Total Expenses</p>
@@ -541,7 +532,7 @@ function Remittances() {
               {filterPeriod === 'monthly' && 'Monthly remittance submissions from staff'}
             </p>
           </div>
-          <button 
+          <button
             onClick={fetchRemittances}
             disabled={isLoading}
             className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 disabled:opacity-50"
@@ -555,11 +546,9 @@ function Remittances() {
           <table className="w-full">
             <thead className="bg-gradient-to-r from-gray-50 to-pink-50 border-b border-gray-200">
               <tr>
+                {/* ✅ Business Date column restored */}
                 <th className="px-4 py-3 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Business Date</th>
                 <th className="px-4 py-3 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Remitted By</th>
-                <th className="px-4 py-3 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Earnings</th>
-                <th className="px-4 py-3 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Commission</th>
-                <th className="px-4 py-3 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Expenses</th>
                 <th className="px-4 py-3 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Remitted</th>
                 <th className="px-4 py-3 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Status</th>
                 <th className="px-4 py-3 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Actions</th>
@@ -568,14 +557,14 @@ function Remittances() {
             <tbody className="divide-y divide-gray-100">
               {isLoading ? (
                 <tr>
-                  <td colSpan="8" className="px-4 py-12 text-center">
+                  <td colSpan="5" className="px-4 py-12 text-center">
                     <div className="w-6 h-6 border-3 border-pink-500 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
                     <p className="text-sm text-gray-500">Loading remittances...</p>
                   </td>
                 </tr>
               ) : error ? (
                 <tr>
-                  <td colSpan="8" className="px-4 py-12 text-center">
+                  <td colSpan="5" className="px-4 py-12 text-center">
                     <AlertCircle size={40} className="text-red-300 mx-auto mb-2" />
                     <p className="text-sm text-red-500">{error}</p>
                     <button
@@ -588,7 +577,7 @@ function Remittances() {
                 </tr>
               ) : filteredRemittances.length === 0 ? (
                 <tr>
-                  <td colSpan="8" className="px-4 py-12 text-center">
+                  <td colSpan="5" className="px-4 py-12 text-center">
                     <DollarSign size={40} className="text-gray-300 mx-auto mb-2" />
                     <p className="text-sm text-gray-500">No remittance records found</p>
                     <p className="text-xs text-gray-400 mt-1">
@@ -598,10 +587,11 @@ function Remittances() {
                 </tr>
               ) : (
                 filteredRemittances.map((item) => (
-                  <tr 
+                  <tr
                     key={item.id}
                     className="hover:bg-pink-50/30 transition-colors duration-200"
                   >
+                    {/* ✅ Business Date cell */}
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         <div className="bg-pink-50 p-1.5 rounded-lg">
@@ -612,6 +602,8 @@ function Remittances() {
                         </span>
                       </div>
                     </td>
+
+                    {/* Remitted By — full staff name */}
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         <div className="w-7 h-7 bg-gradient-to-r from-pink-500 to-pink-600 rounded-full flex items-center justify-center flex-shrink-0">
@@ -619,32 +611,22 @@ function Remittances() {
                             {item.remitted_by.split(' ').map(n => n[0]).join('').slice(0, 2)}
                           </span>
                         </div>
-                        <span className="text-sm text-gray-700">{item.remitted_by}</span>
+                        <span className="text-sm font-medium text-gray-700">{item.remitted_by}</span>
                       </div>
                     </td>
-                    <td className="px-4 py-3">
-                      <span className="text-sm font-semibold text-pink-600">
-                        {formatCurrency(item.total_earnings)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="text-sm font-semibold text-orange-600">
-                        -{formatCurrency(item.commission)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="text-sm font-semibold text-red-600">
-                        -{formatCurrency(item.expenses)}
-                      </span>
-                    </td>
+
+                    {/* Remitted amount */}
                     <td className="px-4 py-3">
                       <span className="text-sm font-bold text-pink-700">
                         {formatCurrency(item.amount_remitted)}
                       </span>
                     </td>
+
+                    {/* Status */}
                     <td className="px-4 py-3">
                       {getStatusBadge(item.status)}
                     </td>
+
                     <td className="px-4 py-3">
                       <button
                         onClick={() => handleViewDetails(item)}
@@ -679,7 +661,6 @@ function Remittances() {
         </div>
       </div>
 
-      {/* Detail Modal */}
       {showDetailModal && <DetailModal />}
     </div>
   );
