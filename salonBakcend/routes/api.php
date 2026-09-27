@@ -91,7 +91,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/appointment/requests', [JoinedController::class, 'appointmentRequestList']);
     Route::post('/appointment/requests/approve/{id}', [AppointmentRequestsController::class, 'approveRequest']);
     Route::post('/appointment/requests/reject/{id}', [AppointmentRequestsController::class, 'rejectRequest']);
-    
+    Route::get('/remittance', [JoinedController::class, 'remittanceReport']);
     Route::post('/employee/commission/add', [EmployeeCommissionController::class, 'addCommission']);
     Route::post('/report/update/{id}', [IncidentReportsController::class, 'updateIncidentReport']);
     Route::get('/report', [JoinedController::class, 'displayIncidentReports']);
@@ -108,7 +108,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/expenses', [JoinedController::class, 'displayExpenses']);
     Route::post('/expenses/add', [ExpensesController::class, 'addExpense']);
 
-    Route::post('/services/update-all', [JoinedController::class, 'updateServiceDetails']);
+    Route::post('/services/update-all', [JoinedController::class, 'updateService']);
     Route::post('/employees/update-all', [JoinedController::class, 'updateEmployeeDetails']);
 
     Route::post('/service/haircolors/add', [ServiceHairColorsController::class, 'addAvailableColors']);
@@ -120,6 +120,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('/qr-code', [QRCodesController::class, 'deleteQRCode']);
 
     Route::post('/daysched-staff/add', [JoinedController::class, 'saveScheduleWithStaff']);
+
+    Route::post('/owner/update/{id}', [UserController::class, 'updateOwner']);
 
 
     //customer side
@@ -179,4 +181,3 @@ Route::post('/otp/resend', [OTPController::class, 'resendOTP']);
 
 
 
-Route::get('/remittance', [JoinedController::class, 'remittanceReport']);

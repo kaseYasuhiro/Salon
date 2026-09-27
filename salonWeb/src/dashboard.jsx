@@ -15,7 +15,13 @@ import {
   Image as ImageIcon,
   Upload,
   CloudUpload,
-  Loader
+  Loader,
+  Settings,
+  Save,
+  Lock,
+  Mail,
+  Eye as EyeIcon,
+  EyeOff
 } from 'lucide-react';
 import { useAuth } from "../contexts/auth-context";
 import api from '../api/axios';
@@ -312,12 +318,15 @@ function QrCodeModal({ open, qrData, onClose, onUploaded }) {
 // Main Dashboard
 // ─────────────────────────────────────────────────────────────
 function Dashboard() {
-  const { logout } = useAuth();
+  const auth = useAuth();
+  const logout = auth?.logout;
+  const updateUser = auth?.updateUser;
+  const user = auth?.user;
+
   const navigate = useNavigate();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [transactionsOpen, setTransactionsOpen] = useState(false);
-  const { user } = useAuth();
   const [token, setToken] = useState(null);
   const [dashboardStats, setDashboardStats] = useState({
     totalAppointments: 0,
@@ -354,6 +363,20 @@ function Dashboard() {
   const [isQrModalOpen, setIsQrModalOpen] = useState(false);
   const [toast, setToast] = useState(null);
 
+  // ── Settings form state ──
+  const [settingsForm, setSettingsForm] = useState({
+    first_name: '',
+    last_name: '',
+    email: '',
+    phone_number: '',
+    password: '',
+    password_confirmation: '',
+  });
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [showSettingsPassword, setShowSettingsPassword] = useState(false);
+  const [showSettingsConfirmPassword, setShowSettingsConfirmPassword] = useState(false);
+  const [settingsErrors, setSettingsErrors] = useState({});
+
   useEffect(() => {
     const storedToken = getToken();
     setToken(storedToken);
@@ -381,6 +404,21 @@ function Dashboard() {
       setTransactionsOpen(true);
     }
   }, [location.pathname]);
+
+  // Sync settings form with user data when navigating to settings
+  useEffect(() => {
+    if (location.pathname === '/dashboard/settings' && user) {
+      setSettingsForm({
+        first_name: user.first_name || '',
+        last_name: user.last_name || '',
+        email: user.email || '',
+        phone_number: user.phone_number || '',
+        password: '',
+        password_confirmation: '',
+      });
+      setSettingsErrors({});
+    }
+  }, [location.pathname, user]);
 
   // ── Fetch all appointments ──
   const fetchAllAppointments = async () => {
@@ -728,9 +766,6 @@ function Dashboard() {
     setToast({ message: 'QR code updated successfully!', type: 'success' });
   }, []);
 
-  // ✅ Centralized refetch — used by the two effects below.
-  // All the fetchers are stable references because they're plain async functions
-  // that don't capture changing state at call time; calling them here is safe.
   const refetchAllData = useCallback(async (silent = false) => {
     if (!silent) setIsLoading(true);
     await Promise.all([
@@ -748,8 +783,6 @@ function Dashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ✅ Refetch every time the user navigates back to /dashboard.
-  // Covers: navigating away, making changes, coming back.
   useEffect(() => {
     if (location.pathname === '/dashboard') {
       refetchAllData();
@@ -757,12 +790,10 @@ function Dashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname]);
 
-  // ✅ Refetch when the browser tab regains focus.
-  // Covers: data changed in another tab / device.
   useEffect(() => {
     const onFocus = () => {
       if (location.pathname === '/dashboard') {
-        refetchAllData(true); // silent so no loading spinner flash
+        refetchAllData(true);
       }
     };
     window.addEventListener('focus', onFocus);
@@ -770,7 +801,6 @@ function Dashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname]);
 
-  // Recompute derived stats when staff / commissions change
   useEffect(() => {
     if (staffList.length > 0 || commissionsData.length > 0) {
       fetchPerformanceData();
@@ -786,6 +816,7 @@ function Dashboard() {
   const isInventoryRoute = location.pathname === '/dashboard/inventory';
   const isReportsRoute = location.pathname === '/dashboard/reports';
   const isProductsRoute = location.pathname === '/dashboard/products';
+  const isSettingsRoute = location.pathname === '/dashboard/settings';
 
   const isSalesRoute = location.pathname === '/dashboard/sales';
   const isInventoryReportsRoute = location.pathname === '/dashboard/inventoryReports';
@@ -848,7 +879,9 @@ function Dashboard() {
 
   const handleLogout = async () => {
     try {
-      await logout();
+      if (typeof logout === 'function') {
+        await logout();
+      }
       navigate('/');
     } catch (error) {
       navigate('/');
@@ -892,6 +925,83 @@ function Dashboard() {
   const closeModal = () => {
     setShowModal(false);
     setSelectedAppointment(null);
+  };
+
+  // ── Settings handlers ──
+  const handleSettingsChange = (field) => (e) => {
+    setSettingsForm((prev) => ({ ...prev, [field]: e.target.value }));
+    setSettingsErrors((prev) => ({ ...prev, [field]: null }));
+  };
+
+  const validateSettings = () => {
+    const newErrors = {};
+    if (!settingsForm.first_name.trim()) newErrors.first_name = 'First name is required';
+    if (!settingsForm.last_name.trim()) newErrors.last_name = 'Last name is required';
+    if (!settingsForm.email.trim()) newErrors.email = 'Email is required';
+    else if (!/^\S+@\S+\.\S+$/.test(settingsForm.email)) newErrors.email = 'Enter a valid email';
+    if (!settingsForm.phone_number.trim()) newErrors.phone_number = 'Phone number is required';
+    if (settingsForm.password) {
+      if (settingsForm.password.length < 8) newErrors.password = 'Password must be at least 8 characters';
+      if (settingsForm.password !== settingsForm.password_confirmation) {
+        newErrors.password_confirmation = 'Passwords do not match';
+      }
+    }
+    setSettingsErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleSettingsSubmit = async (e) => {
+    e.preventDefault();
+    if (!validateSettings()) return;
+
+    if (!user?.id) {
+      setToast({ message: 'Unable to determine your user ID. Please re-login.', type: 'error' });
+      return;
+    }
+
+    setIsSavingSettings(true);
+    try {
+      const payload = {
+        first_name: settingsForm.first_name.trim(),
+        last_name: settingsForm.last_name.trim(),
+        email: settingsForm.email.trim(),
+        phone_number: settingsForm.phone_number.trim(),
+      };
+
+      if (settingsForm.password) {
+        payload.password = settingsForm.password;
+        payload.password_confirmation = settingsForm.password_confirmation;
+      }
+
+      const response = await api.post(`/owner/update/${user.id}`, payload);
+
+      setToast({
+        message: response.data?.message || 'Profile updated successfully!',
+        type: 'success',
+      });
+
+      setSettingsForm((prev) => ({ ...prev, password: '', password_confirmation: '' }));
+
+      if (typeof updateUser === 'function' && response.data?.user) {
+        updateUser(response.data.user);
+      }
+    } catch (error) {
+      if (error.response?.data?.errors) {
+        const backendErrors = {};
+        Object.entries(error.response.data.errors).forEach(([key, messages]) => {
+          backendErrors[key] = Array.isArray(messages) ? messages[0] : messages;
+        });
+        setSettingsErrors(backendErrors);
+        setToast({ message: 'Please fix the errors in the form.', type: 'error' });
+      } else {
+        setToast({
+          message: error.response?.data?.message || 'Failed to update profile. Please try again.',
+          type: 'error',
+        });
+      }
+    } finally {
+      setIsSavingSettings(false);
+    }
   };
 
   const AppointmentModal = () => {
@@ -1040,6 +1150,284 @@ function Dashboard() {
             </div>
           </div>
         </div>
+      </div>
+    );
+  };
+
+  const renderSettingsContent = () => {
+    const initials = `${settingsForm.first_name?.[0] || ''}${settingsForm.last_name?.[0] || ''}`.toUpperCase();
+
+    return (
+      <div className="max-w-3xl mx-auto">
+        {/* Profile Header Card */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-5">
+          <div className="flex items-center gap-4">
+            <div className="w-16 h-16 bg-gradient-to-r from-pink-500 to-pink-600 rounded-full flex items-center justify-center shadow-md">
+              <span className="text-white text-xl font-bold">
+                {initials || <User size={24} />}
+              </span>
+            </div>
+            <div>
+              <h2 className="text-lg font-bold text-gray-800">
+                {settingsForm.first_name} {settingsForm.last_name}
+              </h2>
+              <p className="text-xs text-gray-500 capitalize flex items-center gap-1 mt-0.5">
+                <Crown size={12} className="text-yellow-500" />
+                {user?.role || 'owner'}
+              </p>
+              <p className="text-xs text-gray-400 mt-0.5">{settingsForm.email}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Form Card */}
+        <form
+          onSubmit={handleSettingsSubmit}
+          className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden"
+        >
+          <div className="px-5 py-3 border-b border-gray-100 flex items-center gap-2">
+            <div className="bg-pink-50 p-1.5 rounded-lg">
+              <Settings size={14} className="text-pink-500" />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-gray-800">Personal Information</h3>
+              <p className="text-[10px] text-gray-500 mt-0.5">
+                Update your account details and password
+              </p>
+            </div>
+          </div>
+
+          <div className="p-5 space-y-5">
+            {/* Name */}
+            <div>
+              <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
+                Basic Information
+              </h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1.5">
+                    First Name <span className="text-pink-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <User
+                      size={14}
+                      className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                    />
+                    <input
+                      type="text"
+                      value={settingsForm.first_name}
+                      onChange={handleSettingsChange('first_name')}
+                      className={`w-full pl-9 pr-3 py-2.5 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:border-transparent transition-all ${
+                        settingsErrors.first_name
+                          ? 'border-red-300 focus:ring-red-400'
+                          : 'border-gray-200 focus:ring-pink-500'
+                      }`}
+                      placeholder="Enter first name"
+                    />
+                  </div>
+                  {settingsErrors.first_name && (
+                    <p className="text-[10px] text-red-500 mt-1">{settingsErrors.first_name}</p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1.5">
+                    Last Name <span className="text-pink-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <User
+                      size={14}
+                      className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                    />
+                    <input
+                      type="text"
+                      value={settingsForm.last_name}
+                      onChange={handleSettingsChange('last_name')}
+                      className={`w-full pl-9 pr-3 py-2.5 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:border-transparent transition-all ${
+                        settingsErrors.last_name
+                          ? 'border-red-300 focus:ring-red-400'
+                          : 'border-gray-200 focus:ring-pink-500'
+                      }`}
+                      placeholder="Enter last name"
+                    />
+                  </div>
+                  {settingsErrors.last_name && (
+                    <p className="text-[10px] text-red-500 mt-1">{settingsErrors.last_name}</p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Contact */}
+            <div className="border-t border-gray-100 pt-5">
+              <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
+                Contact Information
+              </h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1.5">
+                    Email Address <span className="text-pink-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <Mail
+                      size={14}
+                      className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                    />
+                    <input
+                      type="email"
+                      value={settingsForm.email}
+                      onChange={handleSettingsChange('email')}
+                      className={`w-full pl-9 pr-3 py-2.5 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:border-transparent transition-all ${
+                        settingsErrors.email
+                          ? 'border-red-300 focus:ring-red-400'
+                          : 'border-gray-200 focus:ring-pink-500'
+                      }`}
+                      placeholder="you@example.com"
+                    />
+                  </div>
+                  {settingsErrors.email && (
+                    <p className="text-[10px] text-red-500 mt-1">{settingsErrors.email}</p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1.5">
+                    Phone Number <span className="text-pink-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <Phone
+                      size={14}
+                      className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                    />
+                    <input
+                      type="text"
+                      value={settingsForm.phone_number}
+                      onChange={(e) =>
+                        setSettingsForm((prev) => ({
+                          ...prev,
+                          phone_number: e.target.value.replace(/[^\d+\-\s()]/g, ''),
+                        }))
+                      }
+                      className={`w-full pl-9 pr-3 py-2.5 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:border-transparent transition-all ${
+                        settingsErrors.phone_number
+                          ? 'border-red-300 focus:ring-red-400'
+                          : 'border-gray-200 focus:ring-pink-500'
+                      }`}
+                      placeholder="09171234567"
+                    />
+                  </div>
+                  {settingsErrors.phone_number && (
+                    <p className="text-[10px] text-red-500 mt-1">{settingsErrors.phone_number}</p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Password */}
+            <div className="border-t border-gray-100 pt-5">
+              <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
+                Change Password
+              </h4>
+              <p className="text-[10px] text-gray-400 mb-3">
+                Leave blank to keep your current password
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1.5">
+                    New Password
+                  </label>
+                  <div className="relative">
+                    <Lock
+                      size={14}
+                      className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                    />
+                    <input
+                      type={showSettingsPassword ? 'text' : 'password'}
+                      value={settingsForm.password}
+                      onChange={handleSettingsChange('password')}
+                      className={`w-full pl-9 pr-10 py-2.5 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:border-transparent transition-all ${
+                        settingsErrors.password
+                          ? 'border-red-300 focus:ring-red-400'
+                          : 'border-gray-200 focus:ring-pink-500'
+                      }`}
+                      placeholder="Min. 8 characters"
+                      autoComplete="new-password"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowSettingsPassword((s) => !s)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                      tabIndex={-1}
+                    >
+                      {showSettingsPassword ? <EyeOff size={14} /> : <EyeIcon size={14} />}
+                    </button>
+                  </div>
+                  {settingsErrors.password && (
+                    <p className="text-[10px] text-red-500 mt-1">{settingsErrors.password}</p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1.5">
+                    Confirm New Password
+                  </label>
+                  <div className="relative">
+                    <Lock
+                      size={14}
+                      className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                    />
+                    <input
+                      type={showSettingsConfirmPassword ? 'text' : 'password'}
+                      value={settingsForm.password_confirmation}
+                      onChange={handleSettingsChange('password_confirmation')}
+                      className={`w-full pl-9 pr-10 py-2.5 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:border-transparent transition-all ${
+                        settingsErrors.password_confirmation
+                          ? 'border-red-300 focus:ring-red-400'
+                          : 'border-gray-200 focus:ring-pink-500'
+                      }`}
+                      placeholder="Re-enter new password"
+                      autoComplete="new-password"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowSettingsConfirmPassword((s) => !s)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                      tabIndex={-1}
+                    >
+                      {showSettingsConfirmPassword ? <EyeOff size={14} /> : <EyeIcon size={14} />}
+                    </button>
+                  </div>
+                  {settingsErrors.password_confirmation && (
+                    <p className="text-[10px] text-red-500 mt-1">
+                      {settingsErrors.password_confirmation}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div className="border-t border-gray-100 px-5 py-3 flex justify-end gap-2 bg-gray-50/50">
+            <button
+              type="submit"
+              disabled={isSavingSettings}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-pink-500 to-pink-600 rounded-lg hover:shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isSavingSettings ? (
+                <>
+                  <Loader size={14} className="animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Save size={14} />
+                  Save Changes
+                </>
+              )}
+            </button>
+          </div>
+        </form>
       </div>
     );
   };
@@ -1575,7 +1963,9 @@ function Dashboard() {
                 </div>
                 <div>
                   <p className="text-[10px] text-gray-500">Logged in as</p>
-                  <p className="text-xs font-semibold text-gray-800">Owner</p>
+                  <p className="text-xs font-semibold text-gray-800">
+                    {user?.first_name ? `${user.first_name} ${user.last_name || ''}`.trim() : 'Owner'}
+                  </p>
                 </div>
               </div>
             </div>
@@ -1729,6 +2119,19 @@ function Dashboard() {
                 </div>
               </div>
             </div>
+
+            <Link 
+              to="/dashboard/settings"
+              onClick={() => setSidebarOpen(false)}
+              className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg transition-all text-sm ${
+                isSettingsRoute
+                  ? 'bg-gradient-to-r from-pink-50 to-pink-100 text-pink-600 font-semibold' 
+                  : 'text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              <Settings size={18} />
+              <span>Settings</span>
+            </Link>
           </nav>
 
           <div className="p-3 border-t border-gray-100">
@@ -1759,6 +2162,7 @@ function Dashboard() {
                     {isSalesRoute && 'Income'}
                     {isInventoryReportsRoute && 'Inventory Reports'}
                     {isRemittancesRoute && 'Remittances'}
+                    {isSettingsRoute && 'Settings'}
                     {isDashboardRoute && 'Dashboard'}
                   </h1>
                   <p className="text-xs text-gray-500 hidden sm:block">
@@ -1771,6 +2175,7 @@ function Dashboard() {
                     {isSalesRoute && 'View sales performance and revenue statistics'}
                     {isInventoryReportsRoute && 'View inventory usage and stock reports'}
                     {isRemittancesRoute && 'View remittance records and history'}
+                    {isSettingsRoute && 'Manage your personal account details'}
                     {isDashboardRoute && 'Welcome back! Here\'s your overview'}
                   </p>
                 </div>
@@ -1799,7 +2204,9 @@ function Dashboard() {
         </header>
 
         <main className="p-4 sm:p-5 lg:p-6">
-          {isNestedRoute ? (
+          {isSettingsRoute ? (
+            renderSettingsContent()
+          ) : isNestedRoute ? (
             <Outlet />
           ) : (
             renderDashboardContent()

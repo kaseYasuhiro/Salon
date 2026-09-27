@@ -3,7 +3,7 @@ import {
   Users, UserPlus, Search, Edit, Trash2,
   Mail, Phone, Star, Clock, Award,
   Activity, Briefcase, CheckCircle, XCircle, Scissors, X, AlertCircle,
-  Plus, Tag, UserCheck, UserX, Save, DollarSign
+  Plus, Tag, UserCheck, UserX, Save, DollarSign, Settings
 } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../contexts/auth-context';
@@ -38,7 +38,6 @@ function Employees() {
     role: 'staff',
   });
 
-  // Employee management form data (Specialty, Active Status, Commission, Walk-in)
   const [employeeFormData, setEmployeeFormData] = useState({
     employee_id: '',
     specialty_id: '',
@@ -53,7 +52,6 @@ function Employees() {
     { label: 'Walk-in Authorized', value: '0', icon: UserCheck, bgColor: 'bg-blue-50', textColor: 'text-blue-600' },
   ]);
 
-  // Toast notification
   const showToast = (message, type = 'success') => {
     setToast({ show: true, message, type });
     setTimeout(() => {
@@ -61,7 +59,6 @@ function Employees() {
     }, 3000);
   };
 
-  // Get full image URL
   const API_URL = import.meta.env.VITE_API_URL || "http://192.168.100.73:8000/api";
   const BASE_URL = API_URL.replace(/\/api\/?$/, "");
 
@@ -72,7 +69,6 @@ function Employees() {
     return `${BASE_URL}/storage/${imagePath}`;
   };
 
-  // Resolve profile image from either flat or nested shape
   const getEmployeeProfileImage = (employee) => {
     if (!employee) return null;
     if (employee.user?.profile_image) return employee.user.profile_image;
@@ -80,23 +76,17 @@ function Employees() {
     return null;
   };
 
-  // Resolve active_status from either flat or nested shape.
-  // Returns true unless the value is explicitly 0/false.
   const getEmployeeActiveStatus = (employee) => {
     if (!employee) return true;
-    // Nested under user (from /employee/specialties endpoint)
     if (employee.user?.active_status != null) {
       return employee.user.active_status === 1 || employee.user.active_status === true;
     }
-    // Flat shape (fallback)
     if (employee.active_status != null) {
       return employee.active_status === 1 || employee.active_status === true;
     }
-    // Default to active if the field is missing entirely
     return true;
   };
 
-  // Sort employees by created_at (most recent first) or by id
   const sortEmployeesByRecent = (employeesArray) => {
     return [...employeesArray].sort((a, b) => {
       if (a.created_at && b.created_at) {
@@ -109,7 +99,6 @@ function Employees() {
     });
   };
 
-  // Fetch staff feedbacks
   const fetchStaffFeedbacks = async () => {
     try {
       const response = await api.get('/feedbacks/staff');
@@ -121,7 +110,6 @@ function Employees() {
     }
   };
 
-  // Fetch all available specialties from the specialties table
   const fetchSpecialtiesList = async () => {
     try {
       const response = await api.get('/specialties');
@@ -133,7 +121,6 @@ function Employees() {
     }
   };
 
-  // Fetch employee commissions
   const fetchEmployeeCommissions = async () => {
     try {
       const response = await api.get('/employee/commission');
@@ -150,7 +137,6 @@ function Employees() {
     }
   };
 
-  // Fetch walk-in authorizations
   const fetchWalkInAuthorizations = async () => {
     try {
       setIsRefreshing(true);
@@ -198,7 +184,6 @@ function Employees() {
     }
   };
 
-  // Fetch employees
   const fetchEmployees = async () => {
     setIsLoading(true);
     try {
@@ -208,7 +193,6 @@ function Employees() {
         const sortedEmployees = sortEmployeesByRecent(response.data);
         setEmployees(sortedEmployees);
         
-        // ✅ Count active staff based on active_status (from users table)
         const activeEmployees = sortedEmployees.filter(e => getEmployeeActiveStatus(e)).length;
         
         setStats(prev => {
@@ -225,7 +209,6 @@ function Employees() {
     }
   };
 
-  // Refresh all data
   const refreshAllData = async () => {
     await Promise.all([
       fetchEmployees(),
@@ -254,16 +237,12 @@ function Employees() {
     }));
   };
 
-  // SAVE ALL CHANGES - Single API call
   const handleSaveAllChanges = async () => {
     if (!selectedEmployee) return;
 
-    // Validate that we have at least one change to save
     const hasSpecialty = employeeFormData.specialty_id;
     const hasCommission = employeeFormData.commission_amount && parseFloat(employeeFormData.commission_amount) > 0;
     const hasWalkIn = employeeFormData.walk_in_authorized !== undefined;
-
-    // active_status is always sent (it's a toggle, so always defined)
     const hasActiveStatus = employeeFormData.active_status !== undefined;
 
     if (!hasSpecialty && !hasCommission && !hasWalkIn && !hasActiveStatus) {
@@ -271,7 +250,6 @@ function Employees() {
       return;
     }
 
-    // Validate commission amount
     if (hasCommission && parseFloat(employeeFormData.commission_amount) <= 0) {
       showToast('Commission amount must be greater than 0.', 'error');
       return;
@@ -292,7 +270,6 @@ function Employees() {
       if (response.data.success) {
         showToast(response.data.message, 'success');
         
-        // Reset form after successful save (keep active_status matching the new state)
         setEmployeeFormData({
           employee_id: selectedEmployee.id,
           specialty_id: '',
@@ -301,7 +278,6 @@ function Employees() {
           walk_in_authorized: false
         });
         
-        // Refresh everything
         await refreshAllData();
       } else {
         showToast(response.data.message || 'Some changes could not be saved.', 'warning');
@@ -315,13 +291,11 @@ function Employees() {
     }
   };
 
-  // Get specialty name by ID
   const getSpecialtyName = (specialtyId) => {
     const specialty = specialtiesList.find(s => s.id === specialtyId);
     return specialty ? specialty.specialty_name : 'Unknown';
   };
 
-  // Get average rating for a staff member
   const getAverageStaffRating = (staffId) => {
     const staffReviews = staffFeedbacks.filter(f => f.staff_id === staffId);
     if (staffReviews.length === 0) return 0;
@@ -334,12 +308,10 @@ function Employees() {
     return parseFloat((total / staffReviews.length).toFixed(1));
   };
 
-  // Get review count for a staff member
   const getStaffReviewCount = (staffId) => {
     return staffFeedbacks.filter(f => f.staff_id === staffId).length;
   };
 
-  // Render stars for rating display
   const renderStars = (rating) => {
     const fullStars = Math.floor(rating);
     const hasHalfStar = rating % 1 >= 0.5;
@@ -358,7 +330,6 @@ function Employees() {
     return stars;
   };
 
-  // Add employee
   const handleAddEmployee = async (e) => {
     e.preventDefault();
     
@@ -408,7 +379,6 @@ function Employees() {
     }
   };
 
-  // Update employee
   const handleUpdateEmployee = async (e) => {
     e.preventDefault();
     
@@ -435,19 +405,6 @@ function Employees() {
       setFormError(error.response?.data?.message || 'Error updating employee');
     } finally {
       setIsLoading(false);
-    }
-  };
-
-  // Delete employee
-  const handleDeleteEmployee = async (id) => {
-    if (window.confirm('Are you sure you want to delete this staff member?')) {
-      try {
-        const response = await api.post(`/employees/delete/${id}`);
-        showToast(response.data.message || 'Staff member deleted successfully!', 'success');
-        refreshAllData();
-      } catch (error) {
-        showToast(error.response?.data?.message || 'Error deleting employee', 'error');
-      }
     }
   };
 
@@ -494,7 +451,6 @@ function Employees() {
     setEmployeeFormData({
       employee_id: employee.id,
       specialty_id: '',
-      // ✅ Seed the toggle from the employee's current active_status
       active_status: getEmployeeActiveStatus(employee),
       commission_amount: employeeCommissions[employee.id] || '',
       walk_in_authorized: walkInAuthorizations[employee.id] || false
@@ -514,7 +470,6 @@ function Employees() {
     return `${firstName?.charAt(0) || ''}${lastName?.charAt(0) || ''}`.toUpperCase();
   };
 
-  // Filter employees (maintains sort order)
   const filteredEmployees = employees.filter(emp => {
     if (searchTerm && !`${emp.first_name} ${emp.last_name}`.toLowerCase().includes(searchTerm.toLowerCase())) return false;
     return true;
@@ -569,7 +524,7 @@ function Employees() {
         </div>
       )}
 
-      {/* Stats Grid - Compact */}
+      {/* Stats Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         {stats.map((stat, index) => (
           <div key={index} className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 p-4 border border-gray-100">
@@ -582,7 +537,7 @@ function Employees() {
         ))}
       </div>
 
-      {/* Controls Bar - Compact */}
+      {/* Controls Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div className="flex gap-2">
           <button 
@@ -632,7 +587,7 @@ function Employees() {
         </div>
       </div>
 
-      {/* Grid View - Smaller Cards */}
+      {/* Grid View */}
       {viewMode === 'grid' && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {filteredEmployees.map((employee) => {
@@ -688,7 +643,6 @@ function Employees() {
                       </div>
                     </div>
                   )}
-                  {/* ✅ Inactive badge takes priority over walk-in badge */}
                   <div className="absolute top-1.5 right-1.5">
                     {!isActive ? (
                       <div className="bg-red-500 rounded-full px-1.5 py-0.5 shadow-md">
@@ -782,7 +736,18 @@ function Employees() {
                     </div>
                   </div>
                   
+                  {/* ✅ Manage + Edit (Delete removed) */}
                   <div className="flex gap-1.5">
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleEmployeeClick(employee);
+                      }}
+                      className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 bg-purple-50 text-purple-600 rounded-lg hover:bg-purple-100 transition-colors text-xs font-medium"
+                    >
+                      <Settings size={12} />
+                      Manage
+                    </button>
                     <button 
                       onClick={(e) => {
                         e.stopPropagation();
@@ -793,16 +758,6 @@ function Employees() {
                       <Edit size={12} />
                       Edit
                     </button>
-                    <button 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeleteEmployee(employee.id);
-                      }}
-                      className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors text-xs font-medium"
-                    >
-                      <Trash2 size={12} />
-                      Delete
-                    </button>
                   </div>
                 </div>
               </div>
@@ -811,7 +766,7 @@ function Employees() {
         </div>
       )}
 
-      {/* List View - Compact */}
+      {/* List View */}
       {viewMode === 'list' && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
           <div className="overflow-x-auto">
@@ -974,18 +929,21 @@ function Employees() {
                         </div>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
+                        {/* ✅ Manage + Edit (Delete removed) */}
                         <div className="flex items-center gap-1.5">
                           <button 
-                            onClick={() => handleEdit(employee)}
-                            className="p-1 hover:bg-gray-100 rounded-lg transition-colors"
+                            onClick={() => handleEmployeeClick(employee)}
+                            className="p-1.5 hover:bg-purple-100 rounded-lg transition-colors"
+                            title="Manage"
                           >
-                            <Edit size={14} className="text-gray-500" />
+                            <Settings size={14} className="text-purple-500" />
                           </button>
                           <button 
-                            onClick={() => handleDeleteEmployee(employee.id)}
-                            className="p-1 hover:bg-gray-100 rounded-lg transition-colors"
+                            onClick={() => handleEdit(employee)}
+                            className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
+                            title="Edit"
                           >
-                            <Trash2 size={14} className="text-red-500" />
+                            <Edit size={14} className="text-gray-500" />
                           </button>
                         </div>
                       </td>
@@ -998,10 +956,10 @@ function Employees() {
         </div>
       )}
 
-      {/* Add/Edit Staff Modal - WITH HIDDEN SCROLLBAR */}
+      {/* Add/Edit Staff Modal */}
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden max-h-[85vh]">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden max-h-[90vh]">
             <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-5 py-3 flex items-center justify-between sticky top-0 z-10">
               <h2 className="text-lg font-bold text-white">
                 {editingEmployee ? 'Edit Staff Member' : 'Add New Staff Member'}
@@ -1020,7 +978,7 @@ function Employees() {
             <form 
               onSubmit={handleSubmit} 
               className="p-5 space-y-3 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
-              style={{ maxHeight: 'calc(85vh - 60px)' }}
+              style={{ maxHeight: 'calc(90vh - 60px)' }}
             >
               {formError && (
                 <div className="bg-red-50 border border-red-200 rounded-lg p-2 flex items-center gap-1.5">
@@ -1143,13 +1101,14 @@ function Employees() {
         </div>
       )}
 
-      {/* Employee Management Modal - WIDER AND UNSCROLLABLE */}
+      {/* ✅ Manage Employee Modal — WIDER with proper viewport padding */}
       {showEmployeeModal && selectedEmployee && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl mx-4 overflow-hidden">
-            <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-6 py-4 flex items-center justify-between">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 sm:p-6">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl mx-auto overflow-hidden max-h-[90vh] flex flex-col">
+            {/* Sticky Header */}
+            <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-6 py-4 flex items-center justify-between flex-shrink-0">
               <h2 className="text-lg font-bold text-white">
-                Manage {selectedEmployee.first_name}
+                Manage {selectedEmployee.first_name} {selectedEmployee.last_name}
               </h2>
               <button 
                 onClick={() => {
@@ -1163,7 +1122,8 @@ function Employees() {
               </button>
             </div>
 
-            <div className="p-6 space-y-4">
+            {/* Scrollable Body */}
+            <div className="p-6 space-y-4 overflow-y-auto flex-1">
               {/* Employee Info */}
               <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
                 <div className="flex items-center gap-4">
@@ -1197,7 +1157,7 @@ function Employees() {
                     <h3 className="font-semibold text-gray-800 text-base">
                       {selectedEmployee.first_name} {selectedEmployee.last_name}
                     </h3>
-                    <div className="flex items-center gap-3 mt-1">
+                    <div className="flex items-center gap-3 mt-1 flex-wrap">
                       <p className="text-sm text-gray-500 flex items-center gap-1">
                         <Mail size={14} />
                         {selectedEmployee.email}
@@ -1214,7 +1174,7 @@ function Employees() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Left Column */}
                 <div className="space-y-4">
-                  {/* ✅ Active Status Toggle - moved to top since it's the primary control */}
+                  {/* Active Status Toggle */}
                   <div className={`rounded-lg p-4 border ${
                     employeeFormData.active_status 
                       ? 'bg-green-50 border-green-200' 
@@ -1396,7 +1356,7 @@ function Employees() {
                 </div>
               </div>
 
-              {/* Save Changes Button - Only at the bottom */}
+              {/* Save Changes Button */}
               <div className="border-t border-gray-200 pt-4">
                 <button
                   onClick={handleSaveAllChanges}
@@ -1421,7 +1381,7 @@ function Employees() {
         </div>
       )}
 
-      {/* Empty State - Smaller */}
+      {/* Empty State */}
       {filteredEmployees.length === 0 && !isLoading && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 text-center">
           <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">

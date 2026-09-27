@@ -265,4 +265,48 @@ class UserController extends Controller
             'message' => 'Phone Number Updated Successfully'
         ], 200);
     }
+
+    public function updateOwner(Request $request, $id)
+    {
+        $user = $request->user();
+
+        // Only the owner can update their own profile via this endpoint
+        if (!$user || $user->role !== 'owner') {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        // Make sure the owner can only update their own record
+        if ((int) $user->id !== (int) $id) {
+            return response()->json(['message' => 'You can only update your own profile'], 403);
+        }
+
+        $request->validate([
+            'first_name'   => ['required', 'string', 'max:255'],
+            'last_name'    => ['required', 'string', 'max:255'],
+            'email'        => ['required', 'string', 'email', 'max:255', 'unique:users,email,' . $id],
+            'phone_number' => ['required', 'string', 'max:20'],
+            'password'     => ['nullable', 'string', 'min:8', 'confirmed'],
+        ]);
+
+        $owner = User::findOrFail($id);
+
+        $updateData = [
+            'first_name'   => $request->first_name,
+            'last_name'    => $request->last_name,
+            'email'        => $request->email,
+            'phone_number' => $request->phone_number,
+        ];
+
+        // Only update password if a new one is provided
+        if ($request->filled('password')) {
+            $updateData['password'] = Hash::make($request->password);
+        }
+
+        $owner->update($updateData);
+
+        return response()->json([
+            'message' => 'Profile updated successfully',
+            'user'    => $owner->fresh(),
+        ], 200);
+    }
 }

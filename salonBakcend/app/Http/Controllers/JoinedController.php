@@ -1710,5 +1710,169 @@ class JoinedController extends Controller
         ], 200);
     }
 
+    public function updateService(Request $request)
+    {
+        $request->validate([
+            // ── Main service fields ──
+            'service_id'          => ['required', 'numeric'],
+            'service_name'        => ['required', 'string'],
+            'description'         => ['required', 'string'],
+            'price'               => ['required', 'numeric'],
+            'duration_minutes'    => ['required', 'numeric'],
+            'is_multitaskable'    => ['required', 'boolean'],
+            'reqHairColor'        => ['nullable', 'boolean'],
+            'service_status'      => ['required', 'string'],
+
+            // ── Price adjustments ──
+            'price_adjustments'                     => ['nullable', 'array'],
+            'price_adjustments.*.hair_length'       => ['required_with:price_adjustments', 'string', 'in:short,medium,long'],
+            'price_adjustments.*.hair_thickness'    => ['required_with:price_adjustments', 'string', 'in:thin,medium,thick'],
+            'price_adjustments.*.additional_price'  => ['required_with:price_adjustments', 'numeric', 'min:0'],
+
+            // ── Specialties / products / hair colors ──
+            'specialty_id'          => ['nullable', 'numeric'],
+            'product_id'            => ['nullable', 'numeric'],
+            'estimated_usage'       => ['nullable', 'numeric'],
+            'hair_color_ids'        => ['nullable', 'array'],
+            'hair_color_ids.*'      => ['numeric', 'exists:hair_colors,id'],
+        ]);
+
+        $service = Services::find($request->service_id);
+
+        if (!$service) {
+            return response()->json(['message' => 'Service not found'], 404);
+        }
+
+        $results = [
+            'service_updated'       => false,
+            'price_adjustments_updated' => false,
+            'specialty_added'       => false,
+            'product_usage_added'   => false,
+            'hair_colors_updated'   => false,
+            'messages'              => [],
+        ];
+
+        // ── 1. Update main service fields ──
+        try {
+            $service->update([
+                'service_name'     => $request->service_name,
+                'description'      => $request->description,
+                'price'            => $request->price,
+                'duration_minutes' => $request->duration_minutes,
+                'is_multitaskable' => $request->is_multitaskable,
+                'reqHairColor'     => $request->reqHairColor ?? false,
+                'service_status'   => $request->service_status,
+            ]);
+
+            $results['service_updated'] = true;
+            $results['messages'][] = 'Service details updated.';
+        } catch (\Exception $e) {
+            $results['messages'][] = 'Error updating service: ' . $e->getMessage();
+        }
+
+        // ── 2. Price adjustments (replace all) ──
+        if ($request->has('price_adjustments')) {
+            try {
+                ServicePriceAdjustments::where('service_id', $service->id)->delete();
+
+                foreach ($request->price_adjustments as $adjustment) {
+                    ServicePriceAdjustments::create([
+                        'service_id'       => $service->id,
+                        'hair_length'      => $adjustment['hair_length'],
+                        'hair_thickness'   => $adjustment['hair_thickness'],
+                        'additional_price' => $adjustment['additional_price'],
+                    ]);
+                }
+
+                $results['price_adjustments_updated'] = true;
+                $results['messages'][] = 'Price adjustments updated.';
+            } catch (\Exception $e) {
+                $results['messages'][] = 'Error updating price adjustments: ' . $e->getMessage();
+            }
+        }
+
+        // ── 3. Add specialty ──
+        if ($request->filled('specialty_id')) {
+            try {
+                $exists = ServiceSpecialties::where('service_id', $service->id)
+                    ->where('specialty_id', $request->specialty_id)
+                    ->exists();
+
+                if (!$exists) {
+                    ServiceSpecialties::create([
+                        'service_id'   => $service->id,
+                        'specialty_id' => $request->specialty_id,
+                    ]);
+                    $results['specialty_added'] = true;
+                    $results['messages'][] = 'Specialty added.';
+                } else {
+                    $results['messages'][] = 'Specialty already exists for this service.';
+                }
+            } catch (\Exception $e) {
+                $results['messages'][] = 'Error adding specialty: ' . $e->getMessage();
+            }
+        }
+
+        // ── 4. Add product usage ──
+        if ($request->filled('product_id') && $request->filled('estimated_usage')) {
+            try {
+                $exists = ServiceProductUsage::where('service_id', $service->id)
+                    ->where('product_id', $request->product_id)
+                    ->exists();
+
+                if (!$exists) {
+                    ServiceProductUsage::create([
+                        'service_id'      => $service->id,
+                        'product_id'      => $request->product_id,
+                        'estimated_usage' => $request->estimated_usage,
+                    ]);
+                    $results['product_usage_added'] = true;
+                    $results['messages'][] = 'Product usage added.';
+                } else {
+                    $results['messages'][] = 'Product usage already exists for this service.';
+                }
+            } catch (\Exception $e) {
+                $results['messages'][] = 'Error adding product usage: ' . $e->getMessage();
+            }
+        }
+
+        // ── 5. Sync hair colors ──
+        if ($request->has('hair_color_ids')) {
+            try {
+                if (!$service->reqHairColor) {
+                    $results['messages'][] = 'This service does not require hair colors. Enable "Requires Hair Color" first.';
+                } else {
+                    ServiceHairColors::where('service_id', $service->id)->delete();
+
+                    foreach ($request->hair_color_ids as $colorId) {
+                        ServiceHairColors::create([
+                            'service_id'    => $service->id,
+                            'hair_color_id' => $colorId,
+                        ]);
+                    }
+
+                    $results['hair_colors_updated'] = true;
+                    $results['messages'][] = 'Hair colors updated (' . count($request->hair_color_ids) . ').';
+                }
+            } catch (\Exception $e) {
+                $results['messages'][] = 'Error updating hair colors: ' . $e->getMessage();
+            }
+        }
+
+        $anyChange =
+            $results['service_updated'] ||
+            $results['price_adjustments_updated'] ||
+            $results['specialty_added'] ||
+            $results['product_usage_added'] ||
+            $results['hair_colors_updated'];
+
+        return response()->json([
+            'message' => $anyChange ? 'Service updated successfully' : 'No changes were saved',
+            'success' => $anyChange,
+            'results' => $results,
+        ], $anyChange ? 200 : 400);
+    }
+
+
 
 }

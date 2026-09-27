@@ -33,6 +33,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <Route path="sales" element={<Sales />} />
           <Route path="inventoryReports" element={<InventoryReports />} />
           <Route path="remittances" element={<Remittances />} />
+          <Route path="settings" element={<div />} />
         </Route>
       </Routes>
     </BrowserRouter>

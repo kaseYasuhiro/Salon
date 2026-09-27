@@ -1109,13 +1109,19 @@ function Appointments() {
     return counts;
   };
 
-  // ✅ Day click: ALWAYS only opens the options modal (no appointment list here)
+  // ✅ Day click: only opens modal for open or no-schedule days
   const handleDayClick = (day) => {
     const year = currentDate.getFullYear();
     const month = String(currentDate.getMonth() + 1).padStart(2, '0');
     const dayStr = String(day).padStart(2, '0');
     const dateStr = `${year}-${month}-${dayStr}`;
     const schedule = getScheduleForDate(dateStr);
+
+    // ❌ Closed schedule — do nothing (not clickable)
+    if (schedule && schedule.is_open !== 1) {
+      return;
+    }
+
     const businessScheduleId = getBusinessScheduleId(dateStr);
     const assignedStaffForDate = businessScheduleId ? getAssignedStaffForDate(businessScheduleId) : [];
 
@@ -1206,11 +1212,11 @@ function Appointments() {
 
   const getCalendarCellStyle = (status) => {
     const styles = {
-      closed: 'bg-red-100 border-red-300 cursor-pointer',
-      open: 'bg-green-100 border-green-300 cursor-pointer',
-      default: 'bg-white border-gray-200 cursor-pointer hover:bg-gray-50'
+      closed: 'bg-red-100 border-red-300',
+      open: 'bg-green-100 border-green-300',
+      default: 'bg-white border-gray-200'
     };
-    return styles[status] || 'bg-white border-gray-200 hover:bg-gray-50';
+    return styles[status] || 'bg-white border-gray-200';
   };
 
   const getCalendarCellTextColor = (status) => {
@@ -1361,12 +1367,17 @@ function Appointments() {
               const dayAppointments = getAppointmentsForDay(day);
               const hasAppointments = dayAppointments.length > 0;
               const statusCounts = getAppointmentStatusCounts(day);
+              const isClosed = dayStatus === 'closed';
 
               return (
                 <div
                   key={day}
-                  onClick={() => handleDayClick(day)}
-                  className={`${getCalendarCellStyle(dayStatus)} rounded-lg p-2 min-h-[80px] border transition-all duration-200 cursor-pointer hover:shadow-md`}
+                  onClick={() => !isClosed && handleDayClick(day)}
+                  className={`${getCalendarCellStyle(dayStatus)} rounded-lg p-2 min-h-[80px] border transition-all duration-200 ${
+                    isClosed
+                      ? 'cursor-not-allowed opacity-75'
+                      : 'cursor-pointer hover:shadow-md'
+                  }`}
                 >
                   <div className="flex items-center justify-between mb-1">
                     <span className={`font-semibold text-sm ${getCalendarCellTextColor(dayStatus)}`}>{day}</span>
@@ -1429,48 +1440,57 @@ function Appointments() {
         formatTime={formatTime}
       />
 
-      {/* ✅ Day Options Modal — ALWAYS shows the same two buttons, regardless of appointments */}
-      {showModal && selectedDay && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
-            <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-5 py-3 flex items-center justify-between">
-              <h2 className="text-lg font-bold text-white">{formatFullDate(selectedDateSchedule?.date)}</h2>
-              <button onClick={() => { setShowModal(false); setSelectedDay(null); }} className="text-white hover:bg-white/20 rounded-lg p-1">
-                <X size={20} />
-              </button>
-            </div>
-            <div className="p-5 space-y-3">
-              <button onClick={handleViewAppointments} className="w-full flex items-center gap-3 px-4 py-3 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition-colors">
-                <Eye size={18} />
-                <div className="text-left">
-                  <p className="font-semibold">View Appointments</p>
-                  <p className="text-xs text-gray-500">See all appointments for this day</p>
-                </div>
-              </button>
-              <button onClick={handleEditSchedule} className="w-full flex items-center gap-3 px-4 py-3 bg-purple-50 text-purple-700 rounded-lg hover:bg-purple-100 transition-colors">
-                <Settings size={18} />
-                <div className="text-left">
-                  <p className="font-semibold">Edit Schedule & Staff</p>
-                  <p className="text-xs text-gray-500">Set hours and assign staff in one step</p>
-                </div>
-              </button>
-            </div>
-            {selectedDateSchedule?.assignedStaff?.length > 0 && (
-              <div className="border-t border-gray-100 px-5 py-3">
-                <p className="text-xs font-semibold text-gray-600 mb-2">Assigned Staff:</p>
-                <div className="flex flex-wrap gap-2">
-                  {selectedDateSchedule.assignedStaff.map((assignment) => (
-                    <span key={assignment.id} className="inline-flex items-center gap-1 px-2 py-1 bg-gray-100 text-gray-700 rounded-md text-xs">
-                      <User size={12} />
-                      {assignment.user?.first_name} {assignment.user?.last_name}
-                    </span>
-                  ))}
-                </div>
+      {/* ✅ Day Options Modal — shows options based on schedule state */}
+      {showModal && selectedDay && (() => {
+        const hasSchedule = !!selectedDateSchedule?.schedule;
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
+              <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-5 py-3 flex items-center justify-between">
+                <h2 className="text-lg font-bold text-white">{formatFullDate(selectedDateSchedule?.date)}</h2>
+                <button onClick={() => { setShowModal(false); setSelectedDay(null); }} className="text-white hover:bg-white/20 rounded-lg p-1">
+                  <X size={20} />
+                </button>
               </div>
-            )}
+              <div className="p-5 space-y-3">
+                {/* View Appointments — always shown */}
+                <button onClick={handleViewAppointments} className="w-full flex items-center gap-3 px-4 py-3 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition-colors">
+                  <Eye size={18} />
+                  <div className="text-left">
+                    <p className="font-semibold">View Appointments</p>
+                    <p className="text-xs text-gray-500">See all appointments for this day</p>
+                  </div>
+                </button>
+
+                {/* Edit Schedule & Staff — only when there's NO schedule yet */}
+                {!hasSchedule && (
+                  <button onClick={handleEditSchedule} className="w-full flex items-center gap-3 px-4 py-3 bg-purple-50 text-purple-700 rounded-lg hover:bg-purple-100 transition-colors">
+                    <Settings size={18} />
+                    <div className="text-left">
+                      <p className="font-semibold">Edit Schedule & Staff</p>
+                      <p className="text-xs text-gray-500">Set hours and assign staff in one step</p>
+                    </div>
+                  </button>
+                )}
+              </div>
+              {selectedDateSchedule?.assignedStaff?.length > 0 && (
+                <div className="border-t border-gray-100 px-5 py-3">
+                  <p className="text-xs font-semibold text-gray-600 mb-2">Assigned Staff:</p>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedDateSchedule.assignedStaff.map((assignment) => (
+                      <span key={assignment.id} className="inline-flex items-center gap-1 px-2 py-1 bg-gray-100 text-gray-700 rounded-md text-xs">
+                        <User size={12} />
+                        {assignment.user?.first_name} {assignment.user?.last_name}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Schedule Modal */}
       {showScheduleModal && (
