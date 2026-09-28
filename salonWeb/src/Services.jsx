@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { 
-  Scissors, Sparkles, Hand, Clock, DollarSign, 
+  Scissors, Sparkles, Hand, Clock, 
   Edit, Eye, Plus, Search, Filter, Trash2,
   Star, Users, Calendar, Package, Activity, X, AlertCircle,
   ChevronDown, CheckCircle, Tag, Save, EyeOff, Palette, Ruler, Maximize, Trash
@@ -85,7 +85,7 @@ function Services() {
     { label: 'Total Services', value: '0', icon: Scissors, bgColor: 'bg-pink-50', textColor: 'text-pink-600' },
     { label: 'Active Services', value: '0', icon: Activity, bgColor: 'bg-green-50', textColor: 'text-green-600' },
     { label: 'Inactive Services', value: '0', icon: EyeOff, bgColor: 'bg-red-50', textColor: 'text-red-600' },
-    { label: 'Avg. Price', value: '₱0', icon: DollarSign, bgColor: 'bg-blue-50', textColor: 'text-blue-600' },
+    { label: 'Avg. Price', value: '₱0', icon: null, bgColor: 'bg-blue-50', textColor: 'text-blue-600' },
   ]);
 
   const showToast = (message, type = 'success') => {
@@ -211,7 +211,6 @@ function Services() {
     try {
       const response = await api.get(`/services/haircolors/${serviceId}`);
       if (Array.isArray(response.data)) {
-        // response.data could be [{id, service_id, hair_color_id, hair_color: {...}}]
         const ids = response.data
           .map(item => item.hair_color_id ?? item.hair_color?.id)
           .filter(id => id != null);
@@ -299,7 +298,6 @@ function Services() {
       } else {
         const res = await api.post('/haircolors/add', payload);
         showToast('Hair color added successfully!', 'success');
-        // Auto-select the newly created color
         const newId = res.data?.id ?? res.data?.hair_color?.id;
         if (newId) {
           setSelectedHairColorIds(prev => (prev.includes(newId) ? prev : [...prev, newId]));
@@ -396,7 +394,6 @@ function Services() {
     setProductSearchTerm('');
     setFormError('');
 
-    // Load price adjustments
     let priceAdjustments = [];
     try {
       const adjustments = await fetchServicePriceAdjustments(service.id);
@@ -477,8 +474,6 @@ function Services() {
         payload.estimated_usage = parseFloat(usageFormData.estimated_usage);
       }
 
-      // ✅ Always send hair_color_ids when the service requires hair color
-      //    so the backend can sync the selection.
       if (formData.reqHairColor) {
         payload.hair_color_ids = selectedHairColorIds;
       }
@@ -587,7 +582,11 @@ function Services() {
         {stats.map((stat, index) => (
           <div key={index} className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 p-4 border border-gray-100">
             <div className={`${stat.bgColor} w-10 h-10 rounded-xl flex items-center justify-center mb-2`}>
-              <stat.icon className={stat.textColor} size={18} />
+              {stat.icon ? (
+                <stat.icon className={stat.textColor} size={18} />
+              ) : (
+                <span className={`text-lg font-bold ${stat.textColor}`}>₱</span>
+              )}
             </div>
             <p className="text-gray-500 text-xs mb-0.5">{stat.label}</p>
             <p className="text-xl font-bold text-gray-800">{stat.value}</p>
@@ -877,7 +876,7 @@ function Services() {
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl mx-4 overflow-hidden max-h-[90vh]">
-            {/* Header — only title + close, no Save button */}
+            {/* Header */}
             <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-6 py-4 flex items-center justify-between sticky top-0 z-10">
               <h2 className="text-xl font-bold text-white">
                 {isCreatingNew ? 'Add New Service' : `Manage: ${selectedService?.service_name || ''}`}
@@ -1063,7 +1062,7 @@ function Services() {
                   </div>
                 </div>
 
-                {/* RIGHT COLUMN — Specialties, Products, and Hair Colors (when reqHairColor) */}
+                {/* RIGHT COLUMN — Specialties, Products, and Hair Colors */}
                 <div className="space-y-4">
                   {/* Add Specialty */}
                   <div>
@@ -1192,7 +1191,7 @@ function Services() {
                     </div>
                   )}
 
-                  {/* ✅ HAIR COLORS — only shown when reqHairColor is enabled */}
+                  {/* HAIR COLORS — only shown when reqHairColor is enabled */}
                   {formData.reqHairColor && (
                     <div className="border-t border-gray-200 pt-4">
                       <div className="flex items-center justify-between mb-3">
@@ -1249,7 +1248,6 @@ function Services() {
                                 }`}
                               >
                                 <div className="flex items-center gap-2">
-                                  {/* Color swatch + selection checkbox */}
                                   <button
                                     type="button"
                                     onClick={() => !isInactive && toggleHairColorSelection(color.id)}
@@ -1304,7 +1302,7 @@ function Services() {
                 </div>
               </div>
 
-              {/* Footer — single Save button */}
+              {/* Footer */}
               <div className="mt-6 pt-4 border-t border-gray-200 flex justify-end gap-2">
                 <button
                   type="button"

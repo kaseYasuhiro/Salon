@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { 
-  BarChart3, DollarSign, Calendar, TrendingUp, 
+  BarChart3, Calendar, TrendingUp, 
   TrendingDown, Download, Printer, RefreshCw, 
   AlertTriangle, CheckCircle, Clock, FileText,
   LineChart, Activity, Users, User, Star, Award,
@@ -103,7 +103,6 @@ function Sales() {
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   };
 
-  // ✅ Full date label for the daily bucket, e.g. "Sep 18, 2026"
   const formatDailyLabel = (dateStr) => {
     if (!dateStr) return 'N/A';
     const date = new Date(dateStr + 'T00:00:00');
@@ -111,8 +110,6 @@ function Sales() {
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   };
 
-  // ✅ No peso sign — the currency symbol lives in the table header instead.
-  //    Keeps the numeric string cleaner and lets the column header carry the unit.
   const formatCurrency = (amount) =>
     parseFloat(amount || 0).toLocaleString('en-US', {
       minimumFractionDigits: 2,
@@ -276,19 +273,25 @@ function Sales() {
 
   // ============================================================
   // BUCKET BUILDERS
+  //
+  // ✅ Updated: only keep buckets that actually had at least one
+  //    completed appointment. This applies to ALL filters (daily,
+  //    weekly, monthly) and to both "All Staff" and per-staff views.
+  //    Buckets are also sorted chronologically ascending.
   // ============================================================
 
   const buildDailyBuckets = (appointments, daysBack = 30, isAllStaff = true) => {
     const map = {};
-    const today = new Date();
 
+    // Pre-seed empty buckets for the recent window so that placeholder
+    // ranges still exist, but we drop them at the end.
+    const today = new Date();
     for (let i = daysBack - 1; i >= 0; i--) {
       const d = new Date(today);
       d.setDate(d.getDate() - i);
       const key = getLocalDateString(d);
       map[key] = {
         key, date: key,
-        // ✅ Full date label instead of the raw YYYY-MM-DD
         label: formatDailyLabel(key),
         revenue: 0, count: 0, writtenOff: 0, expenses: 0,
         commissions: 0, grossProfit: 0, netProfit: 0, appointments: []
@@ -326,14 +329,11 @@ function Sales() {
       b.netProfit = isAllStaff ? b.revenue - w - e - c : b.revenue - w - c;
     });
 
-    let buckets = Object.values(map).sort((a, b) => a.date.localeCompare(b.date));
-
-    // ✅ When filtering to a specific staff, hide buckets with no completed appointments
-    if (!isAllStaff) {
-      buckets = buckets.filter(b => b.count > 0);
-    }
-
-    return buckets;
+    // ✅ Only keep buckets with at least one completed appointment,
+    //    regardless of staff filter.
+    return Object.values(map)
+      .filter(b => b.count > 0)
+      .sort((a, b) => a.date.localeCompare(b.date));
   };
 
   const buildWeeklyBuckets = (appointments, weeksBack = 7, isAllStaff = true) => {
@@ -389,13 +389,10 @@ function Sales() {
       b.netProfit = isAllStaff ? b.revenue - w - e - c : b.revenue - w - c;
     });
 
-    let buckets = Object.values(map).sort((a, b) => a.key.localeCompare(b.key));
-
-    if (!isAllStaff) {
-      buckets = buckets.filter(b => b.count > 0);
-    }
-
-    return buckets;
+    // ✅ Only keep weeks that actually had completed appointments.
+    return Object.values(map)
+      .filter(b => b.count > 0)
+      .sort((a, b) => a.key.localeCompare(b.key));
   };
 
   const buildMonthlyBuckets = (appointments, monthsBack = 6, isAllStaff = true) => {
@@ -452,13 +449,10 @@ function Sales() {
       b.netProfit = isAllStaff ? b.revenue - w - e - c : b.revenue - w - c;
     });
 
-    let buckets = Object.values(map).sort((a, b) => a.key.localeCompare(b.key));
-
-    if (!isAllStaff) {
-      buckets = buckets.filter(b => b.count > 0);
-    }
-
-    return buckets;
+    // ✅ Only keep months that actually had completed appointments.
+    return Object.values(map)
+      .filter(b => b.count > 0)
+      .sort((a, b) => a.key.localeCompare(b.key));
   };
 
   // ============================================================
@@ -967,7 +961,6 @@ function Sales() {
                 <thead className="bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Period</th>
-                    {/* ✅ Peso sign in header only, right-aligned so decimals line up */}
                     <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">Revenue (₱)</th>
                     <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">Appointments</th>
                     <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">Incidents (₱)</th>
@@ -982,7 +975,6 @@ function Sales() {
                     return (
                       <tr key={index} className="hover:bg-gray-50/50 transition-colors">
                         <td className="px-4 py-3 text-sm font-medium text-black">{label}</td>
-                        {/* ✅ Right-aligned numbers, no peso sign */}
                         <td className="px-4 py-3 text-sm font-semibold text-black text-right tabular-nums">{formatCurrency(item.revenue)}</td>
                         <td className="px-4 py-3 text-sm text-black text-right tabular-nums">{item.count}</td>
                         <td className="px-4 py-3 text-sm font-semibold text-black text-right tabular-nums">{formatCurrency(item.writtenOff || 0)}</td>

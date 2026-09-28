@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { 
-  DollarSign, Search, Calendar, Download, Printer,
+  Search, Calendar, Download, Printer,
   CheckCircle, Clock,
   XCircle, Eye, X, User, AlertCircle, RefreshCw,
   Users
@@ -28,7 +28,6 @@ function Remittances() {
       item.business_date ||
       (item.created_at ? item.created_at.split('T')[0] : null);
 
-    // ✅ Prefer the related user object, fall back to any raw name fields the API may send
     const relatedUser = item.user || item.users || null;
     const staffName = relatedUser
       ? `${relatedUser.first_name || ''} ${relatedUser.last_name || ''}`.trim() ||
@@ -40,7 +39,7 @@ function Remittances() {
         'Unknown Staff';
 
     const staffId =
-      item.user_id ??                       // ✅ primary source
+      item.user_id ??
       relatedUser?.id ??
       item.employee_id ??
       item.remitted_by_id ??
@@ -386,8 +385,8 @@ function Remittances() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 p-4 border border-gray-100">
           <div className="flex items-center justify-between mb-2">
-            <div className="bg-pink-50 p-2 rounded-lg">
-              <DollarSign className="text-pink-600" size={18} />
+            <div className="bg-pink-50 w-9 h-9 rounded-lg flex items-center justify-center">
+              <span className="text-pink-600 text-lg font-bold">₱</span>
             </div>
           </div>
           <p className="text-xs text-gray-500">Total Remitted</p>
@@ -399,8 +398,8 @@ function Remittances() {
 
         <div className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 p-4 border border-gray-100">
           <div className="flex items-center justify-between mb-2">
-            <div className="bg-pink-50 p-2 rounded-lg">
-              <DollarSign className="text-pink-600" size={18} />
+            <div className="bg-pink-50 w-9 h-9 rounded-lg flex items-center justify-center">
+              <span className="text-pink-600 text-lg font-bold">₱</span>
             </div>
           </div>
           <p className="text-xs text-gray-500">Total Earnings</p>
@@ -427,8 +426,8 @@ function Remittances() {
 
         <div className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 p-4 border border-gray-100">
           <div className="flex items-center justify-between mb-2">
-            <div className="bg-red-50 p-2 rounded-lg">
-              <DollarSign className="text-red-600" size={18} />
+            <div className="bg-red-50 w-9 h-9 rounded-lg flex items-center justify-center">
+              <span className="text-red-600 text-lg font-bold">₱</span>
             </div>
           </div>
           <p className="text-xs text-gray-500">Total Expenses</p>
@@ -546,7 +545,6 @@ function Remittances() {
           <table className="w-full">
             <thead className="bg-gradient-to-r from-gray-50 to-pink-50 border-b border-gray-200">
               <tr>
-                {/* ✅ Business Date column restored */}
                 <th className="px-4 py-3 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Business Date</th>
                 <th className="px-4 py-3 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Remitted By</th>
                 <th className="px-4 py-3 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Remitted</th>
@@ -578,8 +576,8 @@ function Remittances() {
               ) : filteredRemittances.length === 0 ? (
                 <tr>
                   <td colSpan="5" className="px-4 py-12 text-center">
-                    <DollarSign size={40} className="text-gray-300 mx-auto mb-2" />
-                    <p className="text-sm text-gray-500">No remittance records found</p>
+                    <span className="text-gray-300 text-4xl font-bold">₱</span>
+                    <p className="text-sm text-gray-500 mt-2">No remittance records found</p>
                     <p className="text-xs text-gray-400 mt-1">
                       No records for {periodLabel.toLowerCase()}. Try a different period or adjust your filters.
                     </p>
@@ -591,7 +589,6 @@ function Remittances() {
                     key={item.id}
                     className="hover:bg-pink-50/30 transition-colors duration-200"
                   >
-                    {/* ✅ Business Date cell */}
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         <div className="bg-pink-50 p-1.5 rounded-lg">
@@ -603,7 +600,6 @@ function Remittances() {
                       </div>
                     </td>
 
-                    {/* Remitted By — full staff name */}
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         <div className="w-7 h-7 bg-gradient-to-r from-pink-500 to-pink-600 rounded-full flex items-center justify-center flex-shrink-0">
@@ -615,14 +611,12 @@ function Remittances() {
                       </div>
                     </td>
 
-                    {/* Remitted amount */}
                     <td className="px-4 py-3">
                       <span className="text-sm font-bold text-pink-700">
                         {formatCurrency(item.amount_remitted)}
                       </span>
                     </td>
 
-                    {/* Status */}
                     <td className="px-4 py-3">
                       {getStatusBadge(item.status)}
                     </td>
