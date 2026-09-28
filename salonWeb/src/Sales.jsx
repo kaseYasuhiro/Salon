@@ -868,7 +868,7 @@ function Sales() {
         <div>
           <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
             <BarChart3 size={24} className="text-blue-500" />
-            Sales Report
+            Income Report
           </h2>
           <p className="text-sm text-gray-500 mt-1">
             Revenue and appointment statistics {selectedStaff !== 'all' && `— ${getSelectedStaffName()}`}

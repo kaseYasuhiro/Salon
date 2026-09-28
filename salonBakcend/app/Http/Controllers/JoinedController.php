@@ -1400,7 +1400,9 @@ class JoinedController extends Controller
             'messages' => []
         ];
 
-        // 1. Add Staff Specialty if provided (no longer handles is_active)
+        // 1. Add Staff Specialty if provided.
+        //    NOTE: staff_specialties.is_active is managed independently
+        //    from users.active_status. We only insert a new row here.
         if ($specialtyId) {
             try {
                 $existing = StaffSpecialties::where('staff_id', $employeeId)
@@ -1411,7 +1413,7 @@ class JoinedController extends Controller
                     StaffSpecialties::create([
                         'staff_id' => $employeeId,
                         'specialty_id' => $specialtyId,
-                        'is_active' => 1  // new specialties default to active
+                        'is_active' => 1
                     ]);
                     $results['specialty_added'] = true;
                     $results['messages'][] = 'Specialty added successfully.';
@@ -1423,8 +1425,19 @@ class JoinedController extends Controller
             }
         }
 
-        // 2. Update Active Status on the users table
-        //    When set to false, the staff becomes inactive globally.
+        // 2. Update Active Status on the users table ONLY.
+        //
+        //    We do NOT touch staff_specialties.is_active or walk-in
+        //    authorization here. Those are independent flags:
+        //      - users.active_status           → is this staff available?
+        //      - staff_specialties.is_active   → is this specific specialty link enabled?
+        //      - walkin_authorization          → is this staff authorized for walk-ins?
+        //
+        //    Any query that needs to hide inactive staff should filter
+        //    with ->where('active_status', 1) on the users table (or via
+        //    a whereHas('user', fn ($q) => $q->where('active_status', 1)) clause).
+        //    Mutating the other flags on toggle would destroy per-specialty
+        //    and per-staff state every time someone is deactivated/reactivated.
         if ($activeStatus !== null) {
             try {
                 $user = \App\Models\User::find($employeeId);
@@ -1432,18 +1445,6 @@ class JoinedController extends Controller
                 if ($user) {
                     $user->active_status = $activeStatus ? 1 : 0;
                     $user->save();
-
-                    // When a staff member is deactivated, also deactivate
-                    // all their specialties so they don't show up in booking
-                    // or assignment dropdowns.
-                    if (!$activeStatus) {
-                        StaffSpecialties::where('staff_id', $employeeId)
-                            ->update(['is_active' => 0]);
-
-                        // Also revoke walk-in authorization for consistency
-                        WalkinAuthorization::where('staff_id', $employeeId)
-                            ->update(['isAuthorizedForWalkin' => 0]);
-                    }
 
                     $results['active_status_updated'] = true;
                     $results['messages'][] = $activeStatus
@@ -1457,7 +1458,7 @@ class JoinedController extends Controller
             }
         }
 
-        // 3. Add/Update Commission if provided
+        // 3. Add/Update Commission if provided.
         if ($commissionAmount !== null && $commissionAmount > 0) {
             try {
                 $existing = EmployeeCommission::where('employee_id', $employeeId)->first();
@@ -1481,26 +1482,55 @@ class JoinedController extends Controller
             }
         }
 
-        // 4. Update Walk-in Authorization if provided
-        //    Skips if the staff is currently inactive.
+        // 4. Update Walk-in Authorization if provided.
+        //    Still guards against authorizing an inactive staff member.
         if ($walkInAuthorized !== null) {
             try {
-                // Guard: don't authorize an inactive staff member for walk-ins
+                // Block authorizing an inactive staff member.
+                // (Allow revoking — setting to false — even when inactive.)
                 if ($walkInAuthorized && $activeStatus === false) {
                     $results['messages'][] = 'Cannot authorize walk-ins for an inactive staff member.';
+                } elseif ($walkInAuthorized) {
+                    // Extra safety: also check the persisted active_status
+                    // in case the request didn't include active_status.
+                    $persistedActive = \App\Models\User::where('id', $employeeId)
+                        ->where('active_status', 1)
+                        ->exists();
+
+                    if (!$persistedActive) {
+                        $results['messages'][] = 'Cannot authorize walk-ins for an inactive staff member.';
+                    } else {
+                        $existing = WalkinAuthorization::where('staff_id', $employeeId)->first();
+
+                        if (!$existing) {
+                            WalkinAuthorization::create([
+                                'staff_id' => $employeeId,
+                                'isAuthorizedForWalkin' => 1
+                            ]);
+                            $results['walk_in_updated'] = true;
+                            $results['messages'][] = 'Walk-in authorization created successfully.';
+                        } else {
+                            $existing->update([
+                                'isAuthorizedForWalkin' => 1
+                            ]);
+                            $results['walk_in_updated'] = true;
+                            $results['messages'][] = 'Walk-in authorization updated successfully.';
+                        }
+                    }
                 } else {
+                    // Revoking walk-in authorization (walk_in_authorized === false)
                     $existing = WalkinAuthorization::where('staff_id', $employeeId)->first();
 
                     if (!$existing) {
                         WalkinAuthorization::create([
                             'staff_id' => $employeeId,
-                            'isAuthorizedForWalkin' => $walkInAuthorized ? 1 : 0
+                            'isAuthorizedForWalkin' => 0
                         ]);
                         $results['walk_in_updated'] = true;
                         $results['messages'][] = 'Walk-in authorization created successfully.';
                     } else {
                         $existing->update([
-                            'isAuthorizedForWalkin' => $walkInAuthorized ? 1 : 0
+                            'isAuthorizedForWalkin' => 0
                         ]);
                         $results['walk_in_updated'] = true;
                         $results['messages'][] = 'Walk-in authorization updated successfully.';

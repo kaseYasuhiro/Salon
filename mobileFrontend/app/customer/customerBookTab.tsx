@@ -426,13 +426,16 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     if (!schedule) return false;
     if (schedule.is_open !== 1) return false;
 
-    const hasBarberSelected = selectedServiceIds.some((id) => isBarberService(id));
-    if (hasBarberSelected) {
-      const slots = generateTimeSlots(schedule.open_time, schedule.close_time);
-      const anyFree = slots.some((t) => !isTimeSlotTakenByBarber(date, t));
-      if (!anyFree) return false;
-    }
+    const slots = generateTimeSlots(schedule.open_time, schedule.close_time);
 
+    // Filter to slots that are not past (today) and, for barbers, not booked.
+    const anyFree = slots.some((t) => {
+      if (isPastSlotOnToday(date, t)) return false;
+      if (selectedServicesIncludeBarber() && isTimeSlotTakenByBarber(date, t)) return false;
+      return true;
+    });
+
+    if (!anyFree) return false;
     return true;
   };
 
@@ -452,24 +455,56 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     return staff.filter((member) => isStaffActive(member));
   };
 
+  const normalizeSpecialty = (value: string | null | undefined): string =>
+    (value || '').trim().toLowerCase();
+
+  const SPECIALTY_ALIASES: Record<string, string> = {
+    'stylist': 'stylist',
+    'hair stylist': 'stylist',
+    'hairstylist': 'stylist',
+    'senior stylist': 'stylist',
+    'junior stylist': 'stylist',
+  };
+
+  const resolveSpecialtyKey = (value: string | null | undefined): string => {
+    const normalized = normalizeSpecialty(value);
+    return SPECIALTY_ALIASES[normalized] || normalized;
+  };
+
   const getServicesForStaff = () => {
     if (!selectedStaffId) return [];
     const selectedStaff = staff.find(s => s.id === selectedStaffId);
 
     if (!selectedStaff || !isStaffActive(selectedStaff)) return [];
 
-    const staffSpecialties = selectedStaff.staff_specialties
-      ?.filter(s => s.is_active === 1)
-      .map(s => s.specialties?.specialty_name?.toLowerCase()) || [];
+    const staffSpecialtyKeys = (selectedStaff.staff_specialties || [])
+      .filter(s => s.is_active === 1)
+      .map(s => resolveSpecialtyKey(s.specialties?.specialty_name))
+      .filter(Boolean);
+
+    const isStylist = staffSpecialtyKeys.includes('stylist');
+    const isBarber = staffSpecialtyKeys.includes('barber');
 
     const activeServices = getActiveServices();
 
     return activeServices.filter(service => {
-      const serviceSpecialties = getServiceSpecialties(service.id);
-      return serviceSpecialties.some(ss => {
-        const specialtyName = ss.specialties?.specialty_name?.toLowerCase();
-        return staffSpecialties.includes(specialtyName);
-      });
+      const serviceKeys = getServiceSpecialties(service.id)
+        .map((ss: any) => resolveSpecialtyKey(ss?.specialties?.specialty_name))
+        .filter(Boolean);
+
+      if (serviceKeys.some(key => staffSpecialtyKeys.includes(key))) {
+        return true;
+      }
+
+      if (isStylist && !serviceKeys.includes('barber')) {
+        return true;
+      }
+
+      if (isBarber && serviceKeys.includes('barber')) {
+        return true;
+      }
+
+      return false;
     });
   };
 
@@ -613,6 +648,21 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     return slots;
   };
 
+  const timeToMinutes = (time: string): number => {
+    const [h, m] = (time || '00:00').split(':').map(Number);
+    return (h || 0) * 60 + (m || 0);
+  };
+
+  const isPastSlotOnToday = (date: Date, slotTime: string): boolean => {
+    if (!isToday(date)) return false;
+
+    const now = new Date();
+    const nowMinutes = now.getHours() * 60 + now.getMinutes();
+    const slotStart = timeToMinutes(slotTime);
+
+    return slotStart <= nowMinutes;
+  };
+
   const getAppointmentsForTimeRange = (date: Date, time: string, durationMinutes: number): Appointment[] => {
     const dateStr = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
     const [hours, minutes] = time.split(':').map(Number);
@@ -631,8 +681,6 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     });
   };
 
-  // ✅ Barber services: block any timeslot that already has an appointment
-  //    starting at the same exact time on the same date.
   const isTimeSlotTakenByBarber = (date: Date, time: string): boolean => {
     const dateStr = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
 
@@ -778,7 +826,7 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
       } else if (scheduleStatus.status === 'closed') {
         Alert.alert("Salon Closed", "The salon is closed on this date. Please select another date.");
       } else {
-        Alert.alert("Fully Booked", "All barber time slots for this date are taken. Please select another date.");
+        Alert.alert("No Available Slots", "No available time slots for this date. Please select another date.");
       }
       return;
     }
@@ -793,6 +841,15 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
   };
 
   const handleTimeSelect = (time: string) => {
+    // Guard: cannot select a slot that has already passed today.
+    if (selectedDateForModal && isPastSlotOnToday(selectedDateForModal, time)) {
+      Alert.alert(
+        "Time Has Passed",
+        "This time slot has already passed. Please choose a later time."
+      );
+      return;
+    }
+
     const [hours, minutes] = time.split(':');
     const newDateTime = new Date(selectedDateForModal!);
     newDateTime.setHours(parseInt(hours), parseInt(minutes), 0);
@@ -832,12 +889,22 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
       return;
     }
 
+    const appointmentDate = `${selectedDate.getUTCFullYear()}-${String(selectedDate.getUTCMonth() + 1).padStart(2, '0')}-${String(selectedDate.getUTCDate()).padStart(2, '0')}`;
+    const formattedTime = selectedTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+
+    // Final guard: past-time check on today
+    if (isPastSlotOnToday(selectedDate, formattedTime)) {
+      Alert.alert(
+        "Time Has Passed",
+        "The selected time slot has already passed. Please choose a later time."
+      );
+      setBookingStep('datetime');
+      return;
+    }
+
     setIsProcessing(true);
 
     try {
-      const formattedTime = selectedTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
-      const appointmentDate = `${selectedDate.getUTCFullYear()}-${String(selectedDate.getUTCMonth() + 1).padStart(2, '0')}-${String(selectedDate.getUTCDate()).padStart(2, '0')}`;
-
       const totalAmount = getTotalPriceWithAdjustments();
       const downpaymentAmount = totalAmount / 2;
 
@@ -1175,23 +1242,29 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     );
   };
 
-  // ── Time Picker Modal (with booked indicators for barber) ──
+  // ── Time Picker Modal (with past + booked indicators) ──
   const TimePickerModal = () => {
     const rawTimeSlots = selectedDateForModal ? getTimeSlotsForDate(selectedDateForModal) : [];
-    const totalDuration = getTotalDuration();
     const isBarber = selectedServicesIncludeBarber();
 
-    // ✅ For barber services, keep ALL slots but mark the taken ones.
-    //    Non-barber services keep the original look.
-    const slotsWithStatus = rawTimeSlots.map((time) => ({
-      time,
-      isBlocked: isBarber && selectedDateForModal
+    // Each slot has two flags: past (today only) and booked (barber)
+    const slotsWithStatus = rawTimeSlots.map((time) => {
+      const isPast = selectedDateForModal ? isPastSlotOnToday(selectedDateForModal, time) : false;
+      const booked = !isPast && isBarber && selectedDateForModal
         ? isTimeSlotTakenByBarber(selectedDateForModal, time)
-        : false,
-    }));
+        : false;
+      return {
+        time,
+        isPast,
+        isBooked: booked,
+        isBlocked: isPast || booked,
+      };
+    });
 
     const availableCount = slotsWithStatus.filter((s) => !s.isBlocked).length;
-    const allBarberSlotsBlocked = isBarber && rawTimeSlots.length > 0 && availableCount === 0;
+    const bookedCount = slotsWithStatus.filter((s) => s.isBooked).length;
+    const pastCount = slotsWithStatus.filter((s) => s.isPast).length;
+    const allBlocked = rawTimeSlots.length > 0 && availableCount === 0;
 
     return (
       <Modal
@@ -1211,7 +1284,7 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                   Select Time for {selectedDateForModal?.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
                 </Text>
                 <Text className="text-xs text-gray-400">
-                  Duration: {totalDuration} minutes
+                  Duration: {getTotalDuration()} minutes
                 </Text>
                 {isBarber && (
                   <Text className="text-[11px] text-pink-500 mt-1">
@@ -1224,17 +1297,25 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
               </TouchableOpacity>
             </View>
 
-            {/* ✅ Legend for barber services */}
-            {isBarber && rawTimeSlots.length > 0 && (
-              <View className="flex-row items-center gap-4 mb-3 pb-3 border-b border-gray-100">
+            {/* Legend */}
+            {rawTimeSlots.length > 0 && (
+              <View className="flex-row items-center flex-wrap gap-4 mb-3 pb-3 border-b border-gray-100">
                 <View className="flex-row items-center gap-1">
                   <View className="w-3 h-3 rounded-full bg-green-500" />
                   <Text className="text-xs text-gray-600">Available ({availableCount})</Text>
                 </View>
-                <View className="flex-row items-center gap-1">
-                  <View className="w-3 h-3 rounded-full bg-gray-400" />
-                  <Text className="text-xs text-gray-600">Booked ({rawTimeSlots.length - availableCount})</Text>
-                </View>
+                {pastCount > 0 && (
+                  <View className="flex-row items-center gap-1">
+                    <View className="w-3 h-3 rounded-full bg-gray-300" />
+                    <Text className="text-xs text-gray-600">Past ({pastCount})</Text>
+                  </View>
+                )}
+                {isBarber && bookedCount > 0 && (
+                  <View className="flex-row items-center gap-1">
+                    <View className="w-3 h-3 rounded-full bg-gray-400" />
+                    <Text className="text-xs text-gray-600">Booked ({bookedCount})</Text>
+                  </View>
+                )}
               </View>
             )}
 
@@ -1248,7 +1329,7 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
             ) : (
               <ScrollView showsVerticalScrollIndicator={false} className="max-h-96">
                 <View className="flex-row flex-wrap justify-between">
-                  {slotsWithStatus.map(({ time, isBlocked }) => {
+                  {slotsWithStatus.map(({ time, isBlocked, isBooked, isPast }) => {
                     const isSelected = !isBlocked && selectedTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }) === time;
 
                     return (
@@ -1272,7 +1353,6 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                         disabled={isBlocked}
                         activeOpacity={isBlocked ? 1 : 0.7}
                       >
-                        {/* ✅ Struck-through time text for blocked slots */}
                         <Text
                           className={
                             isSelected
@@ -1285,8 +1365,16 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                           {time}
                         </Text>
 
-                        {/* ✅ Booked label */}
-                        {isBlocked && (
+                        {isPast && !isSelected && (
+                          <View className="flex-row items-center mt-0.5">
+                            <Ionicons name="time-outline" size={10} color="#6b7280" />
+                            <Text className="text-[9px] text-gray-500 ml-0.5 font-semibold">
+                              Past
+                            </Text>
+                          </View>
+                        )}
+
+                        {isBooked && !isSelected && (
                           <View className="flex-row items-center mt-0.5">
                             <Ionicons name="close-circle" size={10} color="#9ca3af" />
                             <Text className="text-[9px] text-gray-500 ml-0.5 font-semibold">
@@ -1301,22 +1389,20 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
               </ScrollView>
             )}
 
-            {/* ✅ Message when everything is booked for a barber service */}
-            {allBarberSlotsBlocked && (
+            {allBlocked && (
               <View className="mt-4 p-3 bg-yellow-50 rounded-xl border border-yellow-200">
                 <View className="flex-row items-start gap-2">
                   <Ionicons name="information-circle-outline" size={16} color="#eab308" />
                   <Text className="text-yellow-700 text-xs flex-1">
-                    All time slots for this date are already booked for barber services. Please pick another date.
+                    No valid time slots for this date. Slots may be in the past or already booked. Please pick another date.
                   </Text>
                 </View>
               </View>
             )}
 
-            {/* ✅ Footer note when there are still some available */}
-            {isBarber && rawTimeSlots.length > 0 && availableCount > 0 && (
+            {availableCount > 0 && pastCount > 0 && (
               <Text className="text-gray-400 text-[10px] text-center mt-3">
-                Struck-through times are already taken by another barber appointment.
+                Times that have already passed today are not bookable.
               </Text>
             )}
           </View>

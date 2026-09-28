@@ -442,7 +442,7 @@ const AppointmentRequestsPanel = ({
             <Inbox size={16} className="text-pink-600" />
           </div>
           <div>
-            <h3 className="text-base font-semibold text-gray-800">Appointment Requests</h3>
+            <h3 className="text-base font-semibold text-gray-800">Cancellation/Reschedule Requests</h3>
             <p className="text-xs text-gray-500">Customer requests to cancel or reschedule</p>
           </div>
         </div>
@@ -644,6 +644,27 @@ function Appointments() {
   const goToNextMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
   const goToCurrentMonth = () => setCurrentDate(new Date());
 
+  // ── Helpers for "past date" detection ──
+  const getTodayStr = () => {
+    const today = new Date();
+    const y = today.getFullYear();
+    const m = String(today.getMonth() + 1).padStart(2, '0');
+    const d = String(today.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  };
+
+  const getDateStrForDay = (day) => {
+    const year = currentDate.getFullYear();
+    const month = String(currentDate.getMonth() + 1).padStart(2, '0');
+    const dayStr = String(day).padStart(2, '0');
+    return `${year}-${month}-${dayStr}`;
+  };
+
+  const isPastDate = (day) => {
+    if (!day) return false;
+    return getDateStrForDay(day) < getTodayStr();
+  };
+
   // ── Fetchers ──
   const fetchBusinessSchedules = useCallback(async () => {
     try {
@@ -680,10 +701,8 @@ function Appointments() {
   const getScheduleForDate = (dateStr) => businessSchedules.find(s => s.business_date === dateStr);
 
   const getDayStatus = (day) => {
-    const year = currentDate.getFullYear();
-    const month = String(currentDate.getMonth() + 1).padStart(2, '0');
-    const dayStr = String(day).padStart(2, '0');
-    const schedule = getScheduleForDate(`${year}-${month}-${dayStr}`);
+    const dateStr = getDateStrForDay(day);
+    const schedule = getScheduleForDate(dateStr);
     if (!schedule) return 'default';
     if (!schedule.is_open) return 'closed';
     return 'open';
@@ -1095,10 +1114,7 @@ function Appointments() {
 
   const getAppointmentsForDay = (day) => {
     if (!day) return [];
-    const year = currentDate.getFullYear();
-    const month = String(currentDate.getMonth() + 1).padStart(2, '0');
-    const dayStr = String(day).padStart(2, '0');
-    const dateStr = `${year}-${month}-${dayStr}`;
+    const dateStr = getDateStrForDay(day);
     return appointments.filter(app => app.appointment_date === dateStr);
   };
 
@@ -1109,15 +1125,17 @@ function Appointments() {
     return counts;
   };
 
-  // ✅ Day click: only opens modal for open or no-schedule days
+  // ✅ Day click: only opens modal for clickable days
   const handleDayClick = (day) => {
-    const year = currentDate.getFullYear();
-    const month = String(currentDate.getMonth() + 1).padStart(2, '0');
-    const dayStr = String(day).padStart(2, '0');
-    const dateStr = `${year}-${month}-${dayStr}`;
+    const dateStr = getDateStrForDay(day);
     const schedule = getScheduleForDate(dateStr);
 
-    // ❌ Closed schedule — do nothing (not clickable)
+    // ❌ Past date with NO schedule — not clickable
+    if (isPastDate(day) && !schedule) {
+      return;
+    }
+
+    // ❌ Closed schedule — not clickable
     if (schedule && schedule.is_open !== 1) {
       return;
     }
@@ -1136,10 +1154,7 @@ function Appointments() {
   };
 
   const handleViewAppointments = () => {
-    const year = currentDate.getFullYear();
-    const month = String(currentDate.getMonth() + 1).padStart(2, '0');
-    const dayStr = String(selectedDay).padStart(2, '0');
-    const dateStr = `${year}-${month}-${dayStr}`;
+    const dateStr = getDateStrForDay(selectedDay);
     setShowModal(false);
     setSelectedDay(null);
     navigate(`/dashboard/appointments/list?date=${dateStr}`);
@@ -1368,14 +1383,16 @@ function Appointments() {
               const hasAppointments = dayAppointments.length > 0;
               const statusCounts = getAppointmentStatusCounts(day);
               const isClosed = dayStatus === 'closed';
+              const isPastWithNoSchedule = isPastDate(day) && dayStatus === 'default';
+              const isDisabled = isClosed || isPastWithNoSchedule;
 
               return (
                 <div
                   key={day}
-                  onClick={() => !isClosed && handleDayClick(day)}
+                  onClick={() => !isDisabled && handleDayClick(day)}
                   className={`${getCalendarCellStyle(dayStatus)} rounded-lg p-2 min-h-[80px] border transition-all duration-200 ${
-                    isClosed
-                      ? 'cursor-not-allowed opacity-75'
+                    isDisabled
+                      ? 'cursor-not-allowed opacity-50'
                       : 'cursor-pointer hover:shadow-md'
                   }`}
                 >

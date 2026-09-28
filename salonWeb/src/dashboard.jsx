@@ -2172,7 +2172,7 @@ function Dashboard() {
                     {isInventoryRoute && 'Track and manage salon inventory'}
                     {isProductsRoute && 'Manage salon products'}
                     {isReportsRoute && 'View and manage incident reports'}
-                    {isSalesRoute && 'View sales performance and revenue statistics'}
+                    {isSalesRoute && 'View income performance and revenue statistics'}
                     {isInventoryReportsRoute && 'View inventory usage and stock reports'}
                     {isRemittancesRoute && 'View remittance records and history'}
                     {isSettingsRoute && 'Manage your personal account details'}
