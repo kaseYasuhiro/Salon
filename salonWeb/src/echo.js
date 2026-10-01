@@ -3,6 +3,11 @@ import Pusher from 'pusher-js';
 
 window.Pusher = Pusher;
 
+// Strip trailing /api from VITE_API_URL — the broadcasting auth route
+// lives at /broadcasting/auth (outside the /api prefix).
+const apiUrl = import.meta.env.VITE_API_URL ?? '';
+const baseUrl = apiUrl.replace(/\/api\/?$/, '');
+
 const echo = new Echo({
     broadcaster: 'reverb',
     key: import.meta.env.VITE_REVERB_APP_KEY,
@@ -12,7 +17,7 @@ const echo = new Echo({
     forceTLS: (import.meta.env.VITE_REVERB_SCHEME ?? 'http') === 'https',
     enabledTransports: ['ws', 'wss'],
 
-    authEndpoint: `${import.meta.env.VITE_API_URL}/broadcasting/auth`,
+    authEndpoint: `${baseUrl}/broadcasting/auth`,
 
     auth: {
         headers: {
