@@ -224,6 +224,49 @@ class JoinedController extends Controller
         ], 200);
     }
 
+
+ 
+
+    // AppointmentController.php
+    public function settleBalance(Request $request)
+    {
+        $request->validate([
+            'appointment_id' => 'required|exists:appointments,id',
+        ]);
+
+        $billing = Billing::where('appointment_id', $request->appointment_id)->first();
+
+        if (!$billing) {
+            return response()->json([
+                'message' => 'No billing record found for this appointment.',
+            ], 404);
+        }
+
+        // Idempotent guard
+        if ((float) $billing->balance <= 0) {
+            return response()->json([
+                'message'      => 'Billing already fully paid.',
+                'paid_amount'  => (float) $billing->paid_amount,
+                'balance'      => (float) $billing->balance,
+                'payment_type' => $billing->payment_type,
+            ], 200);
+        }
+
+        // Update the billing row directly — no payment row created
+        $billing->update([
+            'paid_amount'  => $billing->total_amount,
+            'balance'      => 0,
+            'payment_type' => 'full',
+        ]);
+
+        return response()->json([
+            'message'      => 'Remaining balance settled.',
+            'paid_amount'  => (float) $billing->paid_amount,
+            'balance'      => (float) $billing->balance,
+            'payment_type' => $billing->payment_type,
+        ], 200);
+    }
+
     public function deleteProductsFromInventory($id)
     {
         $product = Products::where('id', $id)->first();

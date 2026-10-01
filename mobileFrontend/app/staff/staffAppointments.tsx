@@ -285,6 +285,11 @@ export default function StaffAppointments({
   const [walkIns, setWalkIns] = useState<WalkIn[]>([]);
   const [walkInTransactions, setWalkInTransactions] = useState<any[]>([]);
 
+  // ✅ Cache billing info per appointment
+  const [billingMap, setBillingMap] = useState<
+    Map<number, { payment_type: string | null; total_amount: number; paid_amount: number; balance: number; payment_method: string | null }>
+  >(new Map());
+
   const { user } = useAuth();
 
   const [businessSchedules, setBusinessSchedules] = useState<BusinessSchedule[]>([]);
@@ -305,7 +310,14 @@ export default function StaffAppointments({
     }
   };
 
-  // ✅ Fetch all price adjustments once
+  // ✅ Settle remaining balance — updates billing directly, no payment row
+  const settleRemainingBalance = async (appointmentId: number) => {
+    const response = await api.post("/appointment/settle-balance", {
+      appointment_id: appointmentId,
+    });
+    return response.data;
+  };
+
   const fetchPriceAdjustments = async () => {
     try {
       const response = await api.get('/services/price/adjustment');
@@ -313,7 +325,52 @@ export default function StaffAppointments({
         setAdjustmentMap(buildAdjustmentMap(response.data));
       }
     } catch (error) {
-      // silently ignore — fall back to base prices
+      // silently ignore
+    }
+  };
+
+  // ✅ Fetch all payments once so we know each appointment's payment_type
+  const fetchBillingInfo = async () => {
+    try {
+      const response = await api.get("/appointment/payment");
+      if (!Array.isArray(response.data)) return;
+
+      const map = new Map<
+        number,
+        { payment_type: string | null; total_amount: number; paid_amount: number; balance: number; payment_method: string | null }
+      >();
+
+      response.data.forEach((item: any) => {
+        const billing = item.billing;
+        if (!billing?.appointment_id) return;
+
+        const appointmentId = billing.appointment_id;
+
+        // Keep the latest entry per appointment
+        const existing = map.get(appointmentId);
+        const existingTime = existing ? 1 : 0;
+        const itemTime = item.updated_at ? new Date(item.updated_at).getTime() : 0;
+
+        const total = Number(billing.total_amount ?? 0) || 0;
+        const paid = Number(billing.paid_amount ?? total / 2) || 0;
+        const balance = Number(billing.balance ?? total - paid) || 0;
+
+        const normalized = {
+          payment_type: billing.payment_type ?? null,
+          total_amount: total,
+          paid_amount: paid,
+          balance: Math.abs(balance) < 0.01 ? 0 : balance,
+          payment_method: item.payment_method ?? null,
+        };
+
+        if (!existing || itemTime >= existingTime) {
+          map.set(appointmentId, normalized);
+        }
+      });
+
+      setBillingMap(map);
+    } catch (error) {
+      // silently ignore
     }
   };
 
@@ -361,7 +418,6 @@ export default function StaffAppointments({
 
         const appointment = appointmentMap.get(appointmentId)!;
 
-        // ✅ Apply the price adjustment for THIS transaction row
         const basePrice = parseFloat(item.price) || 0;
         const additional = getAdditionalPrice(
           adjustmentMap,
@@ -376,7 +432,7 @@ export default function StaffAppointments({
           service_id: item.service_id,
           service_name: item.service_name || "Unknown Service",
           duration_minutes: item.duration_minutes || 0,
-          price: adjustedPrice.toString(),   // ✅ adjusted price
+          price: adjustedPrice.toString(),
           service_status: item.service_status || "pending",
           notes: item.notes || "",
           transaction_id: item.transaction_id || item.id,
@@ -772,9 +828,16 @@ export default function StaffAppointments({
     }
   };
 
+  // ─────────────────────────────────────────────
+  // handleUpdateSubmit:
+  //   1) Update appointment (status, notes, product usages)
+  //   2) If completing from a downpayment → update the billing row
+  //      (paid_amount = total, balance = 0, payment_type = 'full')
+  // ─────────────────────────────────────────────
   const handleUpdateSubmit = async () => {
     if (!selectedAppointment) return;
 
+    // Stock validation
     for (const product of productUsages) {
       if (product.quantity_change > 0 && product.inventory_id) {
         const availableUsages =
@@ -787,6 +850,37 @@ export default function StaffAppointments({
           return;
         }
       }
+    }
+
+    // ✅ Should we settle the remaining balance?
+    const isMarkingCompleted =
+      updateFormData.status === "completed" &&
+      selectedAppointment.status !== "completed";
+
+    const cachedBilling = billingMap.get(selectedAppointment.id);
+    const isDownpayment = cachedBilling?.payment_type === "downpayment";
+    const remainingBalance = cachedBilling
+      ? Math.max(0, cachedBilling.balance)
+      : 0;
+
+    const shouldSettleRemaining =
+      isMarkingCompleted && isDownpayment && remainingBalance > 0;
+
+    // Confirm dialog
+    if (shouldSettleRemaining) {
+      const confirmed = await new Promise<boolean>((resolve) => {
+        Alert.alert(
+          "Settle Remaining Balance",
+          `This appointment used a downpayment.\n\n` +
+            `Remaining balance: ₱${remainingBalance.toLocaleString()}\n\n` +
+            `Proceeding will mark the appointment as completed and update the billing to reflect the full payment.`,
+          [
+            { text: "Cancel", style: "cancel", onPress: () => resolve(false) },
+            { text: "Confirm", onPress: () => resolve(true) },
+          ]
+        );
+      });
+      if (!confirmed) return;
     }
 
     setIsUpdating(true);
@@ -802,12 +896,38 @@ export default function StaffAppointments({
           })),
       };
 
+      // 1) Update the appointment
       await updateAppointmentServices(selectedAppointment.id, updateData);
 
-      Alert.alert("Success", "Appointment updated successfully!");
+      // 2) Update the billing row (no new payment row created)
+      if (shouldSettleRemaining) {
+        try {
+          await settleRemainingBalance(selectedAppointment.id);
+        } catch (settleError: any) {
+          Alert.alert(
+            "Appointment Updated",
+            `The appointment was marked as completed, but the billing could not be updated.\n\n` +
+              `Reason: ${settleError?.response?.data?.message || settleError?.message || "Unknown error"}\n\n` +
+              `Please update the billing manually.`
+          );
+          setShowUpdatePage(false);
+          setSelectedAppointment(null);
+          await Promise.all([fetchStaffAppointments(), fetchBillingInfo()]);
+          return;
+        }
+
+        Alert.alert(
+          "Success",
+          `Appointment completed!\n\n` +
+            `Billing updated: paid ₱${remainingBalance.toLocaleString()} remaining balance.`
+        );
+      } else {
+        Alert.alert("Success", "Appointment updated successfully!");
+      }
+
       setShowUpdatePage(false);
       setSelectedAppointment(null);
-      await fetchStaffAppointments();
+      await Promise.all([fetchStaffAppointments(), fetchBillingInfo()]);
     } catch (error: any) {
       Alert.alert("Error", error.response?.data?.message || "Failed to update appointment");
     } finally {
@@ -968,9 +1088,6 @@ export default function StaffAppointments({
     return [...appointmentItems, ...walkInItems];
   };
 
-  // ─────────────────────────────────────────────
-  // Group by date AND split appointments vs walk-ins
-  // ─────────────────────────────────────────────
   const getGroupedByDate = (items: DisplayItem[]) => {
     const today = getUTCDateString(new Date());
 
@@ -1469,7 +1586,6 @@ export default function StaffAppointments({
       billing?.payment_type ||
       null;
 
-    // ✅ Use shared helper — numeric truth wins over payment_type
     const {
       total,
       paid,
@@ -1488,7 +1604,6 @@ export default function StaffAppointments({
       ? `${BASE_URL}${payment_proof}`
       : null;
 
-    // Status pill styling
     const statusPill = isFullyPaid
       ? { bg: "bg-green-100", text: "text-green-700", label: "PAID IN FULL" }
       : isPartial
@@ -1523,7 +1638,6 @@ export default function StaffAppointments({
               contentContainerStyle={{ padding: 24 }}
               showsVerticalScrollIndicator={false}
             >
-              {/* ✅ Status banner — makes paid-in-full obvious at a glance */}
               <View
                 className={`rounded-xl p-3 mb-4 flex-row items-center justify-between border ${
                   isFullyPaid
@@ -1587,7 +1701,6 @@ export default function StaffAppointments({
                 </View>
               </View>
 
-              {/* ✅ Amount breakdown */}
               <View className="bg-white rounded-lg p-4 mb-4 border border-gray-200">
                 <Text className="text-gray-600 text-xs font-semibold uppercase tracking-wider mb-3">
                   Amount Breakdown
@@ -1683,7 +1796,7 @@ export default function StaffAppointments({
   const todayStaff = getTodayStaff();
 
   // ─────────────────────────────────────────────
-  // Load on mount — adjustments FIRST, then everything else
+  // Load on mount
   // ─────────────────────────────────────────────
   useEffect(() => {
     (async () => {
@@ -1693,6 +1806,7 @@ export default function StaffAppointments({
         fetchStaffAssignments(),
         fetchStaff(),
         fetchServices(),
+        fetchBillingInfo(),
         fetchStaffAppointments(),
         fetchWalkIns(),
         fetchWalkInTransactions(),
@@ -1700,7 +1814,6 @@ export default function StaffAppointments({
     })();
   }, []);
 
-  // ✅ Safety net — re-fetch appointments when adjustments land
   useEffect(() => {
     if (adjustmentMap.size > 0 && user?.id) {
       fetchStaffAppointments();
@@ -1709,6 +1822,18 @@ export default function StaffAppointments({
 
   const renderUpdatePage = () => {
     if (!selectedAppointment) return null;
+
+    const cachedBilling = billingMap.get(selectedAppointment.id);
+    const appointmentIsDownpayment =
+      cachedBilling?.payment_type === "downpayment";
+    const remainingBalance = cachedBilling
+      ? Math.max(0, cachedBilling.balance)
+      : 0;
+    const willSettleRemaining =
+      updateFormData.status === "completed" &&
+      selectedAppointment.status !== "completed" &&
+      appointmentIsDownpayment &&
+      remainingBalance > 0;
 
     return (
       <View className="flex-1 bg-gray-50">
@@ -1796,6 +1921,42 @@ export default function StaffAppointments({
               </View>
             )}
 
+          {cachedBilling && (
+            <View className="bg-white rounded-2xl shadow-sm p-4 mb-4">
+              <Text className="text-gray-700 font-semibold mb-2">
+                Payment Information
+              </Text>
+              <View className="flex-row justify-between py-1">
+                <Text className="text-gray-500 text-sm">Payment Type</Text>
+                <Text className="text-gray-800 font-semibold text-sm">
+                  {getPaymentTypeLabel(cachedBilling.payment_type)}
+                </Text>
+              </View>
+              <View className="flex-row justify-between py-1">
+                <Text className="text-gray-500 text-sm">Total</Text>
+                <Text className="text-gray-800 font-semibold text-sm">
+                  ₱{cachedBilling.total_amount.toLocaleString()}
+                </Text>
+              </View>
+              <View className="flex-row justify-between py-1">
+                <Text className="text-gray-500 text-sm">Paid</Text>
+                <Text className="text-green-600 font-semibold text-sm">
+                  ₱{cachedBilling.paid_amount.toLocaleString()}
+                </Text>
+              </View>
+              <View className="flex-row justify-between py-1">
+                <Text className="text-gray-500 text-sm">Balance</Text>
+                <Text
+                  className={`font-semibold text-sm ${
+                    cachedBilling.balance > 0 ? "text-orange-600" : "text-green-600"
+                  }`}
+                >
+                  ₱{cachedBilling.balance.toLocaleString()}
+                </Text>
+              </View>
+            </View>
+          )}
+
           <View className="bg-white rounded-2xl shadow-sm p-4 mb-4">
             <StatusDropdown
               label="Appointment Status"
@@ -1806,6 +1967,24 @@ export default function StaffAppointments({
               options={["confirmed", "completed", "no-show"]}
               placeholder="Select appointment status..."
             />
+
+            {willSettleRemaining && (
+              <View className="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-4">
+                <View className="flex-row items-start gap-2">
+                  <Ionicons name="cash-outline" size={16} color="#2563eb" />
+                  <View className="flex-1">
+                    <Text className="text-blue-800 font-semibold text-xs">
+                      Remaining balance will be settled
+                    </Text>
+                    <Text className="text-blue-700 text-[11px] mt-1">
+                      Marking this as completed will update the billing:
+                      paid will become ₱{cachedBilling?.total_amount.toLocaleString()},
+                      balance ₱0, and payment type will flip to full.
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            )}
 
             <View>
               <Text className="text-gray-700 font-semibold mb-2">Notes</Text>

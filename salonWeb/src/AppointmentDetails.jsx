@@ -210,12 +210,16 @@ const PaymentProofModal = ({ selectedPaymentData, setSelectedPaymentData, setSho
     return `${BASE_URL}/storage/${path}`;
   };
   const proofUrl = getImageUrl(payment_proof);
-  
-  // ✅ Numeric truth wins over payment_type
-  const numericBalance = parseFloat(balance);
-  const numericPaid = parseFloat(paid_amount);
-  const isFullyPaid = numericBalance <= 0;
-  const isPartial = !isFullyPaid && numericPaid > 0;
+
+  // ✅ Use the SAME computePaymentTotals helper as the rest of the page
+  const { isFullyPaid, isPartial } = computePaymentTotals({
+    id: appointment_id,
+    total_price: parseFloat(total_amount) || 0,
+    billing_total_amount: parseFloat(total_amount) || 0,
+    billing_paid_amount: parseFloat(paid_amount) || 0,
+    billing_balance: parseFloat(balance) || 0,
+    billing_payment_type: payment_type,
+  });
   
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
@@ -265,7 +269,7 @@ const PaymentProofModal = ({ selectedPaymentData, setSelectedPaymentData, setSho
               </div>
               <div>
                 <p className="text-xs text-gray-500">Balance</p>
-                <p className="text-sm font-semibold text-orange-600">
+                <p className={`text-sm font-semibold ${parseFloat(balance) > 0 ? 'text-orange-600' : 'text-green-600'}`}>
                   ₱{parseFloat(balance).toLocaleString()}
                 </p>
               </div>
@@ -282,6 +286,15 @@ const PaymentProofModal = ({ selectedPaymentData, setSelectedPaymentData, setSho
                 </p>
               </div>
             </div>
+
+            {isFullyPaid && (
+              <div className="mt-3 pt-3 border-t border-dashed border-gray-200 flex items-center gap-1.5">
+                <CheckCircle size={14} className="text-green-600" />
+                <span className="text-green-700 text-xs font-semibold">
+                  Fully paid — no balance remaining
+                </span>
+              </div>
+            )}
           </div>
 
           {proofUrl ? (

@@ -171,6 +171,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/staff/appointment/{appointmentId}/update', [JoinedController::class, 'updateAppointmentServices']);
     Route::post('/report/add', [IncidentReportsController::class, 'submitIncidentReport']);
     Route::post('/profile/add/{id}', [UserController::class, 'addProfileImage']);
+    Route::post('/appointment/settle-balance', [JoinedController::class, 'settleBalance']);
 
 
     
