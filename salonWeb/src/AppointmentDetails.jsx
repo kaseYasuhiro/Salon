@@ -20,15 +20,51 @@ const getPaymentTypeLabel = (paymentType) => {
   return paymentType;
 };
 
+/**
+ * Compute payment totals.
+ *
+ * IMPORTANT: Numeric values (paid_amount / balance) ALWAYS win over
+ * payment_type. A row marked `full` but with a nonzero balance is
+ * treated as PARTIAL, so the badge stays consistent with the numbers.
+ */
 const computePaymentTotals = (appointment) => {
   const grandTotal = appointment.billing_total_amount ?? appointment.total_price ?? 0;
   const paymentType = appointment.billing_payment_type;
-  const paidAmount = appointment.billing_paid_amount
-    ?? (paymentType === 'full' ? grandTotal : grandTotal / 2);
-  const balance = appointment.billing_balance ?? (grandTotal - paidAmount);
-  const isFullyPaid = paymentType === 'full' || balance <= 0;
+
+  const hasBillingPaid = appointment.billing_paid_amount != null;
+  const hasBillingBalance = appointment.billing_balance != null;
+
+  // 1) Resolve paid amount
+  let paidAmount;
+  if (hasBillingPaid) {
+    paidAmount = Number(appointment.billing_paid_amount);
+  } else {
+    paidAmount = paymentType === 'full' ? grandTotal : grandTotal / 2;
+  }
+
+  // 2) Resolve balance
+  let balance;
+  if (hasBillingBalance) {
+    balance = Number(appointment.billing_balance);
+  } else {
+    balance = grandTotal - paidAmount;
+  }
+
+  // 3) Guard against float drift
+  if (Math.abs(balance) < 0.01) balance = 0;
+
+  // 4) Fully paid ONLY when balance is truly zero (and total > 0)
+  const isFullyPaid = grandTotal > 0 && balance <= 0;
   const isPartial = !isFullyPaid && paidAmount > 0;
   const isUnpaid = !isFullyPaid && paidAmount <= 0;
+
+  // Dev-only sanity warning for backend data drift
+  if (paymentType === 'full' && balance > 0) {
+    console.warn(
+      `[billing mismatch] appointment ${appointment.id}: payment_type='full' but balance=${balance}, paid=${paidAmount}, total=${grandTotal}`
+    );
+  }
+
   return { grandTotal, paymentType, paidAmount, balance, isFullyPaid, isPartial, isUnpaid };
 };
 
@@ -175,9 +211,11 @@ const PaymentProofModal = ({ selectedPaymentData, setSelectedPaymentData, setSho
   };
   const proofUrl = getImageUrl(payment_proof);
   
-  // ✅ Determine status respecting payment_type
-  const isFullyPaid = payment_type === 'full' || parseFloat(balance) <= 0;
-  const isPartial = !isFullyPaid && parseFloat(paid_amount) > 0;
+  // ✅ Numeric truth wins over payment_type
+  const numericBalance = parseFloat(balance);
+  const numericPaid = parseFloat(paid_amount);
+  const isFullyPaid = numericBalance <= 0;
+  const isPartial = !isFullyPaid && numericPaid > 0;
   
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
@@ -428,7 +466,7 @@ const AppointmentDetails = () => {
   const [error, setError] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('all');
-  const [paymentFilter, setPaymentFilter] = useState('all'); // ✅ all | full | partial | unpaid
+  const [paymentFilter, setPaymentFilter] = useState('all'); // all | full | partial | unpaid
   const [toast, setToast] = useState(null);
   const [showAppointmentDetail, setShowAppointmentDetail] = useState(false);
   const [selectedDate, setSelectedDate] = useState(null);
@@ -939,7 +977,7 @@ const AppointmentDetails = () => {
       (sum, s) => sum + (parseFloat(s.price) || 0), 0
     );
 
-    // ✅ Compute payment totals respecting payment_type
+    // ✅ Compute payment totals respecting numbers over payment_type
     const {
       grandTotal,
       paymentType,
@@ -1137,7 +1175,6 @@ const AppointmentDetails = () => {
                   </span>
                 </div>
 
-                {/* ✅ Payment Type row */}
                 {paymentType && (
                   <div className="flex items-center justify-between py-2 border-b border-gray-100">
                     <span className="text-sm text-gray-600">Payment Type</span>
@@ -1289,7 +1326,6 @@ const AppointmentDetails = () => {
                   </span>
                 </div>
 
-                {/* ✅ Payment Type */}
                 {paymentType && (
                   <div className="flex items-center justify-between">
                     <span className="text-xs text-gray-500">Payment</span>
@@ -1428,7 +1464,6 @@ const AppointmentDetails = () => {
             <option value="cancelled">Cancelled</option>
           </select>
 
-          {/* ✅ Payment filter */}
           <select 
             value={paymentFilter}
             onChange={(e) => setPaymentFilter(e.target.value)}
@@ -1488,7 +1523,7 @@ const AppointmentDetails = () => {
                     <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${statusBadge.color}`}>
                       {statusBadge.label}
                     </span>
-                    {/* ✅ Payment badge */}
+                    {/* ✅ Payment badge — numeric truth */}
                     {isFullyPaid ? (
                       <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-green-100 text-green-700">
                         PAID IN FULL
@@ -1544,7 +1579,6 @@ const AppointmentDetails = () => {
                     </span>
                   </div>
 
-                  {/* ✅ Paid amount always shown */}
                   <div className="flex items-center justify-between">
                     <span className="text-xs text-gray-500">Paid</span>
                     <span className="text-xs font-semibold text-green-600">
@@ -1552,7 +1586,6 @@ const AppointmentDetails = () => {
                     </span>
                   </div>
 
-                  {/* ✅ Balance row */}
                   <div className="flex items-center justify-between">
                     <span className="text-xs text-gray-500">Balance</span>
                     <span className={`text-xs font-semibold ${
