@@ -404,10 +404,19 @@ class JoinedController extends Controller
             $transactions[] = $transaction;
         }
 
-        // ── Compute paid_amount and balance ──
+        // ── Compute paid_amount and balance based on payment_type ──
         $totalAmount = (float) $request->total_amount;
-        $paidAmount = round($totalAmount * 0.5, 2);
-        $balance = round($totalAmount - $paidAmount, 2);
+        $paymentType = $request->payment_type;
+
+        if ($paymentType === 'full') {
+            // Full payment → paid = total, balance = 0
+            $paidAmount = round($totalAmount, 2);
+            $balance = 0.0;
+        } else {
+            // Downpayment → 50% now, rest later
+            $paidAmount = round($totalAmount * 0.5, 2);
+            $balance = round($totalAmount - $paidAmount, 2);
+        }
 
         if ($balance < 0) $balance = 0;
 
@@ -415,14 +424,14 @@ class JoinedController extends Controller
             'total_amount' => $totalAmount,
             'paid_amount' => $paidAmount,
             'balance' => $balance,
-            'payment_type' => $request->payment_type,
+            'payment_type' => $paymentType,
         ]);
 
         // ── Create billing ──
         $billing = Billing::create([
             'appointment_id' => $appointment->id,
             'total_amount' => $totalAmount,
-            'payment_type' => $request->payment_type,
+            'payment_type' => $paymentType,
             'paid_amount' => $paidAmount,
             'balance' => $balance,
         ]);
@@ -462,7 +471,6 @@ class JoinedController extends Controller
             'balance' => $balance,
         ], 200);
     }
-
     public function remainingBalancePayment(Request $request)
     {
         $request->validate([

@@ -65,6 +65,48 @@ const getAdditionalPrice = (
   return match ? parseFloat(String(match.additional_price)) || 0 : 0;
 };
 
+// ─────────────────────────────────────────────────────────────
+// Payment helpers
+// ─────────────────────────────────────────────────────────────
+const getPaymentTypeLabel = (paymentType?: string | null): string => {
+  if (!paymentType) return "N/A";
+  if (paymentType === "full") return "Full Payment";
+  if (paymentType === "downpayment") return "Downpayment (50%)";
+  if (paymentType === "remaining") return "Remaining Balance";
+  return paymentType;
+};
+
+const computePaymentTotals = (billing?: {
+  total_amount?: string | number | null;
+  paid_amount?: string | number | null;
+  balance?: string | number | null;
+  payment_type?: string | null;
+}) => {
+  const total = Number(billing?.total_amount ?? 0) || 0;
+  const paymentType = billing?.payment_type ?? null;
+
+  const hasPaid = billing?.paid_amount != null;
+  const hasBalance = billing?.balance != null;
+
+  let paid = hasPaid
+    ? Number(billing?.paid_amount) || 0
+    : paymentType === "full"
+      ? total
+      : total / 2;
+
+  let balance = hasBalance
+    ? Number(billing?.balance) || 0
+    : total - paid;
+
+  if (Math.abs(balance) < 0.01) balance = 0;
+
+  const isFullyPaid = total > 0 && balance <= 0;
+  const isPartial = !isFullyPaid && paid > 0;
+  const isUnpaid = !isFullyPaid && paid <= 0;
+
+  return { total, paid, balance, paymentType, isFullyPaid, isPartial, isUnpaid };
+};
+
 interface ProductUsage {
   id: number;
   product_id: number;
@@ -197,6 +239,8 @@ interface PaymentData {
     id: number;
     appointment_id: number;
     total_amount: string;
+    paid_amount?: string | null;
+    balance?: string | null;
     payment_type: string;
     created_at: string;
     updated_at: string;
@@ -1419,17 +1463,37 @@ export default function StaffAppointments({
 
     const { payment_method, payment_proof, billing } = selectedPaymentData;
     const appointment_id = billing?.appointment_id || "N/A";
-    const total_amount = billing?.total_amount || "0.00";
 
     const payment_type =
       selectedPaymentData?.payment_type ||
       billing?.payment_type ||
-      "N/A";
+      null;
+
+    // ✅ Use shared helper — numeric truth wins over payment_type
+    const {
+      total,
+      paid,
+      balance,
+      isFullyPaid,
+      isPartial,
+    } = computePaymentTotals({
+      total_amount: billing?.total_amount,
+      paid_amount: billing?.paid_amount,
+      balance: billing?.balance,
+      payment_type,
+    });
 
     const BASE_URL = (process.env.EXPO_PUBLIC_API_URL || "").replace(/\/api\/?$/, "");
     const proofUrl = payment_proof
       ? `${BASE_URL}${payment_proof}`
       : null;
+
+    // Status pill styling
+    const statusPill = isFullyPaid
+      ? { bg: "bg-green-100", text: "text-green-700", label: "PAID IN FULL" }
+      : isPartial
+      ? { bg: "bg-yellow-100", text: "text-yellow-700", label: "PARTIAL" }
+      : { bg: "bg-red-100", text: "text-red-700", label: "UNPAID" };
 
     return (
       <Modal
@@ -1455,7 +1519,55 @@ export default function StaffAppointments({
               </TouchableOpacity>
             </View>
 
-            <View className="p-6">
+            <ScrollView
+              contentContainerStyle={{ padding: 24 }}
+              showsVerticalScrollIndicator={false}
+            >
+              {/* ✅ Status banner — makes paid-in-full obvious at a glance */}
+              <View
+                className={`rounded-xl p-3 mb-4 flex-row items-center justify-between border ${
+                  isFullyPaid
+                    ? "bg-green-50 border-green-200"
+                    : isPartial
+                    ? "bg-yellow-50 border-yellow-200"
+                    : "bg-red-50 border-red-200"
+                }`}
+              >
+                <View className="flex-row items-center gap-2 flex-1">
+                  <Ionicons
+                    name={
+                      isFullyPaid
+                        ? "checkmark-circle"
+                        : isPartial
+                        ? "time-outline"
+                        : "alert-circle"
+                    }
+                    size={20}
+                    color={isFullyPaid ? "#16a34a" : isPartial ? "#ca8a04" : "#dc2626"}
+                  />
+                  <View>
+                    <Text
+                      className={`font-bold text-sm ${
+                        isFullyPaid
+                          ? "text-green-700"
+                          : isPartial
+                          ? "text-yellow-700"
+                          : "text-red-700"
+                      }`}
+                    >
+                      {statusPill.label}
+                    </Text>
+                    <Text className="text-gray-500 text-[11px] mt-0.5">
+                      {isFullyPaid
+                        ? "Customer has settled the full amount"
+                        : isPartial
+                        ? "Customer still has an outstanding balance"
+                        : "No payment received yet"}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+
               <View className="bg-gray-50 rounded-lg p-4 mb-4">
                 <View className="flex-row justify-between mb-2">
                   <Text className="text-gray-500 text-sm">Appointment ID</Text>
@@ -1463,14 +1575,8 @@ export default function StaffAppointments({
                 </View>
                 <View className="flex-row justify-between mb-2">
                   <Text className="text-gray-500 text-sm">Payment Type</Text>
-                  <Text className="text-gray-800 font-semibold capitalize">
-                    {payment_type}
-                  </Text>
-                </View>
-                <View className="flex-row justify-between mb-2">
-                  <Text className="text-gray-500 text-sm">Total Amount</Text>
-                  <Text className="text-pink-600 font-bold">
-                    ₱{parseFloat(total_amount).toLocaleString()}
+                  <Text className="text-gray-800 font-semibold">
+                    {getPaymentTypeLabel(payment_type)}
                   </Text>
                 </View>
                 <View className="flex-row justify-between">
@@ -1479,6 +1585,49 @@ export default function StaffAppointments({
                     {payment_method || "N/A"}
                   </Text>
                 </View>
+              </View>
+
+              {/* ✅ Amount breakdown */}
+              <View className="bg-white rounded-lg p-4 mb-4 border border-gray-200">
+                <Text className="text-gray-600 text-xs font-semibold uppercase tracking-wider mb-3">
+                  Amount Breakdown
+                </Text>
+
+                <View className="flex-row justify-between py-2 border-b border-gray-100">
+                  <Text className="text-gray-600 text-sm">Total Amount</Text>
+                  <Text className="text-gray-800 font-bold text-sm">
+                    ₱{total.toLocaleString()}
+                  </Text>
+                </View>
+
+                <View className="flex-row justify-between py-2 border-b border-gray-100">
+                  <Text className="text-gray-600 text-sm">Amount Paid</Text>
+                  <Text className="text-green-600 font-bold text-sm">
+                    ₱{paid.toLocaleString()}
+                  </Text>
+                </View>
+
+                <View className="flex-row justify-between py-2">
+                  <Text className="text-gray-600 text-sm">Remaining Balance</Text>
+                  <Text
+                    className={`font-bold text-sm ${
+                      balance > 0 ? "text-orange-600" : "text-green-600"
+                    }`}
+                  >
+                    {balance > 0
+                      ? `₱${balance.toLocaleString()}`
+                      : "₱0.00"}
+                  </Text>
+                </View>
+
+                {isFullyPaid && (
+                  <View className="mt-3 pt-3 border-t border-dashed border-gray-200 flex-row items-center justify-center gap-1">
+                    <Ionicons name="checkmark-circle" size={16} color="#16a34a" />
+                    <Text className="text-green-700 font-semibold text-xs">
+                      Paid in Full — no balance remaining
+                    </Text>
+                  </View>
+                )}
               </View>
 
               {proofUrl ? (
@@ -1512,7 +1661,7 @@ export default function StaffAppointments({
               >
                 <Text className="text-white text-center font-semibold">Close</Text>
               </TouchableOpacity>
-            </View>
+            </ScrollView>
           </View>
         </View>
       </Modal>
