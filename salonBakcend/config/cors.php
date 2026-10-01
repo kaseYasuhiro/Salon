@@ -15,7 +15,7 @@ return [
     |
     */
 
-    'paths' => ['api/*', 'sanctum/csrf-cookie', 'storage/*'],
+    'paths' => ['api/*', 'sanctum/csrf-cookie', 'storage/*', 'broadcasting/auth'],
 
     'allowed_methods' => ['*'],
 
@@ -23,6 +23,7 @@ return [
         'https://salon-owner-portal.up.railway.app', // <-- Your exact frontend URL
         'http://localhost:5173',
         'http://192.168.100.73:8000',
+        'http://192.168.100.73:5173',
     ],
 
     'allowed_origins_patterns' => [],

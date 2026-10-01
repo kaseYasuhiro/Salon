@@ -13,10 +13,9 @@ class LowStockAlert extends BaseNotification
         return [
             'type' => 'low_stock',
             'product_id' => $this->product->id,
+            'product_name' => $this->product->product_name,
             'title' => 'Low Stock Alert',
-            'message' => "{$this->product->name} is running low ({$this->product->stock} left).",
-            'stock' => $this->product->stock,
-            'threshold' => $this->product->low_stock_threshold,
+            'message' => "{$this->product->product_name} is running low on stock.",
         ];
     }
 }

@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Checkbox from "expo-checkbox";
 import { router } from "expo-router";
 import { useState } from "react";
-import { Alert, Text, TextInput, TouchableOpacity, View, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView } from "react-native";
+import { Alert, Text, TextInput, TouchableOpacity, View, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, Image } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "@/contexts/auth-context";
 import { LinearGradient } from 'expo-linear-gradient';
@@ -15,7 +15,7 @@ export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLocalLoading, setIsLocalLoading] = useState(false);
-  
+
   const handleLogin = async () => {
     if (!email || !password) {
       Alert.alert("Error", "Please enter email and password");
@@ -27,7 +27,7 @@ export default function Login() {
       Alert.alert("Error", "Please enter a valid email address");
       return;
     }
-    
+
     setIsLocalLoading(true);
 
     try {
@@ -59,11 +59,11 @@ export default function Login() {
           return;
         }
 
-        switch(currentUser.role) {
-          case "customer" :
+        switch (currentUser.role) {
+          case "customer":
             router.replace("/customer/customerDashboard");
             break;
-          case "staff" :
+          case "staff":
             router.replace("/staff/staffDashboard");
             break;
           default:
@@ -90,26 +90,21 @@ export default function Login() {
       // Check if email is not verified
       if (error.isEmailNotVerified) {
         const verificationEmail = error.email || email;
-        
+
         Alert.alert(
           "Email Not Verified",
           "Your email hasn't been verified yet. Would you like to verify it now?",
           [
-            {
-              text: "Cancel",
-              style: "cancel"
-            },
+            { text: "Cancel", style: "cancel" },
             {
               text: "Verify Now",
               onPress: async () => {
                 try {
-                  // Send a new OTP
                   await api.post('/otp/send', {
                     email: verificationEmail,
                     purpose: 'verification'
                   });
-                  
-                  // Navigate to OTP verification screen
+
                   router.push({
                     pathname: '/verify-otp',
                     params: { email: verificationEmail }
@@ -125,7 +120,6 @@ export default function Login() {
           ]
         );
       } else {
-        // Handle other login errors
         let errorMessage = "Invalid Email or Password";
         if (error.response?.data?.message) {
           errorMessage = error.response.data.message;
@@ -140,49 +134,58 @@ export default function Login() {
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-white">
-      <KeyboardAvoidingView 
+    <SafeAreaView className="flex-1 bg-[#fdf2f7]">
+      <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         className="flex-1"
       >
-        <ScrollView 
+        <ScrollView
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ flexGrow: 1 }}
+          keyboardShouldPersistTaps="handled"
         >
-          {/* Header Section with Gradient */}
-          <LinearGradient
-            colors={['#ec4899', '#f472b6', '#fbcfe8']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            className="h-80 justify-center rounded-b-3xl"
-          >
-            <View className="px-6">
-              <View className="items-center mb-6">
-                <View className="w-20 h-20 bg-white/20 rounded-2xl items-center justify-center backdrop-blur-lg">
-                  <Ionicons name="cut-outline" size={40} color="white" />
-                </View>
-              </View>
-              <Text className="text-white text-center text-lg font-medium mb-2">
-                Reshel Oco Hair Salon
-              </Text>
-              <Text className="text-white text-5xl font-bold text-center mt-4">
-                Welcome Back
-              </Text>
-              <Text className="text-white text-lg text-center mt-2 opacity-90">
-                Login to continue
-              </Text>
-            </View>
-          </LinearGradient>
+          {/* ── Hero / Logo Section ── */}
+          <View className="items-center pt-14 pb-6 px-6">
+            <Image
+              source={require('@/assets/images/ROHS Logo.png')}
+              style={{ width: 200, height: 200 }}
+              resizeMode="contain"
+            />
+            <Text className="text-[#ec4899] text-sm font-semibold tracking-[3px] mt-2">
+              RESHEL OCO
+            </Text>
+            <Text className="text-[#ec4899] text-[10px] font-medium tracking-[4px] mt-1">
+              HAIR SALON
+            </Text>
+          </View>
 
-          {/* Form Section */}
-          <View className="flex-1 px-6 -mt-8">
-            <View className="bg-white rounded-3xl shadow-xl p-6">
+          {/* ── Form Card ── */}
+          <View className="flex-1 px-6">
+            <View
+              className="bg-white rounded-3xl p-6"
+              style={{
+                shadowColor: '#ec4899',
+                shadowOffset: { width: 0, height: 6 },
+                shadowOpacity: 0.12,
+                shadowRadius: 16,
+                elevation: 8,
+              }}
+            >
+              <View className="mb-6">
+                <Text className="text-gray-800 text-2xl font-bold">
+                  Welcome Back
+                </Text>
+                <Text className="text-gray-500 text-sm mt-1">
+                  Log in to your account to continue
+                </Text>
+              </View>
+
               {/* Email Field */}
               <View className="mb-5">
                 <Text className="text-gray-700 text-sm font-semibold mb-2 ml-1">
                   Email Address
                 </Text>
-                <View className="flex-row items-center bg-gray-50 rounded-xl border border-gray-200 focus:border-pink-500">
+                <View className="flex-row items-center bg-gray-50 rounded-xl border border-gray-200">
                   <View className="pl-4">
                     <Ionicons name="mail-outline" size={20} color="#9ca3af" />
                   </View>
@@ -229,25 +232,29 @@ export default function Login() {
 
               {/* Remember Me & Forgot Password */}
               <View className="flex-row justify-between items-center mb-8">
-                <TouchableOpacity 
-                  onPress={() => setChecked(!isChecked)} 
+                <TouchableOpacity
+                  onPress={() => setChecked(!isChecked)}
                   className="flex-row items-center"
                   disabled={isLocalLoading}
                 >
-                  <View className={`w-5 h-5 rounded-md border-2 mr-2 items-center justify-center ${isChecked ? 'bg-pink-500 border-pink-500' : 'border-gray-300'}`}>
+                  <View
+                    className={`w-5 h-5 rounded-md border-2 mr-2 items-center justify-center ${
+                      isChecked ? 'bg-pink-500 border-pink-500' : 'border-gray-300'
+                    }`}
+                  >
                     {isChecked && <Ionicons name="checkmark" size={14} color="white" />}
                   </View>
                   <Text className="text-gray-600 text-sm">Remember Me</Text>
                 </TouchableOpacity>
-                
+
                 <TouchableOpacity disabled={isLocalLoading}>
                   <Text className="text-pink-500 text-sm font-semibold">Forgot Password?</Text>
                 </TouchableOpacity>
               </View>
 
               {/* Login Button */}
-              <TouchableOpacity 
-                onPress={handleLogin} 
+              <TouchableOpacity
+                onPress={handleLogin}
                 disabled={isLocalLoading}
                 className={`rounded-xl overflow-hidden shadow-lg ${isLocalLoading ? 'opacity-70' : ''}`}
               >
@@ -267,7 +274,7 @@ export default function Login() {
             </View>
 
             {/* Sign Up Link */}
-            <View className="flex-row justify-center items-center mt-8 mb-10">
+            <View className="flex-row justify-center items-center mt-8 mb-4">
               <Text className="text-gray-600 text-base">Don't have an account? </Text>
               <TouchableOpacity onPress={() => router.push("../registraion")}>
                 <Text className="text-pink-500 text-base font-bold">Sign Up</Text>
@@ -275,7 +282,7 @@ export default function Login() {
             </View>
 
             {/* Footer */}
-            <View className="items-center pb-6">
+            <View className="items-center pb-6 mt-auto">
               <Text className="text-gray-400 text-xs text-center">
                 By continuing, you agree to our Terms of Service
               </Text>

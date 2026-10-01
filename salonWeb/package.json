@@ -12,8 +12,10 @@
   "dependencies": {
     "@tailwindcss/vite": "^4.2.2",
     "axios": "^1.15.0",
+    "laravel-echo": "^2.5.0",
     "local-storage": "^2.0.0",
     "lucide-react": "^1.7.0",
+    "pusher-js": "^8.6.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-router-dom": "^7.14.0",

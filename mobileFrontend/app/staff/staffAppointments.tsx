@@ -15,6 +15,56 @@ import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "@/contexts/auth-context";
 import api from "@/api/axios";
 
+// ─────────────────────────────────────────────────────────────
+// Price adjustments helpers
+// ─────────────────────────────────────────────────────────────
+interface PriceAdjustment {
+  id: number;
+  service_id: number;
+  hair_length: string;
+  hair_thickness: string;
+  additional_price: string | number;
+}
+
+interface ServiceWithAdjustments {
+  id: number;
+  service_price_adjustments?: PriceAdjustment[];
+}
+
+const buildAdjustmentMap = (services: ServiceWithAdjustments[]) => {
+  const map = new Map<number, PriceAdjustment[]>();
+  services.forEach((service) => {
+    const adjustments = service.service_price_adjustments || [];
+    if (adjustments.length > 0) {
+      map.set(service.id, adjustments);
+    }
+  });
+  return map;
+};
+
+const getAdditionalPrice = (
+  adjustmentMap: Map<number, PriceAdjustment[]>,
+  serviceId: number | undefined,
+  hairLength: string | null | undefined,
+  hairThickness: string | null | undefined
+): number => {
+  if (!serviceId) return 0;
+
+  const adjustments = adjustmentMap.get(serviceId);
+  if (!adjustments || adjustments.length === 0) return 0;
+
+  const normLength = (hairLength || '').toLowerCase().trim();
+  const normThickness = (hairThickness || '').toLowerCase().trim();
+
+  const match = adjustments.find(
+    (adj) =>
+      adj.hair_length.toLowerCase().trim() === normLength &&
+      adj.hair_thickness.toLowerCase().trim() === normThickness
+  );
+
+  return match ? parseFloat(String(match.additional_price)) || 0 : 0;
+};
+
 interface ProductUsage {
   id: number;
   product_id: number;
@@ -142,6 +192,7 @@ interface PaymentData {
   payment_proof: string | null;
   created_at: string;
   updated_at: string;
+  payment_type?: string;
   billing?: {
     id: number;
     appointment_id: number;
@@ -161,7 +212,6 @@ export default function StaffAppointments({
   refreshing,
   onRefresh,
 }: StaffAppointmentsProps) {
-  // ✅ NEW: page navigation state — when set, we render the UpdateAppointmentPage instead of the list
   const [showUpdatePage, setShowUpdatePage] = useState(false);
 
   const [showWalkInUpdateModal, setShowWalkInUpdateModal] = useState(false);
@@ -177,17 +227,14 @@ export default function StaffAppointments({
   const [isUpdating, setIsUpdating] = useState(false);
   const [isUpdatingWalkIn, setIsUpdatingWalkIn] = useState(false);
 
-  // Walk-in update form state
   const [walkInUpdateData, setWalkInUpdateData] = useState({
     customer_name: "",
     amount_paid: 0,
     is_finished: 0,
   });
 
-  // Walk-in product usage state
   const [walkInProductUsages, setWalkInProductUsages] = useState<ProductUsage[]>([]);
 
-  // Local state for data
   const [staffAppointments, setStaffAppointments] = useState<Appointment[]>([]);
   const [staff, setStaff] = useState<any[]>([]);
   const [services, setServices] = useState<any[]>([]);
@@ -196,9 +243,11 @@ export default function StaffAppointments({
 
   const { user } = useAuth();
 
-  // States for business schedules and staff assignments
   const [businessSchedules, setBusinessSchedules] = useState<BusinessSchedule[]>([]);
   const [staffAssignments, setStaffAssignments] = useState<StaffAssignment[]>([]);
+
+  // ✅ Price adjustments cache
+  const [adjustmentMap, setAdjustmentMap] = useState<Map<number, PriceAdjustment[]>>(new Map());
 
   // ─────────────────────────────────────────────
   // API calls
@@ -209,6 +258,18 @@ export default function StaffAppointments({
       return response.data;
     } catch (error) {
       throw error;
+    }
+  };
+
+  // ✅ Fetch all price adjustments once
+  const fetchPriceAdjustments = async () => {
+    try {
+      const response = await api.get('/services/price/adjustment');
+      if (Array.isArray(response.data)) {
+        setAdjustmentMap(buildAdjustmentMap(response.data));
+      }
+    } catch (error) {
+      // silently ignore — fall back to base prices
     }
   };
 
@@ -255,12 +316,23 @@ export default function StaffAppointments({
         }
 
         const appointment = appointmentMap.get(appointmentId)!;
+
+        // ✅ Apply the price adjustment for THIS transaction row
+        const basePrice = parseFloat(item.price) || 0;
+        const additional = getAdditionalPrice(
+          adjustmentMap,
+          item.service_id,
+          item.hair_length,
+          item.hair_thickness
+        );
+        const adjustedPrice = basePrice + additional;
+
         appointment.services.push({
           id: item.transaction_id || item.id,
           service_id: item.service_id,
           service_name: item.service_name || "Unknown Service",
           duration_minutes: item.duration_minutes || 0,
-          price: item.price || "0",
+          price: adjustedPrice.toString(),   // ✅ adjusted price
           service_status: item.service_status || "pending",
           notes: item.notes || "",
           transaction_id: item.transaction_id || item.id,
@@ -298,7 +370,12 @@ export default function StaffAppointments({
             transaction_id: firstTransaction?.transaction_id,
           };
         })
-        .filter((app) => app.status === "confirmed" || app.status === "completed");
+        .filter(
+          (app) =>
+            app.status === "confirmed" ||
+            app.status === "completed" ||
+            app.status === "no-show"
+        );
 
       setStaffAppointments(groupedAppointments);
       return groupedAppointments;
@@ -452,44 +529,39 @@ export default function StaffAppointments({
     try {
       const response = await api.get(`/appointment/payment?appointment_id=${appointmentId}`);
 
-      if (response.data) {
-        let paymentData = null;
-
-        if (Array.isArray(response.data)) {
-          const remainingPayment = response.data.find(
-            (item: any) =>
-              item.billing?.payment_type === "remaining" &&
-              item.billing?.appointment_id === appointmentId
-          );
-
-          if (remainingPayment) {
-            paymentData = remainingPayment;
-          } else {
-            const anyPayment = response.data.find(
-              (item: any) => item.billing?.appointment_id === appointmentId
-            );
-            paymentData = anyPayment;
-          }
-        } else if (response.data.billing) {
-          if (response.data.billing?.appointment_id === appointmentId) {
-            paymentData = response.data;
-          }
-        } else if (response.data.appointment_id === appointmentId) {
-          paymentData = response.data;
-        }
-
-        if (paymentData) {
-          setSelectedPaymentData(paymentData);
-          setShowPaymentProofModal(true);
-        } else {
-          Alert.alert(
-            "No Payment Found",
-            "No remaining balance payment found for this appointment."
-          );
-        }
-      } else {
+      if (!response.data) {
         Alert.alert("No Payment Found", "No payment record found for this appointment.");
+        return;
       }
+
+      let payments: any[] = [];
+      if (Array.isArray(response.data)) {
+        payments = response.data;
+      } else if (response.data.billing || response.data.appointment_id) {
+        payments = [response.data];
+      }
+
+      const filtered = payments.filter(
+        (item: any) => item.billing?.appointment_id === appointmentId
+      );
+
+      if (filtered.length === 0) {
+        Alert.alert(
+          "No Payment Found",
+          "No payment record found for this appointment."
+        );
+        return;
+      }
+
+      const latestPayment = [...filtered].sort((a, b) => {
+        const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
+        if (aTime !== bTime) return bTime - aTime;
+        return (b.id || 0) - (a.id || 0);
+      })[0];
+
+      setSelectedPaymentData(latestPayment);
+      setShowPaymentProofModal(true);
     } catch (error: any) {
       Alert.alert("Error", error.response?.data?.message || "Failed to fetch payment data");
     }
@@ -567,8 +639,6 @@ export default function StaffAppointments({
     }
   };
 
-  // ✅ Opens the walk-in update MODAL (unchanged)
-  // ✅ Opens the appointment update PAGE instead of a modal
   const handleOpenUpdateModal = async (item: DisplayItem) => {
     if (item.is_walk_in && item.walk_in_data) {
       setSelectedWalkIn(item.walk_in_data);
@@ -619,7 +689,6 @@ export default function StaffAppointments({
       setProductUsages([]);
     }
 
-    // ✅ Show the update page instead of a modal
     setShowUpdatePage(true);
   };
 
@@ -629,7 +698,6 @@ export default function StaffAppointments({
     updatedUsages[index].quantity_change = numericValue;
     setProductUsages(updatedUsages);
 
-    // ✅ Alert when the product has run out of available stock
     const product = updatedUsages[index];
     if (product && product.inventory_id) {
       const availableStock = product.current_quantity || 0;
@@ -648,7 +716,6 @@ export default function StaffAppointments({
     updatedUsages[index].quantity_change = numericValue;
     setWalkInProductUsages(updatedUsages);
 
-    // ✅ Alert when the product has run out of available stock (walk-in)
     const product = updatedUsages[index];
     if (product && product.inventory_id) {
       const availableStock = product.current_quantity || 0;
@@ -694,7 +761,6 @@ export default function StaffAppointments({
       await updateAppointmentServices(selectedAppointment.id, updateData);
 
       Alert.alert("Success", "Appointment updated successfully!");
-      // ✅ Close the page instead of the modal
       setShowUpdatePage(false);
       setSelectedAppointment(null);
       await fetchStaffAppointments();
@@ -970,9 +1036,14 @@ export default function StaffAppointments({
               key={index}
               className={`${index > 0 ? "border-t border-gray-200 pt-2 mt-2" : ""}`}
             >
-              <Text className="text-gray-800 font-semibold text-sm">
-                {service.service_name}
-              </Text>
+              <View className="flex-row justify-between items-center">
+                <Text className="text-gray-800 font-semibold text-sm">
+                  {service.service_name}
+                </Text>
+                <Text className="text-pink-600 font-semibold text-sm">
+                  ₱{parseFloat(service.price).toLocaleString()}
+                </Text>
+              </View>
               <View className="mt-1 space-y-1">
                 {service.hair_length && (
                   <View className="flex-row items-center">
@@ -1021,6 +1092,7 @@ export default function StaffAppointments({
 
   const renderItemCard = (item: DisplayItem) => {
     const isCompleted = item.status === "completed";
+    const isNoShow = item.status === "no-show";
     const isWalkIn = item.is_walk_in;
     const isMultipleServices = item.services && item.services.length > 1;
     const svcs = item.services || [];
@@ -1039,6 +1111,15 @@ export default function StaffAppointments({
       : item.walk_in_data?.created_at
       ? formatDate(item.walk_in_data.created_at)
       : "N/A";
+
+    const statusBadge =
+      item.status === "completed"
+        ? { bg: "bg-green-100", text: "text-green-700", label: "COMPLETED" }
+        : item.status === "no-show"
+        ? { bg: "bg-red-100", text: "text-red-700", label: "NO-SHOW" }
+        : item.status === "confirmed"
+        ? { bg: "bg-blue-100", text: "text-blue-700", label: "CONFIRMED" }
+        : { bg: "bg-pink-100", text: "text-pink-700", label: "PENDING" };
 
     return (
       <View
@@ -1138,29 +1219,9 @@ export default function StaffAppointments({
             )}
           </View>
 
-          <View
-            className={`px-3 py-1.5 rounded-full ${
-              item.status === "completed"
-                ? "bg-green-100"
-                : item.status === "confirmed"
-                ? "bg-blue-100"
-                : "bg-pink-100"
-            }`}
-          >
-            <Text
-              className={`text-xs font-semibold ${
-                item.status === "confirmed"
-                  ? "text-blue-700"
-                  : item.status === "completed"
-                  ? "text-green-700"
-                  : "text-pink-700"
-              }`}
-            >
-              {item.status === "confirmed"
-                ? "CONFIRMED"
-                : item.status === "completed"
-                ? "COMPLETED"
-                : item.status?.toUpperCase() || "PENDING"}
+          <View className={`px-3 py-1.5 rounded-full ${statusBadge.bg}`}>
+            <Text className={`text-xs font-semibold ${statusBadge.text}`}>
+              {statusBadge.label}
             </Text>
           </View>
         </View>
@@ -1183,7 +1244,7 @@ export default function StaffAppointments({
               </TouchableOpacity>
             )}
 
-            {!isCompleted && (
+            {!isCompleted && !isNoShow && (
               <TouchableOpacity
                 className="bg-blue-600 px-5 py-2 rounded-xl"
                 onPress={() => handleOpenUpdateModal(item)}
@@ -1197,7 +1258,6 @@ export default function StaffAppointments({
     );
   };
 
-  // Subsection header (Appointments / Walk-ins inside a date group)
   const renderSubsectionHeader = (
     label: string,
     count: number,
@@ -1218,7 +1278,6 @@ export default function StaffAppointments({
     </View>
   );
 
-  // Date section wrapper
   const renderDateSection = (
     title: string,
     count: number,
@@ -1267,9 +1326,6 @@ export default function StaffAppointments({
     );
   };
 
-  // ─────────────────────────────────────────────
-  // Status dropdown component (kept inside component)
-  // ─────────────────────────────────────────────
   const StatusDropdown = ({
     value,
     onValueChange,
@@ -1288,11 +1344,13 @@ export default function StaffAppointments({
     const getStatusColor = (status: string) => {
       switch (status) {
         case "confirmed":
-          return "bg-green-100 text-green-700";
+          return "bg-blue-100 text-blue-700";
         case "pending":
           return "bg-yellow-100 text-yellow-700";
         case "completed":
-          return "bg-blue-100 text-blue-700";
+          return "bg-green-100 text-green-700";
+        case "no-show":
+          return "bg-red-100 text-red-700";
         case "cancelled":
           return "bg-red-100 text-red-700";
         default:
@@ -1356,14 +1414,17 @@ export default function StaffAppointments({
     );
   };
 
-  // Payment Proof Modal Component
   const PaymentProofModal = () => {
     if (!selectedPaymentData) return null;
 
     const { payment_method, payment_proof, billing } = selectedPaymentData;
     const appointment_id = billing?.appointment_id || "N/A";
     const total_amount = billing?.total_amount || "0.00";
-    const payment_type = billing?.payment_type || "N/A";
+
+    const payment_type =
+      selectedPaymentData?.payment_type ||
+      billing?.payment_type ||
+      "N/A";
 
     const BASE_URL = (process.env.EXPO_PUBLIC_API_URL || "").replace(/\/api\/?$/, "");
     const proofUrl = payment_proof
@@ -1473,27 +1534,35 @@ export default function StaffAppointments({
   const todayStaff = getTodayStaff();
 
   // ─────────────────────────────────────────────
-  // Load on mount
+  // Load on mount — adjustments FIRST, then everything else
   // ─────────────────────────────────────────────
   useEffect(() => {
-    fetchBusinessSchedules();
-    fetchStaffAssignments();
-    fetchStaff();
-    fetchServices();
-    fetchStaffAppointments();
-    fetchWalkIns();
-    fetchWalkInTransactions();
+    (async () => {
+      await fetchPriceAdjustments();
+      await Promise.all([
+        fetchBusinessSchedules(),
+        fetchStaffAssignments(),
+        fetchStaff(),
+        fetchServices(),
+        fetchStaffAppointments(),
+        fetchWalkIns(),
+        fetchWalkInTransactions(),
+      ]);
+    })();
   }, []);
 
-  // ─────────────────────────────────────────────
-  // ✅ Update Appointment PAGE (replaces the old modal)
-  // ─────────────────────────────────────────────
+  // ✅ Safety net — re-fetch appointments when adjustments land
+  useEffect(() => {
+    if (adjustmentMap.size > 0 && user?.id) {
+      fetchStaffAppointments();
+    }
+  }, [adjustmentMap]);
+
   const renderUpdatePage = () => {
     if (!selectedAppointment) return null;
 
     return (
       <View className="flex-1 bg-gray-50">
-        {/* Fixed header with back button */}
         <View className="bg-pink-500 px-5 pt-12 pb-4">
           <View className="flex-row items-center justify-between">
             <TouchableOpacity
@@ -1512,7 +1581,6 @@ export default function StaffAppointments({
           </View>
         </View>
 
-        {/* Scrollable body */}
         <ScrollView
           className="flex-1"
           showsVerticalScrollIndicator={true}
@@ -1586,7 +1654,7 @@ export default function StaffAppointments({
               onValueChange={(value) =>
                 setUpdateFormData((prev) => ({ ...prev, status: value }))
               }
-              options={["confirmed", "completed"]}
+              options={["confirmed", "completed", "no-show"]}
               placeholder="Select appointment status..."
             />
 
@@ -1704,12 +1772,8 @@ export default function StaffAppointments({
     );
   };
 
-  // ─────────────────────────────────────────────
-  // Render
-  // ─────────────────────────────────────────────
   return (
     <>
-      {/* ✅ If the update page is open, render it instead of the list */}
       {showUpdatePage ? (
         renderUpdatePage()
       ) : (
@@ -1773,7 +1837,6 @@ export default function StaffAppointments({
             </View>
           </ScrollView>
 
-          {/* Walk-in Update Modal (unchanged) */}
           <Modal
             animationType="slide"
             transparent={true}

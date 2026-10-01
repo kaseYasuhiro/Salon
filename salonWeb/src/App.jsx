@@ -1,14 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { 
-  Mail, Lock, Eye, EyeOff, LogIn, Crown, Shield,
+import {
+  Mail, Lock, Eye, EyeOff, LogIn, Shield,
   CheckCircle, XCircle, AlertCircle, X
 } from 'lucide-react';
 import { useAuth } from "../contexts/auth-context";
+import ROHSLogo from "/src/assets/ROHS Logo.png";
 
-// ─────────────────────────────────────────────────────────────
-// Toast — matches the theme used elsewhere in the app
-// ─────────────────────────────────────────────────────────────
 function Toast({ message, type = 'info', onClose }) {
   useEffect(() => {
     const t = setTimeout(onClose, 3500);
@@ -50,7 +48,7 @@ function App() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLocalLoading, setIsLocalLoading] = useState(false);
-  const [toast, setToast] = useState(null); // { message, type } | null
+  const [toast, setToast] = useState(null);
 
   const { login } = useAuth();
   const navigate = useNavigate();
@@ -91,8 +89,10 @@ function App() {
 
       if (currentUser) {
         if (currentUser.role === 'admin' || currentUser.role === 'owner') {
-          // Brief delay so the success toast is visible before navigating
-          setTimeout(() => navigate('/dashboard'), 600);
+          // Full page reload so Echo initializes with the fresh token
+          setTimeout(() => {
+            window.location.href = '/dashboard';
+          }, 600);
         } else {
           showToast("Access Denied. Owner access only.", "error");
           await useAuth.getState().logout();
@@ -123,21 +123,31 @@ function App() {
         />
       )}
 
-      {/* Left Side - Branding Section */}
+      {/* ── Left Panel (desktop) — Logo hero ── */}
       <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-pink-600 to-pink-800 relative overflow-hidden">
-        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 opacity-10">
-          <Crown size={200} className="text-white" />
-        </div>
+        {/* Soft decorative glow behind the logo */}
+        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[520px] h-[520px] bg-white/10 rounded-full blur-3xl" />
 
         <div className="relative z-10 flex flex-col justify-center items-center text-white p-12 w-full">
           <div className="max-w-md text-center">
+            {/* ✅ Logo hero */}
             <div className="mb-8 flex justify-center">
-              <div className="bg-white/20 p-4 rounded-2xl backdrop-blur-sm">
-                <Crown size={48} className="text-white" />
+              <div className="bg-white rounded-3xl p-6 shadow-2xl">
+                <img
+                  src={ROHSLogo}
+                  alt="Reshel Oco Hair Salon"
+                  className="w-56 h-56 object-contain"
+                />
               </div>
             </div>
-            <h1 className="text-5xl font-bold mb-4">Owner Portal</h1>
-            <p className="text-xl text-pink-100 mb-6">Reshel Oco Hair Salon</p>
+
+            <h1 className="text-4xl font-bold mb-3 tracking-tight">
+              Owner Portal
+            </h1>
+            <p className="text-pink-100 text-lg mb-6">
+              Reshel Oco Hair Salon
+            </p>
+
             <div className="border-t border-white/20 pt-6 mt-6">
               <p className="text-pink-100 text-sm">
                 Secure access for salon administrators only
@@ -151,15 +161,20 @@ function App() {
         </div>
       </div>
 
-      {/* Right Side - Login Form */}
+      {/* ── Right Panel — Login form ── */}
       <div className="w-full lg:w-1/2 flex items-center justify-center p-8">
         <div className="w-full max-w-md">
+          {/* ✅ Mobile-only logo header */}
           <div className="lg:hidden text-center mb-8">
-            <div className="inline-block bg-pink-500 p-3 rounded-2xl mb-4">
-              <Crown size={32} className="text-white" />
+            <div className="inline-block bg-white p-4 rounded-2xl mb-4 shadow-lg">
+              <img
+                src={ROHSLogo}
+                alt="Reshel Oco Hair Salon"
+                className="w-32 h-32 object-contain"
+              />
             </div>
-            <h2 className="text-2xl font-bold text-gray-800">Owner Portal</h2>
-            <p className="text-gray-500 text-sm mt-1">Reshel Oco Hair Salon</p>
+            <h2 className="text-2xl font-bold text-white">Owner Portal</h2>
+            <p className="text-gray-400 text-sm mt-1">Reshel Oco Hair Salon</p>
           </div>
 
           <div className="bg-white rounded-2xl shadow-2xl p-8">

@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { StatusBar } from 'expo-status-bar';
 import { useAuth } from "@/contexts/auth-context";
+import NotificationBell from '@/components/NotificationBell';
 import { router } from "expo-router";
 import * as DocumentPicker from 'expo-document-picker';
 import api from '@/api/axios';
@@ -38,13 +39,13 @@ interface Appointment {
   appointment_date: string;
   appointment_time: string;
   status: string;
-  service_status: string;
   service_name: string;
   duration_minutes: number;
   price: string;
   notes?: string;
   transaction_id: number;
   is_walk_in?: boolean;
+  billing_payment_type?: string | null;
 }
 
 interface InventoryItem {
@@ -143,6 +144,63 @@ interface LossDamage {
   created_at?: string;
   updated_at?: string;
 }
+
+// ─────────────────────────────────────────────────────────────
+// Price adjustments helpers
+// ─────────────────────────────────────────────────────────────
+interface PriceAdjustment {
+  id: number;
+  service_id: number;
+  hair_length: string;
+  hair_thickness: string;
+  additional_price: string | number;
+}
+
+interface ServiceWithAdjustments {
+  id: number;
+  service_price_adjustments?: PriceAdjustment[];
+}
+
+/**
+ * Build a lookup map: service_id → PriceAdjustment[]
+ */
+const buildAdjustmentMap = (services: ServiceWithAdjustments[]) => {
+  const map = new Map<number, PriceAdjustment[]>();
+  services.forEach((service) => {
+    const adjustments = service.service_price_adjustments || [];
+    if (adjustments.length > 0) {
+      map.set(service.id, adjustments);
+    }
+  });
+  return map;
+};
+
+/**
+ * Resolve the additional price for a specific service + hair combo.
+ * Returns 0 if no match.
+ */
+const getAdditionalPrice = (
+  adjustmentMap: Map<number, PriceAdjustment[]>,
+  serviceId: number | undefined,
+  hairLength: string | null | undefined,
+  hairThickness: string | null | undefined
+): number => {
+  if (!serviceId) return 0;
+
+  const adjustments = adjustmentMap.get(serviceId);
+  if (!adjustments || adjustments.length === 0) return 0;
+
+  const normLength = (hairLength || '').toLowerCase().trim();
+  const normThickness = (hairThickness || '').toLowerCase().trim();
+
+  const match = adjustments.find(
+    (adj) =>
+      adj.hair_length.toLowerCase().trim() === normLength &&
+      adj.hair_thickness.toLowerCase().trim() === normThickness
+  );
+
+  return match ? parseFloat(String(match.additional_price)) || 0 : 0;
+};
 
 // ─────────────────────────────────────────────────────────────
 // Shared image URL helper
@@ -534,7 +592,7 @@ const IncidentReportPage = ({ onBack, userId, onSuccess }: { onBack: () => void,
 // ─────────────────────────────────────────────────────────────
 // Change Password Section
 // ─────────────────────────────────────────────────────────────
-const ChangePasswordSection = ({ onBack, userId }: { onBack: () => void; userId: number }) => {
+const ChangePasswordSection = ({ onBack, userId }: { onBack: () => void, userId: number }) => {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
@@ -920,6 +978,9 @@ export default function StaffDashboard() {
   const [lossDamages, setLossDamages] = useState<LossDamage[]>([]);
   const [userData, setUserData] = useState<any>(null);
 
+  // ✅ Price adjustments cache
+  const [adjustmentMap, setAdjustmentMap] = useState<Map<number, PriceAdjustment[]>>(new Map());
+
   const [profileImage, setProfileImage] = useState<string | null>(null);
 
   // Schedule state
@@ -944,6 +1005,18 @@ export default function StaffDashboard() {
     }
   };
 
+  // ✅ Fetch all price adjustments once and cache them
+  const fetchPriceAdjustments = async () => {
+    try {
+      const response = await api.get('/services/price/adjustment');
+      if (Array.isArray(response.data)) {
+        setAdjustmentMap(buildAdjustmentMap(response.data));
+      }
+    } catch (error) {
+      // silently ignore — fall back to base prices
+    }
+  };
+
   const fetchStaffAppointments = async () => {
     try {
       const userData = user;
@@ -951,21 +1024,33 @@ export default function StaffDashboard() {
       const response = await api.get(`/staff/${userData.id}/appointments`);
       let appointmentsData: Appointment[] = [];
       if (Array.isArray(response.data)) {
-        appointmentsData = response.data.map((item: any) => ({
-          id: item.id,
-          service_id: item.service_id,
-          customer_name: item.customer_name || 'Walk-in Customer',
-          customer_phone: item.customer_phone || 'N/A',
-          appointment_date: item.appointment_date,
-          appointment_time: item.appointment_time || '--:--',
-          status: item.status,
-          service_status: item.service_status,
-          service_name: item.service_name,
-          duration_minutes: item.duration_minutes,
-          price: item.price,
-          notes: item.notes,
-          transaction_id: item.transaction_id
-        }));
+        appointmentsData = response.data.map((item: any) => {
+          // ✅ Apply the price adjustment for this transaction row
+          const basePrice = parseFloat(item.price) || 0;
+          const additional = getAdditionalPrice(
+            adjustmentMap,
+            item.service_id,
+            item.hair_length,
+            item.hair_thickness
+          );
+          const adjustedPrice = basePrice + additional;
+
+          return {
+            id: item.id,
+            service_id: item.service_id,
+            customer_name: item.customer_name || 'Walk-in Customer',
+            customer_phone: item.customer_phone || 'N/A',
+            appointment_date: item.appointment_date,
+            appointment_time: item.appointment_time || '--:--',
+            status: item.status,
+            service_name: item.service_name,
+            duration_minutes: item.duration_minutes,
+            price: adjustedPrice.toString(),   // ✅ adjusted price
+            notes: item.notes,
+            transaction_id: item.transaction_id,
+            billing_payment_type: item.billing_payment_type ?? null,
+          };
+        });
       }
       setStaffAppointments(appointmentsData);
       return appointmentsData;
@@ -1106,14 +1191,21 @@ export default function StaffDashboard() {
 
   const getTodayDateStr = () => getUTCDateString(new Date());
 
+  // ✅ Earnings calculation — completed + no-show only (confirmed excluded) + completed walk-ins
   const getTodayEarnings = () => {
     const todayStr = getTodayDateStr();
     const currentStaffId = user?.id;
 
     const todayCompletedAppointments = staffAppointments.filter(app => {
       const appointmentDate = app.appointment_date;
-      const isCompleted = app.service_status === 'completed' || app.status === 'completed';
+      const isCompleted = app.status === 'completed';
       return appointmentDate === todayStr && isCompleted;
+    });
+
+    const todayNoShowAppointments = staffAppointments.filter(app => {
+      const appointmentDate = app.appointment_date;
+      const isNoShow = app.status === 'no-show';
+      return appointmentDate === todayStr && isNoShow;
     });
 
     const todayCompletedWalkIns = walkIns.filter((walkIn: WalkIn) => {
@@ -1122,8 +1214,26 @@ export default function StaffDashboard() {
       return walkInDate === todayStr && walkIn.stylist_id === currentStaffId && isFinished;
     });
 
-    const appointmentEarnings = todayCompletedAppointments.reduce((sum, app) => sum + (parseFloat(app.price) || 0), 0);
-    const walkInEarnings = todayCompletedWalkIns.reduce((sum, walkIn) => sum + (parseFloat(walkIn.services?.price || '0')), 0);
+    const completedEarnings = todayCompletedAppointments.reduce(
+      (sum, app) => sum + (parseFloat(app.price) || 0),
+      0
+    );
+
+    const noShowEarnings = todayNoShowAppointments.reduce((sum, app) => {
+      const price = parseFloat(app.price) || 0;
+      const paymentType = (app.billing_payment_type || '').toLowerCase();
+
+      if (paymentType === 'downpayment') return sum + price * 0.5;
+      if (paymentType === 'remaining') return sum + price;
+      return sum + price * 0.5;
+    }, 0);
+
+    const walkInEarnings = todayCompletedWalkIns.reduce(
+      (sum, walkIn) => sum + (parseFloat(walkIn.services?.price || '0')),
+      0
+    );
+
+    const appointmentEarnings = completedEarnings + noShowEarnings;
     const totalEarnings = appointmentEarnings + walkInEarnings;
 
     const staffCommission = employeeCommissions.find(c => c.employee_id === user?.id);
@@ -1135,9 +1245,14 @@ export default function StaffDashboard() {
     return {
       totalEarnings, commissionRate, commissionEarnings, profit,
       appointmentEarnings, walkInEarnings,
-      appointmentCount: todayCompletedAppointments.length,
+      appointmentCount: todayCompletedAppointments.length + todayNoShowAppointments.length,
       walkInCount: todayCompletedWalkIns.length,
-      totalCount: todayCompletedAppointments.length + todayCompletedWalkIns.length
+      totalCount:
+        todayCompletedAppointments.length +
+        todayNoShowAppointments.length +
+        todayCompletedWalkIns.length,
+      completedCount: todayCompletedAppointments.length,
+      noShowCount: todayNoShowAppointments.length,
     };
   };
 
@@ -1230,24 +1345,31 @@ export default function StaffDashboard() {
     }
   };
 
-  // ✅ Today's appointments — EXCLUDES completed ones
+  // ✅ Today's appointments list on the Home tab — still shows confirmed ones for visibility
   const todayAppointments = staffAppointments.filter(app => {
     const today = getUTCDateString(new Date());
     if (app.appointment_date !== today) return false;
 
-    const isCompleted =
-      app.service_status === 'completed' ||
-      app.status === 'completed';
-
-    return !isCompleted;
+    return app.status === 'confirmed';
   });
 
   const staffCommissionRecord = employeeCommissions.find(c => c.employee_id === user?.id);
   const staffCommissionRate = staffCommissionRecord ? parseFloat(String(staffCommissionRecord.commission_amount)) || 0 : 0;
 
-  const completedRevenue = staffAppointments
-    .filter(app => app.service_status === 'completed' || app.status === 'completed')
-    .reduce((sum, app) => sum + parseFloat(app.price || '0'), 0);
+  // ✅ Big "My Total Earnings" card — completed + weighted no-shows (confirmed excluded)
+  const completedRevenue = staffAppointments.reduce((sum, app) => {
+    if (app.status === 'completed') {
+      return sum + parseFloat(app.price || '0');
+    }
+    if (app.status === 'no-show') {
+      const price = parseFloat(app.price || '0');
+      const paymentType = (app.billing_payment_type || '').toLowerCase();
+      if (paymentType === 'downpayment') return sum + price * 0.5;
+      if (paymentType === 'remaining') return sum + price;
+      return sum + price * 0.5;
+    }
+    return sum;
+  }, 0);
 
   const completedEarnings = completedRevenue * staffCommissionRate;
 
@@ -1346,19 +1468,33 @@ export default function StaffDashboard() {
     }
   };
 
+  // ✅ Initial load — price adjustments FIRST, then everything else
   useEffect(() => {
     if (user?.id) {
-      fetchUserData();
-      fetchStaffAppointments();
-      fetchBusinessSchedules();
-      fetchStaffAssignments();
-      fetchEmployeeCommissions();
-      fetchRemittances();
-      fetchInventoryItems();
-      fetchLossDamages();
-      fetchWalkIns();
+      (async () => {
+        await fetchPriceAdjustments();
+        await Promise.all([
+          fetchUserData(),
+          fetchStaffAppointments(),
+          fetchBusinessSchedules(),
+          fetchStaffAssignments(),
+          fetchEmployeeCommissions(),
+          fetchRemittances(),
+          fetchInventoryItems(),
+          fetchLossDamages(),
+          fetchWalkIns(),
+        ]);
+      })();
     }
   }, [user?.id]);
+
+  // ✅ Safety net — if adjustments arrive/change after appointments were loaded,
+  // recompute appointment prices.
+  useEffect(() => {
+    if (adjustmentMap.size > 0 && user?.id) {
+      fetchStaffAppointments();
+    }
+  }, [adjustmentMap]);
 
   useEffect(() => {
     if (user?.profile_image && user.profile_image !== profileImage) {
@@ -1383,6 +1519,7 @@ export default function StaffDashboard() {
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
+    await fetchPriceAdjustments();
     await Promise.all([
       fetchUserData(),
       fetchStaffAppointments(),
@@ -1468,14 +1605,18 @@ export default function StaffDashboard() {
               <View className="bg-gray-50 rounded-xl p-4 mb-4">
                 <View className="flex-row justify-between items-center mb-2">
                   <Text className="text-gray-600">Appointments Completed</Text>
-                  <Text className="text-blue-600 font-bold">{localEarnings.appointmentCount}</Text>
+                  <Text className="text-blue-600 font-bold">{localEarnings.completedCount ?? 0}</Text>
+                </View>
+                <View className="flex-row justify-between items-center mb-2">
+                  <Text className="text-gray-600">Appointments No-Show</Text>
+                  <Text className="text-red-600 font-bold">{localEarnings.noShowCount ?? 0}</Text>
                 </View>
                 <View className="flex-row justify-between items-center mb-2">
                   <Text className="text-gray-600">Walk-ins Completed</Text>
                   <Text className="text-green-600 font-bold">{localEarnings.walkInCount}</Text>
                 </View>
                 <View className="flex-row justify-between items-center mb-2 border-t border-gray-200 pt-2">
-                  <Text className="text-gray-600">Total Services Completed</Text>
+                  <Text className="text-gray-600">Total Services</Text>
                   <Text className="text-pink-600 font-bold">{localEarnings.totalCount}</Text>
                 </View>
                 <View className="flex-row justify-between items-center mb-2">
@@ -1518,12 +1659,16 @@ export default function StaffDashboard() {
                 </View>
               </View>
 
-              {todayAppointments.filter(app => app.service_status === 'completed' || app.status === 'completed').length > 0 && (
-                <View className="mb-4">
-                  <Text className="text-gray-700 font-semibold mb-2">Today's Completed Appointments</Text>
-                  {todayAppointments
-                    .filter(app => app.service_status === 'completed' || app.status === 'completed')
-                    .map((app) => (
+              {(() => {
+                const todayStr = getTodayDateStr();
+                const completedToday = staffAppointments.filter(
+                  a => a.appointment_date === todayStr && a.status === 'completed'
+                );
+                if (completedToday.length === 0) return null;
+                return (
+                  <View className="mb-4">
+                    <Text className="text-gray-700 font-semibold mb-2">Today's Completed Appointments</Text>
+                    {completedToday.map((app) => (
                       <View key={app.id} className="bg-blue-50 rounded-xl p-3 mb-2">
                         <View className="flex-row justify-between items-center">
                           <View>
@@ -1536,8 +1681,9 @@ export default function StaffDashboard() {
                         </View>
                       </View>
                     ))}
-                </View>
-              )}
+                  </View>
+                );
+              })()}
 
               {(() => {
                 const currentStaffId = user?.id;
@@ -1568,16 +1714,25 @@ export default function StaffDashboard() {
                 return null;
               })()}
 
-              {todayAppointments.filter(app => app.service_status === 'completed' || app.status === 'completed').length === 0 &&
-               walkIns.filter((walkIn: WalkIn) => {
-                 const walkInDate = walkIn.created_at ? walkIn.created_at.split('T')[0] : '';
-                 const isFinished = walkIn.is_finished === 1;
-                 return walkInDate === getTodayDateStr() && walkIn.stylist_id === user?.id && isFinished;
-               }).length === 0 && (
-                <View className="bg-yellow-50 rounded-xl p-4 mb-4">
-                  <Text className="text-yellow-600 text-center">No completed appointments or walk-ins for today</Text>
-                </View>
-              )}
+              {(() => {
+                const todayStr = getTodayDateStr();
+                const completedToday = staffAppointments.filter(
+                  a => a.appointment_date === todayStr && a.status === 'completed'
+                );
+                const completedWalkIns = walkIns.filter((walkIn: WalkIn) => {
+                  const walkInDate = walkIn.created_at ? walkIn.created_at.split('T')[0] : '';
+                  const isFinished = walkIn.is_finished === 1;
+                  return walkInDate === todayStr && walkIn.stylist_id === user?.id && isFinished;
+                });
+                if (completedToday.length === 0 && completedWalkIns.length === 0) {
+                  return (
+                    <View className="bg-yellow-50 rounded-xl p-4 mb-4">
+                      <Text className="text-yellow-600 text-center">No completed appointments or walk-ins for today</Text>
+                    </View>
+                  );
+                }
+                return null;
+              })()}
 
               <View className="mb-4">
                 <Text className="text-gray-700 font-semibold mb-2">Remittance Amount</Text>
@@ -1605,7 +1760,7 @@ export default function StaffDashboard() {
               </TouchableOpacity>
 
               {localEarnings.totalCount === 0 && (
-                <Text className="text-gray-400 text-xs text-center mt-2">No completed services to remit</Text>
+                <Text className="text-gray-400 text-xs text-center mt-2">No completed or no-show services to remit</Text>
               )}
 
               <View className="h-4" />
@@ -1885,11 +2040,9 @@ export default function StaffDashboard() {
               <View className="flex-row justify-between items-center">
                 <View>
                   <Text className="text-white text-2xl font-semibold">Hello, {staffName.split(' ')[0]}! 👋</Text>
-                  <Text className="text-white opacity-90 mt-1">You have {todayAppointments.length} appointment(s) today</Text>
+                  <Text className="text-white opacity-90 mt-1">You have {todayAppointments.length} confirmed appointment(s) today</Text>
                 </View>
-                <TouchableOpacity style={{ backgroundColor: 'rgba(255,255,255,0.2)', padding: 8, borderRadius: 9999 }}>
-                  <Ionicons name="notifications-outline" size={24} color="white" />
-                </TouchableOpacity>
+                <NotificationBell userId={user?.id} />
               </View>
             </View>
 
@@ -1902,7 +2055,7 @@ export default function StaffDashboard() {
                   </View>
                 </View>
                 <Text className="text-pink-500 text-3xl font-bold mt-3">{todayAppointments.length}</Text>
-                <Text className="text-gray-400 text-xs mt-1">Appointments</Text>
+                <Text className="text-gray-400 text-xs mt-1">Confirmed Appointments</Text>
               </View>
 
               <View className="bg-white rounded-2xl p-5 w-[48%] shadow-lg">
@@ -1950,7 +2103,7 @@ export default function StaffDashboard() {
 
             <View className="px-5 mt-6">
               <View className="flex-row justify-between items-center mb-4">
-                <Text className="text-xl font-bold text-gray-800">Today's Appointments</Text>
+                <Text className="text-xl font-bold text-gray-800">Today's Confirmed Appointments</Text>
                 <TouchableOpacity onPress={() => setActiveTab('appointments')}>
                   <Text className="text-pink-500 font-semibold">View All</Text>
                 </TouchableOpacity>
@@ -1959,7 +2112,7 @@ export default function StaffDashboard() {
               {todayAppointments.length === 0 ? (
                 <View className="bg-white rounded-2xl p-8 items-center">
                   <Ionicons name="calendar-outline" size={50} color="#d1d5db" />
-                  <Text className="text-gray-400 mt-3 text-center">No appointments today</Text>
+                  <Text className="text-gray-400 mt-3 text-center">No confirmed appointments today</Text>
                 </View>
               ) : (
                 todayAppointments.slice(0, 3).map((app) => (
@@ -1994,9 +2147,9 @@ export default function StaffDashboard() {
                         </View>
                       </View>
 
-                      <View className={`px-3 py-1.5 rounded-full ${app.service_status === 'completed' ? 'bg-green-100' : app.service_status === 'in_progress' ? 'bg-blue-100' : 'bg-pink-100'}`}>
-                        <Text className={`text-xs font-semibold ${app.service_status === 'in_progress' ? 'text-blue-700' : app.service_status === 'completed' ? 'text-green-700' : 'text-pink-700'}`}>
-                          {app.service_status === 'in_progress' ? 'IN PROGRESS' : app.service_status === 'completed' ? 'COMPLETED' : app.service_status?.toUpperCase() || 'PENDING'}
+                      <View className="px-3 py-1.5 rounded-full bg-green-100">
+                        <Text className="text-xs font-semibold text-green-700">
+                          CONFIRMED
                         </Text>
                       </View>
                     </View>
@@ -2017,12 +2170,12 @@ export default function StaffDashboard() {
                     <Text className="text-white text-4xl font-bold mt-2">₱{completedEarnings.toLocaleString()}</Text>
                     <Text className="text-white opacity-75 text-xs mt-2">
                       {staffCommissionRate > 0
-                        ? `${(staffCommissionRate * 100).toFixed(0)}% commission from completed services`
+                        ? `${(staffCommissionRate * 100).toFixed(0)}% commission from completed & no-show services`
                         : 'No commission rate set'}
                     </Text>
                     {staffCommissionRate > 0 && (
                       <Text className="text-white opacity-75 text-[10px] mt-1">
-                        Based on ₱{completedRevenue.toLocaleString()} completed revenue
+                        Based on ₱{completedRevenue.toLocaleString()} counted revenue
                       </Text>
                     )}
                   </View>

@@ -3,6 +3,8 @@
 namespace App\Notifications;
 
 use App\Models\Appointments;
+use App\Models\User;
+use Carbon\Carbon;
 
 class NewAppointmentBooked extends BaseNotification
 {
@@ -10,13 +12,31 @@ class NewAppointmentBooked extends BaseNotification
 
     public function toArray($notifiable): array
     {
+        $customer = User::find($this->appointment->customer_id);
+
+        $customerName = $customer
+            ? trim(($customer->first_name ?? '') . ' ' . ($customer->last_name ?? ''))
+            : "Customer #{$this->appointment->customer_id}";
+
+        if (empty($customerName)) {
+            $customerName = "Customer #{$this->appointment->customer_id}";
+        }
+
+        $date = $this->appointment->appointment_date ?? 'N/A';
+
+        $timeRaw = $this->appointment->appointment_time;
+        $time = $timeRaw
+            ? Carbon::createFromFormat('H:i:s', $timeRaw)->format('g:i A')
+            : 'N/A';
+
         return [
             'type' => 'new_appointment',
             'appointment_id' => $this->appointment->id,
             'title' => 'New Appointment',
-            'message' => "{$this->appointment->customer->name} booked an appointment for {$this->appointment->scheduled_at->format('M d, g:i A')}.",
-            'customer_name' => $this->appointment->customer->name,
-            'scheduled_at' => $this->appointment->scheduled_at->toIso8601String(),
+            'message' => "{$customerName} booked an appointment for {$date} at {$time}.",
+            'customer_name' => $customerName,
+            'appointment_date' => $date,
+            'appointment_time' => $time,
         ];
     }
 }

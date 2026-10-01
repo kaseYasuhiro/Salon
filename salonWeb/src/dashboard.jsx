@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, Link, Outlet, useLocation } from 'react-router-dom';
 import { getToken } from '../services/auth-storage';
+import echo from './echo';
 
 import { 
   Calendar, Scissors, Package, Users, 
@@ -116,6 +117,22 @@ function Toast({ message, type = 'success', onClose }) {
       </div>
     </div>
   );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Notification icon helper (per type)
+// ─────────────────────────────────────────────────────────────
+function getNotificationIcon(type) {
+  switch (type) {
+    case 'new_appointment':      return Calendar;
+    case 'appointment_confirmed':return CheckCircle;
+    case 'appointment_cancelled':return XCircle;
+    case 'appointment_rescheduled': return Clock;
+    case 'appointment_request':  return AlertCircle;
+    case 'low_stock':            return Package;
+    case 'upcoming_appointment': return Bell;
+    default:                     return Bell;
+  }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -322,6 +339,7 @@ function Dashboard() {
   const logout = auth?.logout;
   const updateUser = auth?.updateUser;
   const user = auth?.user;
+  const isHydrated = auth?.isHydrated;
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -363,6 +381,11 @@ function Dashboard() {
   const [isQrModalOpen, setIsQrModalOpen] = useState(false);
   const [toast, setToast] = useState(null);
 
+  // ── Real-time notifications state ──
+  const [notifications, setNotifications] = useState([]);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const unreadCount = notifications.filter((n) => !n.read_at).length;
+
   // ── Settings form state ──
   const [settingsForm, setSettingsForm] = useState({
     first_name: '',
@@ -377,22 +400,19 @@ function Dashboard() {
   const [showSettingsConfirmPassword, setShowSettingsConfirmPassword] = useState(false);
   const [settingsErrors, setSettingsErrors] = useState({});
 
+  // ── Auth guard (waits for hydration) ──
   useEffect(() => {
-    const storedToken = getToken();
+    if (!isHydrated) return;
+
+    const storedToken = localStorage.getItem('token');
+
+    if (!storedToken || !user || (user.role !== 'admin' && user.role !== 'owner')) {
+      navigate('/');
+      return;
+    }
+
     setToken(storedToken);
-
-    if (!user || !storedToken) {
-      navigate('/');
-    }
-  }, [user, navigate]);
-
-  useEffect(() => {
-    const token = localStorage.getItem('token');
-
-    if (!token || !user || (user.role !== 'admin' && user.role !== 'owner')) {
-      navigate('/');
-    }
-  }, [user, navigate]);
+  }, [user, navigate, isHydrated]);
 
   useEffect(() => {
     const isTransactionsRoute = 
@@ -419,6 +439,64 @@ function Dashboard() {
       setSettingsErrors({});
     }
   }, [location.pathname, user]);
+
+  // ── Load existing notifications on mount ──
+  useEffect(() => {
+    if (!user?.id) return;
+
+    let cancelled = false;
+
+    const loadNotifications = async () => {
+      try {
+        const response = await api.get('/notifications');
+        if (!cancelled && Array.isArray(response.data)) {
+          setNotifications(response.data);
+        }
+      } catch (err) {
+        // silently ignore
+      }
+    };
+
+    loadNotifications();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
+
+  // ── Subscribe to Reverb for live notifications ──
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const channelName = `App.Models.User.${user.id}`;
+    console.log('🔌 Subscribing to', channelName);
+
+    const channel = echo.private(channelName)
+      .notification((notification) => {
+        console.log('🔔 Notification received:', notification);
+
+        const entry = {
+          id: notification.id ?? `local-${Date.now()}`,
+          type: notification.type ?? 'notification',
+          data: notification.data ?? notification,
+          read_at: null,
+          created_at: new Date().toISOString(),
+        };
+
+        setNotifications((prev) => [entry, ...prev]);
+
+        const title = entry.data?.title || 'Notification';
+        const message = entry.data?.message || '';
+        setToast({
+          message: `${title}: ${message}`,
+          type: 'success',
+        });
+      });
+
+    return () => {
+      echo.leave(channelName);
+    };
+  }, [user?.id]);
 
   // ── Fetch all appointments ──
   const fetchAllAppointments = async () => {
@@ -885,6 +963,47 @@ function Dashboard() {
       navigate('/');
     } catch (error) {
       navigate('/');
+    }
+  };
+
+  // ── Notification handlers ──
+  const handleMarkAsRead = async (notification) => {
+    if (!notification || notification.read_at) return;
+
+    try {
+      await api.post(`/notifications/${notification.id}/read`);
+      setNotifications((prev) =>
+        prev.map((n) =>
+          n.id === notification.id
+            ? { ...n, read_at: new Date().toISOString() }
+            : n
+        )
+      );
+    } catch (err) {
+      // silently ignore
+    }
+  };
+
+  const handleMarkAllAsRead = async () => {
+    try {
+      await api.post('/notifications/read-all');
+      setNotifications((prev) =>
+        prev.map((n) => ({ ...n, read_at: n.read_at ?? new Date().toISOString() }))
+      );
+    } catch (err) {
+      // silently ignore
+    }
+  };
+
+  const handleNotificationClick = (notification) => {
+    handleMarkAsRead(notification);
+    setNotificationsOpen(false);
+
+    const type = notification.data?.type || notification.type;
+    if (type === 'new_appointment' || type === 'appointment_request') {
+      navigate('/dashboard/appointments');
+    } else if (type === 'low_stock') {
+      navigate('/dashboard/inventory');
     }
   };
 
@@ -2181,10 +2300,113 @@ function Dashboard() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <button className="relative p-1.5 text-gray-400 hover:text-gray-600 transition-colors">
-                  <Bell size={18} />
-                  <span className="absolute top-0.5 right-0.5 w-1.5 h-1.5 bg-red-500 rounded-full"></span>
-                </button>
+                {/* ── Notification Bell with Dropdown ── */}
+                <div className="relative">
+                  <button
+                    onClick={() => setNotificationsOpen((v) => !v)}
+                    className="relative p-1.5 text-gray-400 hover:text-gray-600 transition-colors"
+                  >
+                    <Bell size={18} />
+                    {unreadCount > 0 && (
+                      <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 bg-red-500 rounded-full text-[10px] font-bold text-white flex items-center justify-center">
+                        {unreadCount > 9 ? '9+' : unreadCount}
+                      </span>
+                    )}
+                  </button>
+
+                  {notificationsOpen && (
+                    <>
+                      {/* Backdrop */}
+                      <div
+                        className="fixed inset-0 z-20"
+                        onClick={() => setNotificationsOpen(false)}
+                      />
+
+                      {/* Dropdown */}
+                      <div className="absolute right-0 mt-2 w-80 max-w-[90vw] bg-white rounded-xl shadow-2xl border border-gray-100 z-30 overflow-hidden">
+                        <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+                          <h3 className="text-sm font-bold text-gray-800">Notifications</h3>
+                          {unreadCount > 0 && (
+                            <button
+                              onClick={handleMarkAllAsRead}
+                              className="text-[10px] text-pink-600 hover:text-pink-700 font-semibold"
+                            >
+                              Mark all as read
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="max-h-96 overflow-y-auto">
+                          {notifications.length === 0 ? (
+                            <div className="p-6 text-center">
+                              <Bell size={28} className="text-gray-300 mx-auto mb-2" />
+                              <p className="text-xs text-gray-400">No notifications yet</p>
+                            </div>
+                          ) : (
+                            notifications.slice(0, 20).map((n) => {
+                              const data = n.data ?? n;
+                              const isUnread = !n.read_at;
+                              const IconComponent = getNotificationIcon(data.type || n.type);
+
+                              return (
+                                <button
+                                  key={n.id}
+                                  onClick={() => handleNotificationClick(n)}
+                                  className={`w-full text-left px-4 py-3 border-b border-gray-50 hover:bg-pink-50/40 transition-colors ${
+                                    isUnread ? 'bg-pink-50/30' : ''
+                                  }`}
+                                >
+                                  <div className="flex items-start gap-2.5">
+                                    <div className={`mt-0.5 w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                                      isUnread ? 'bg-pink-100' : 'bg-gray-100'
+                                    }`}>
+                                      <IconComponent
+                                        size={14}
+                                        className={isUnread ? 'text-pink-600' : 'text-gray-500'}
+                                      />
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-start justify-between gap-2">
+                                        <p className={`text-xs truncate ${
+                                          isUnread ? 'font-bold text-gray-800' : 'font-semibold text-gray-700'
+                                        }`}>
+                                          {data.title || 'Notification'}
+                                        </p>
+                                        {isUnread && (
+                                          <span className="mt-1 w-1.5 h-1.5 bg-pink-500 rounded-full flex-shrink-0" />
+                                        )}
+                                      </div>
+                                      <p className="text-[11px] text-gray-600 mt-0.5 line-clamp-2">
+                                        {data.message || ''}
+                                      </p>
+                                      <p className="text-[10px] text-gray-400 mt-1">
+                                        {n.created_at
+                                          ? new Date(n.created_at).toLocaleString()
+                                          : 'Just now'}
+                                      </p>
+                                    </div>
+                                  </div>
+                                </button>
+                              );
+                            })
+                          )}
+                        </div>
+
+                        {notifications.length > 0 && (
+                          <div className="px-4 py-2 border-t border-gray-100 bg-gray-50/50 text-center">
+                            <button
+                              onClick={() => setNotificationsOpen(false)}
+                              className="text-[10px] text-gray-500 hover:text-gray-700 font-medium"
+                            >
+                              Close
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+
                 <div className="flex items-center gap-2 pl-2 border-l border-gray-200">
                   <div className="w-7 h-7 bg-gradient-to-r from-pink-500 to-pink-600 rounded-full flex items-center justify-center">
                     <span className="text-white text-xs font-semibold">

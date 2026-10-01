@@ -30,6 +30,11 @@ use App\Models\HairColors;
 use App\Models\ServiceHairColors;
 use App\Models\Expenses;
 use App\Models\AppointmentRequests;
+use App\Notifications\NewAppointmentBooked;
+use App\Notifications\AppointmentConfirmed;
+use App\Notifications\AppointmentCancelled;
+use App\Notifications\AppointmentRescheduled;
+use App\Notifications\LowStockAlert;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Http\Request;
 use Carbon\Carbon;
@@ -219,44 +224,6 @@ class JoinedController extends Controller
         ], 200);
     }
 
-    // public function updateProductsOnInventory(Request $request, $id)
-    // {
-    //     $request->validate([
-    //         'product_name' => ['required', 'string'],
-    //         'description' => ['required', 'string'],
-    //         'unit' => ['required', 'string'],
-    //         'unit_size' => ['required', 'string'],
-    //         'estimated_usages_per_unit' => ['required', 'numeric'],
-
-    //         'product_quantity' => ['required', 'numeric'],
-    //         'current_usages' => ['required', 'numeric'],
-    //         'reorder_level' => ['required', 'numeric'],
-    //         'expiration_date' => ['required', 'date', 'date_format:Y-m-d']
-    //     ]);
-
-    //     $product = Products::where('id', $id)->first();
-    //     $inventory = Inventory::where('id', $id)->first();
-
-    //     $product->update([
-    //         'product_name' => $request->product_name,
-    //         'description' => $request->description,
-    //         'unit' => $request->unit,
-    //         'unit_size' => $request->unit_size,
-    //         'estimated_usages_per_unit' => $request->estimated_usages_per_unit
-    //     ]);
-
-    //     $inventory->update([
-    //         'product_quantity' => $request->product_quantity,
-    //         'current_usages' => $request->current_usages,
-    //         'reorder_level' => $request->reorder_level,
-    //         'expiration_date' => $request->expiration_date
-    //     ]);
-
-    //     return response()->json([
-    //         'message' => 'Inventory Updated Successfully'
-    //     ], 200);
-    // }
-
     public function deleteProductsFromInventory($id)
     {
         $product = Products::where('id', $id)->first();
@@ -397,12 +364,11 @@ class JoinedController extends Controller
             'hair_thickness' => ['nullable', 'string'],
             'preferred_color' => ['nullable', 'string'],
             'total_amount' => ['required', 'numeric', 'min:0'],
-            'payment_type' => ['required', 'string', 'in:downpayment'], // ✅ only downpayment allowed at booking
+            'payment_type' => ['required', 'string', 'in:downpayment'],
             'payment_method' => ['required', 'string', 'in:gcash,cash'],
             'payment_proof' => ['required', 'image', 'mimes:jpeg,png,jpg,gif', 'max:2048']
         ]);
 
-        // Validate each service ID exists
         foreach ($serviceIds as $serviceId) {
             if (!\DB::table('services')->where('id', $serviceId)->exists()) {
                 return response()->json([
@@ -439,15 +405,10 @@ class JoinedController extends Controller
         }
 
         // ── Compute paid_amount and balance ──
-        // Booking ALWAYS requires a 50% downpayment.
-        //   total_amount = full price (base + adjustments)
-        //   paid_amount  = 50% of total (the downpayment)
-        //   balance      = remaining 50% owed at the salon
         $totalAmount = (float) $request->total_amount;
-        $paidAmount = round($totalAmount * 0.5, 2);          // ✅ 50% downpayment
-        $balance = round($totalAmount - $paidAmount, 2);      // ✅ remaining 50%
+        $paidAmount = round($totalAmount * 0.5, 2);
+        $balance = round($totalAmount - $paidAmount, 2);
 
-        // Safety: ensure balance never goes negative due to rounding
         if ($balance < 0) $balance = 0;
 
         \Log::info('Billing amounts:', [
@@ -461,7 +422,7 @@ class JoinedController extends Controller
         $billing = Billing::create([
             'appointment_id' => $appointment->id,
             'total_amount' => $totalAmount,
-            'payment_type' => $request->payment_type, // 'downpayment'
+            'payment_type' => $request->payment_type,
             'paid_amount' => $paidAmount,
             'balance' => $balance,
         ]);
@@ -482,6 +443,11 @@ class JoinedController extends Controller
             'payment_proof' => $paymentProofPath,
         ]);
 
+        // ── Notify all owners about the new booking ──
+        User::whereIn('role', ['owner', 'admin'])->each(function ($owner) use ($appointment) {
+            $owner->notify(new NewAppointmentBooked($appointment));
+        });
+
         return response()->json([
             'message' => 'Booking Completed Successfully',
             'appointment_id' => $appointment->id,
@@ -491,8 +457,6 @@ class JoinedController extends Controller
             'payment_proof' => $paymentProofPath,
             'services_count' => count($transactions),
             'service_ids' => $serviceIds,
-
-            // ✅ Return computed amounts
             'total_amount' => $totalAmount,
             'paid_amount' => $paidAmount,
             'balance' => $balance,
@@ -509,7 +473,6 @@ class JoinedController extends Controller
             'payment_proof' => ['required', 'image', 'mimes:jpeg,png,jpg,gif', 'max:2048']
         ]);
 
-        // Get the authenticated user
         $user = $request->user('sanctum');
 
         if (!$user) {
@@ -518,8 +481,6 @@ class JoinedController extends Controller
             ], 401);
         }
 
-        // ── Find the EXISTING billing for this appointment ──
-        // The booking flow created it with total_amount, paid_amount, balance, and payment_type='downpayment'.
         $billing = Billing::where('appointment_id', $request->appointment_id)
             ->latest()
             ->first();
@@ -530,29 +491,22 @@ class JoinedController extends Controller
             ], 404);
         }
 
-        // ── Guard: don't allow paying the remaining balance twice ──
         if ($billing->balance <= 0) {
             return response()->json([
                 'message' => 'This appointment has already been fully paid.'
             ], 400);
         }
 
-        // ── Amount being paid now (the remaining balance) ──
-        // The client sends `total_amount` = the amount they are paying right now,
-        // which should equal the current outstanding balance.
         $paymentAmount = (float) $request->total_amount;
 
-        // Clamp so we never overpay
         if ($paymentAmount > $billing->balance) {
             $paymentAmount = (float) $billing->balance;
         }
 
-        // ── Update billing: accumulate paid_amount, recompute balance ──
         $billing->paid_amount = round((float) $billing->paid_amount + $paymentAmount, 2);
         $billing->balance = round((float) $billing->total_amount - (float) $billing->paid_amount, 2);
         if ($billing->balance < 0) $billing->balance = 0;
 
-        // Mark the billing row as 'remaining' once the remaining payment is made
         $billing->payment_type = 'remaining';
         $billing->save();
 
@@ -563,7 +517,6 @@ class JoinedController extends Controller
             'balance_after' => $billing->balance,
         ]);
 
-        // ── Handle payment proof upload ──
         $paymentProofPath = null;
         if ($request->hasFile('payment_proof')) {
             $file = $request->file('payment_proof');
@@ -572,7 +525,6 @@ class JoinedController extends Controller
             $paymentProofPath = '/storage/' . $path;
         }
 
-        // ── Create a Payments row attached to the SAME billing ──
         $payment = Payments::create([
             'billing_id' => $billing->id,
             'payment_method' => $request->payment_method,
@@ -590,7 +542,7 @@ class JoinedController extends Controller
     }
 
 
-   public function allAppointments(Request $request)
+    public function allAppointments(Request $request)
     {
         $user = $request->user();
 
@@ -602,7 +554,6 @@ class JoinedController extends Controller
             ->orderBy('created_at', 'desc')
             ->get();
 
-        // ── Preload all billings for these appointments in one query ──
         $appointmentIds = $transactions
             ->pluck('appointments.id')
             ->unique()
@@ -612,9 +563,8 @@ class JoinedController extends Controller
         $billings = \DB::table('billings')
             ->whereIn('appointment_id', $appointmentIds)
             ->get()
-            ->keyBy('appointment_id');   // one billing per appointment
+            ->keyBy('appointment_id');
 
-        // Preload all customers referenced by appointments
         $customerIds = $transactions
             ->pluck('appointments.customer_id')
             ->unique()
@@ -628,13 +578,11 @@ class JoinedController extends Controller
         $result = $transactions->map(function ($transaction) use ($billings, $customers) {
             $appointment = $transaction->appointments;
 
-            // Look up customer via the preloaded map (no more N+1)
             $customer = null;
             if ($appointment && $appointment->customer_id) {
                 $customer = $customers->get($appointment->customer_id);
             }
 
-            // Look up the billing row for this appointment
             $appointmentId = $appointment->id ?? null;
             $billing = $appointmentId ? $billings->get($appointmentId) : null;
 
@@ -652,8 +600,6 @@ class JoinedController extends Controller
                 'service_name' => $transaction->services->service_name ?? null,
                 'duration_minutes' => $transaction->services->duration_minutes ?? 0,
                 'price' => $transaction->services->price ?? '0',
-
-                // ── Billing fields (single source of truth) ──
                 'billing_total_amount' => $billing ? (float) $billing->total_amount : null,
                 'billing_paid_amount' => $billing ? (float) $billing->paid_amount : null,
                 'billing_balance' => $billing ? (float) $billing->balance : null,
@@ -664,7 +610,6 @@ class JoinedController extends Controller
         return response()->json($result);
     }
 
-    // In your controller
     public function staffList()
     {
         return User::where('role', 'staff')
@@ -692,7 +637,12 @@ class JoinedController extends Controller
 
             // Find the appointment
             $appointment = Appointments::findOrFail($id);
-            
+
+            // ── Capture original values for notification comparison ──
+            $originalStatus = $appointment->status;
+            $originalDate   = $appointment->appointment_date;
+            $originalTime   = $appointment->appointment_time;
+
             // Update appointment fields
             if ($request->has('appointment_date')) {
                 $appointment->appointment_date = $request->appointment_date;
@@ -709,14 +659,11 @@ class JoinedController extends Controller
             $transaction = Transaction::where('appointment_id', $appointment->id)->first();
             
             if ($transaction) {
-                // Update staff/employee assignment in transactions table
                 if ($request->has('assigned_employee_id')) {
                     $transaction->assigned_employee_id = $request->assigned_employee_id;
                 }
-                
                 $transaction->save();
             } else {
-                // If no transaction exists, create one
                 $transaction = Transaction::create([
                     'appointment_id' => $appointment->id,
                     'service_id' => $request->service_id ?? 1,
@@ -734,6 +681,45 @@ class JoinedController extends Controller
             if ($transaction && $transaction->assigned_employee_id) {
                 $staff = User::find($transaction->assigned_employee_id);
                 $staffName = $staff ? $staff->first_name . ' ' . $staff->last_name : null;
+            }
+
+            // ── Notify the customer based on what changed ──
+            $customer = User::find($appointment->customer_id);
+
+            if ($customer) {
+                // Newly confirmed?
+                if ($request->has('status')
+                    && $request->status === 'confirmed'
+                    && $originalStatus !== 'confirmed') {
+                    $customer->notify(new AppointmentConfirmed($appointment));
+                }
+
+                // Newly cancelled?
+                if ($request->has('status')
+                    && $request->status === 'cancelled'
+                    && $originalStatus !== 'cancelled') {
+                    $customer->notify(new AppointmentCancelled($appointment));
+                }
+
+                // Date and/or time changed?
+                $dateChanged = $request->has('appointment_date')
+                    && $request->appointment_date !== $originalDate;
+                $timeChanged = $request->has('appointment_time')
+                    && $request->appointment_time !== $originalTime;
+
+                if ($dateChanged || $timeChanged) {
+                    $customer->notify(new AppointmentRescheduled(
+                        $appointment,
+                        $originalDate,
+                        $originalTime
+                    ));
+
+                    // Reset grace period tracking for the new time
+                    $appointment->grace_started_notified_at = null;
+                    $appointment->grace_ended_notified_at = null;
+                    $appointment->reminder_sent_at = null;
+                    $appointment->save();
+                }
             }
 
             return response()->json([
@@ -769,12 +755,10 @@ class JoinedController extends Controller
         return response()->json($staff);
     }
     
-    // Optional: Add method to get appointment with transaction details
     public function getAppointmentWithDetails($id)
     {
         $appointment = Appointments::with('transaction')->findOrFail($id);
         
-        // Get staff name from transaction if assigned
         if ($appointment->transaction && $appointment->transaction->assigned_employee_id) {
             $staff = User::find($appointment->transaction->assigned_employee_id);
             $appointment->staff_name = $staff ? $staff->first_name . ' ' . $staff->last_name : null;
@@ -790,24 +774,38 @@ class JoinedController extends Controller
     {
         $transactions = Transaction::where('transactions.assigned_employee_id', $staffId)
             ->join('appointments', 'transactions.appointment_id', '=', 'appointments.id')
-            ->leftJoin('users', 'appointments.customer_id', '=', 'users.id')  // Join users table
+            ->leftJoin('users', 'appointments.customer_id', '=', 'users.id')
             ->with(['appointments', 'services'])
             ->orderBy('appointments.appointment_date', 'asc')
             ->orderBy('appointments.appointment_time', 'asc')
             ->select('transactions.*')
             ->get();
-        
-        $result = $transactions->map(function($transaction) use ($transactions) {
+
+        // ✅ Load billing info for all involved appointments in one query
+        $appointmentIds = $transactions
+            ->pluck('appointments.id')
+            ->unique()
+            ->filter()
+            ->values();
+
+        $billings = \DB::table('billings')
+            ->whereIn('appointment_id', $appointmentIds)
+            ->get()
+            ->keyBy('appointment_id');
+
+        $result = $transactions->map(function ($transaction) use ($billings) {
             $appointment = $transaction->appointments;
-            
-            // Get customer data from users table
+            $appointmentId = $appointment->id ?? null;
+
             $customer = null;
             if ($appointment && $appointment->customer_id) {
                 $customer = User::find($appointment->customer_id);
             }
-            
+
+            $billing = $appointmentId ? $billings->get($appointmentId) : null;
+
             return [
-                'id' => $appointment->id ?? null,
+                'id' => $appointmentId,
                 'service_id' => $transaction->service_id,
                 'customer_name' => $customer ? $customer->first_name . ' ' . $customer->last_name : 'Walk-in Customer',
                 'customer_phone' => $customer ? $customer->phone_number : 'N/A',
@@ -820,86 +818,27 @@ class JoinedController extends Controller
                 'price' => $transaction->services->price ?? '0',
                 'notes' => $transaction->notes,
                 'transaction_id' => $transaction->id,
-                // Hair details from the transaction
                 'hair_length' => $transaction->hair_length ?? null,
                 'hair_thickness' => $transaction->hair_thickness ?? null,
                 'preferred_color' => $transaction->preferred_color ?? null,
+
+                // ✅ NEW — billing fields the frontend needs
+                'billing_total_amount' => $billing ? (float) $billing->total_amount : null,
+                'billing_paid_amount'  => $billing ? (float) $billing->paid_amount  : null,
+                'billing_balance'      => $billing ? (float) $billing->balance      : null,
+                'billing_payment_type' => $billing->payment_type ?? null,
             ];
         });
-        
+
         return response()->json($result);
     }
-
-    // public function updateTransactionStatus(Request $request, $transactionId)
-    // {
-    //     $request->validate([
-    //         'service_status' => ['required', 'string', 'in:pending,in_progress,completed,cancelled']
-    //     ]);
-        
-    //     try {
-    //         DB::beginTransaction();
-            
-    //         $transaction = Transaction::findOrFail($transactionId);
-    //         $oldStatus = $transaction->service_status;
-    //         $transaction->service_status = $request->service_status;
-            
-    //         if ($request->service_status === 'completed') {
-    //             $transaction->completed_at = now();
-                
-    //             // Update appointment status
-    //             if ($transaction->appointments) {
-    //                 $transaction->appointments->status = 'completed';
-    //                 $transaction->appointments->save();
-    //             }
-    //         }
-            
-    //         $transaction->save();
-            
-    //         // If status is changing to 'completed', update inventory
-    //         if ($request->service_status === 'completed' && $oldStatus !== 'completed') {
-    //             $serviceUsages = ServiceProductUsage::where('service_id', $transaction->service_id)->get();
-                
-    //             foreach ($serviceUsages as $usage) {
-    //                 $inventory = Inventory::where('product_id', $usage->product_id)->first();
-                    
-    //                 if ($inventory) {
-    //                     // Create inventory transaction
-    //                     InventoryTransaction::create([
-    //                         'inventory_id' => $inventory->id,
-    //                         'transaction_id' => $transaction->id,
-    //                         'quantity_change' => -$usage->estimated_usage,
-    //                         'transaction_type' => 'service_completion'
-    //                     ]);
-                        
-    //                     // Update inventory current_usages
-    //                     $inventory->current_usages += $usage->estimated_usage;
-    //                     $inventory->save();
-    //                 }
-    //             }
-    //         }
-            
-    //         DB::commit();
-            
-    //         return response()->json([
-    //             'message' => 'Service status updated successfully',
-    //             'transaction' => $transaction
-    //         ]);
-            
-    //     } catch (\Exception $e) {
-    //         DB::rollBack();
-    //         return response()->json([
-    //             'message' => 'Failed to update service status',
-    //             'error' => $e->getMessage()
-    //         ], 500);
-    //     }
-    // }
 
 
 
     public function completeService(Request $request, $transactionId)
     {
         $request->validate([
-            'status' => ['required', 'string', 'in:completed'] // Changed from service_status to status
+            'status' => ['required', 'string', 'in:completed']
         ]);
 
         try {
@@ -907,8 +846,6 @@ class JoinedController extends Controller
 
             $transaction = Transaction::findOrFail($transactionId);
             
-            // Remove service_status update since we're deprecating it
-            // $transaction->service_status = 'completed'; // REMOVED
             $transaction->completed_at = now();
             $transaction->save();
 
@@ -920,7 +857,6 @@ class JoinedController extends Controller
             }
 
             // Update all transactions for this appointment to completed
-            // This ensures all services in the appointment are marked as completed
             $allTransactions = Transaction::where('appointment_id', $appointment->id)->get();
             foreach ($allTransactions as $trans) {
                 $trans->completed_at = now();
@@ -938,18 +874,13 @@ class JoinedController extends Controller
                     $remainingUsage = $estimatedUsage;
                     
                     while ($remainingUsage > 0) {
-                        // Check how many usages left in current bottle
                         $usagesLeft = $inventory->current_usages;
                         
                         if ($usagesLeft <= 0) {
-                            // Current bottle is empty, need to open a new one
                             if ($inventory->product_quantity > 0) {
-                                // Decrement product quantity by 1
                                 $inventory->product_quantity -= 1;
-                                // Reset current_usages to full amount
                                 $inventory->current_usages = $estimatedUsagesPerUnit;
                                 
-                                // Record unit consumption
                                 InventoryTransaction::create([
                                     'inventory_id' => $inventory->id,
                                     'transaction_id' => $transaction->id,
@@ -957,29 +888,28 @@ class JoinedController extends Controller
                                     'transaction_type' => 'usage'
                                 ]);
                                 
-                                continue; // Re-evaluate with the new bottle
+                                continue;
                             } else {
                                 break;
                             }
                         }
                         
-                        // Calculate how much we can use from current bottle
                         $canUse = min($remainingUsage, $usagesLeft);
-                        
-                        // DECREASE current_usages (using up the product)
                         $inventory->current_usages -= $canUse;
                         $remainingUsage -= $canUse;
                     }
                     
                     $inventory->save();
                     
-                    // Record usage transaction
                     InventoryTransaction::create([
                         'inventory_id' => $inventory->id,
                         'transaction_id' => $transaction->id,
                         'quantity_change' => -$estimatedUsage,
                         'transaction_type' => 'usage'
                     ]);
+
+                    // ── Low stock check ──
+                    $this->notifyIfLowStock($inventory);
                 }
             }
 
@@ -1004,7 +934,7 @@ class JoinedController extends Controller
     public function updateServiceWithInventory(Request $request, $transactionId = null)
     {
         $request->validate([
-            'status' => ['nullable', 'string', 'in:pending,confirmed,completed,cancelled'],
+            'status' => ['nullable', 'string', 'in:pending,confirmed,completed,cancelled,no-show'],
             'product_usages' => ['nullable', 'array'],
             'notes' => ['nullable', 'string'],
             'product_usages.*.inventory_id' => ['required', 'numeric', 'exists:inventories,id'],
@@ -1014,17 +944,13 @@ class JoinedController extends Controller
         try {
             DB::beginTransaction();
 
-            // If transactionId is provided, update a single transaction
-            // If not, update all transactions for the appointment
             if ($transactionId) {
                 $transactions = Transaction::where('id', $transactionId)->get();
             } else {
-                // Get appointment_id from request
                 $request->validate([
                     'appointment_id' => ['required', 'numeric', 'exists:appointments,id']
                 ]);
                 
-                // Get all transactions for this appointment
                 $transactions = Transaction::where('appointment_id', $request->appointment_id)->get();
             }
 
@@ -1037,31 +963,23 @@ class JoinedController extends Controller
             $updatedTransactions = [];
             $appointment = null;
 
-            // Update each transaction
             foreach ($transactions as $transaction) {
-                // Store reference to appointment (same for all transactions)
                 if (!$appointment) {
                     $appointment = $transaction->appointments;
                 }
 
-                // Update notes
                 if ($request->has('notes')) {
                     $transaction->notes = $request->notes;
                 }
                 
-                // REMOVED: Update transaction service_status since we're deprecating it
-                // The transaction's service_status is no longer being updated
-                
                 $transaction->save();
 
-                // Update inventory based on quantity changes
                 if ($request->has('product_usages')) {
                     foreach ($request->product_usages as $productUsage) {
                         $inventory = Inventory::find($productUsage['inventory_id']);
                         if ($inventory && $productUsage['quantity_change'] > 0) {
                             $quantityUsed = $productUsage['quantity_change'];
                             
-                            // Get product details
                             $product = DB::table('products')->where('id', $inventory->product_id)->first();
                             
                             if (!$product) {
@@ -1072,18 +990,13 @@ class JoinedController extends Controller
                             $remainingUsage = $quantityUsed;
                             
                             while ($remainingUsage > 0) {
-                                // Check how many usages left in current bottle
                                 $usagesLeft = $inventory->current_usages;
                                 
                                 if ($usagesLeft <= 0) {
-                                    // Current bottle is empty, need to open a new one
                                     if ($inventory->product_quantity > 0) {
-                                        // Decrement product quantity by 1
                                         $inventory->product_quantity -= 1;
-                                        // Reset current_usages to full amount
                                         $inventory->current_usages = $estimatedUsagesPerUnit;
                                         
-                                        // Record unit consumption
                                         DB::table('inventory_transactions')->insert([
                                             'inventory_id' => $inventory->id,
                                             'transaction_id' => $transaction->id,
@@ -1093,22 +1006,17 @@ class JoinedController extends Controller
                                             'updated_at' => now()
                                         ]);
                                         
-                                        continue; // Re-evaluate with the new bottle
+                                        continue;
                                     } else {
-                                        // No more bottles available
                                         break;
                                     }
                                 }
                                 
-                                // Calculate how much we can use from current bottle
                                 $canUse = min($remainingUsage, $usagesLeft);
-                                
-                                // DECREASE current_usages (using up the product)
                                 $inventory->current_usages -= $canUse;
                                 $remainingUsage -= $canUse;
                             }
                             
-                            // Create inventory transaction record for the usage
                             DB::table('inventory_transactions')->insert([
                                 'inventory_id' => $inventory->id,
                                 'transaction_id' => $transaction->id,
@@ -1120,13 +1028,15 @@ class JoinedController extends Controller
                             
                             $inventory->save();
                             
-                            // Log for debugging
                             \Log::info("Inventory updated", [
                                 'product' => $product->product_name,
                                 'quantity_used' => $quantityUsed,
                                 'new_current_usages' => $inventory->current_usages,
                                 'new_product_quantity' => $inventory->product_quantity
                             ]);
+
+                            // ── Low stock check ──
+                            $this->notifyIfLowStock($inventory);
                         }
                     }
                 }
@@ -1134,7 +1044,6 @@ class JoinedController extends Controller
                 $updatedTransactions[] = $transaction->id;
             }
 
-            // Update appointment status (once for all transactions)
             if ($appointment && $request->has('status')) {
                 $appointment->status = $request->status;
                 $appointment->save();
@@ -1142,7 +1051,6 @@ class JoinedController extends Controller
 
             DB::commit();
 
-            // Get updated product usages for the first transaction's service (or all services)
             $productUsages = [];
             foreach ($transactions as $transaction) {
                 $usages = DB::table('service_product_usages as spu')
@@ -1196,10 +1104,8 @@ class JoinedController extends Controller
 
     public function updateAppointmentServices(Request $request, $appointmentId)
     {
-        // Add appointment_id to the request so the main function can use it
         $request->merge(['appointment_id' => $appointmentId]);
         
-        // Call the existing function without transactionId
         return $this->updateServiceWithInventory($request, null);
     }
 
@@ -1225,7 +1131,7 @@ class JoinedController extends Controller
                     return [
                         'id' => $item->id,
                         'product_id' => $item->product_id,
-                        'product_name' => $item->product_name,  // This should now be from products table
+                        'product_name' => $item->product_name,
                         'estimated_usage' => $item->estimated_usage,
                         'inventory_id' => $item->inventory_id,
                         'current_quantity' => $item->current_quantity ?? 0,
@@ -1268,15 +1174,15 @@ class JoinedController extends Controller
             'specialty_id' => ['nullable', 'numeric'],
             'product_id' => ['nullable', 'numeric'],
             'estimated_usage' => ['nullable', 'numeric'],
-            'hair_color_ids' => ['nullable', 'array'], // New field for hair colors
-            'hair_color_ids.*' => ['numeric', 'exists:hair_colors,id'] // Validate each hair color ID
+            'hair_color_ids' => ['nullable', 'array'],
+            'hair_color_ids.*' => ['numeric', 'exists:hair_colors,id']
         ]);
 
         $serviceId = $request->service_id;
         $specialtyId = $request->specialty_id;
         $productId = $request->product_id;
         $estimatedUsage = $request->estimated_usage;
-        $hairColorIds = $request->hair_color_ids; // Array of hair color IDs
+        $hairColorIds = $request->hair_color_ids;
 
         $results = [
             'specialty_added' => false,
@@ -1285,10 +1191,8 @@ class JoinedController extends Controller
             'messages' => []
         ];
 
-        // 1. Add Service Specialty if provided
         if ($specialtyId) {
             try {
-                // Check if specialty already exists for this service
                 $existing = ServiceSpecialties::where('service_id', $serviceId)
                     ->where('specialty_id', $specialtyId)
                     ->first();
@@ -1308,10 +1212,8 @@ class JoinedController extends Controller
             }
         }
 
-        // 2. Add Product Usage if provided
         if ($productId && $estimatedUsage) {
             try {
-                // Check if product usage already exists for this service
                 $existing = ServiceProductUsage::where('service_id', $serviceId)
                     ->where('product_id', $productId)
                     ->first();
@@ -1332,10 +1234,8 @@ class JoinedController extends Controller
             }
         }
 
-        // 3. Update Hair Colors if provided
         if ($hairColorIds !== null) {
             try {
-                // First, get the service to check if reqHairColor is true
                 $service = Services::find($serviceId);
                 
                 if (!$service) {
@@ -1343,11 +1243,8 @@ class JoinedController extends Controller
                 } else if (!$service->reqHairColor) {
                     $results['messages'][] = 'This service does not require hair colors. Please enable "Requires Hair Color" first.';
                 } else {
-                    // Sync the hair colors for this service
-                    // Delete existing associations
                     ServiceHairColors::where('service_id', $serviceId)->delete();
                     
-                    // Add new associations
                     foreach ($hairColorIds as $colorId) {
                         ServiceHairColors::create([
                             'service_id' => $serviceId,
@@ -1363,7 +1260,6 @@ class JoinedController extends Controller
             }
         }
 
-        // Return response
         $success = $results['specialty_added'] || $results['product_usage_added'] || $results['hair_colors_updated'];
         $statusCode = $success ? 200 : 400;
         $statusMessage = $success ? 'Changes saved successfully' : 'No changes were saved';
@@ -1400,9 +1296,6 @@ class JoinedController extends Controller
             'messages' => []
         ];
 
-        // 1. Add Staff Specialty if provided.
-        //    NOTE: staff_specialties.is_active is managed independently
-        //    from users.active_status. We only insert a new row here.
         if ($specialtyId) {
             try {
                 $existing = StaffSpecialties::where('staff_id', $employeeId)
@@ -1425,19 +1318,6 @@ class JoinedController extends Controller
             }
         }
 
-        // 2. Update Active Status on the users table ONLY.
-        //
-        //    We do NOT touch staff_specialties.is_active or walk-in
-        //    authorization here. Those are independent flags:
-        //      - users.active_status           → is this staff available?
-        //      - staff_specialties.is_active   → is this specific specialty link enabled?
-        //      - walkin_authorization          → is this staff authorized for walk-ins?
-        //
-        //    Any query that needs to hide inactive staff should filter
-        //    with ->where('active_status', 1) on the users table (or via
-        //    a whereHas('user', fn ($q) => $q->where('active_status', 1)) clause).
-        //    Mutating the other flags on toggle would destroy per-specialty
-        //    and per-staff state every time someone is deactivated/reactivated.
         if ($activeStatus !== null) {
             try {
                 $user = \App\Models\User::find($employeeId);
@@ -1458,7 +1338,6 @@ class JoinedController extends Controller
             }
         }
 
-        // 3. Add/Update Commission if provided.
         if ($commissionAmount !== null && $commissionAmount > 0) {
             try {
                 $existing = EmployeeCommission::where('employee_id', $employeeId)->first();
@@ -1482,17 +1361,11 @@ class JoinedController extends Controller
             }
         }
 
-        // 4. Update Walk-in Authorization if provided.
-        //    Still guards against authorizing an inactive staff member.
         if ($walkInAuthorized !== null) {
             try {
-                // Block authorizing an inactive staff member.
-                // (Allow revoking — setting to false — even when inactive.)
                 if ($walkInAuthorized && $activeStatus === false) {
                     $results['messages'][] = 'Cannot authorize walk-ins for an inactive staff member.';
                 } elseif ($walkInAuthorized) {
-                    // Extra safety: also check the persisted active_status
-                    // in case the request didn't include active_status.
                     $persistedActive = \App\Models\User::where('id', $employeeId)
                         ->where('active_status', 1)
                         ->exists();
@@ -1518,7 +1391,6 @@ class JoinedController extends Controller
                         }
                     }
                 } else {
-                    // Revoking walk-in authorization (walk_in_authorized === false)
                     $existing = WalkinAuthorization::where('staff_id', $employeeId)->first();
 
                     if (!$existing) {
@@ -1541,7 +1413,6 @@ class JoinedController extends Controller
             }
         }
 
-        // Return response
         $success = $results['specialty_added']
             || $results['active_status_updated']
             || $results['commission_added']
@@ -1585,7 +1456,6 @@ class JoinedController extends Controller
             'reference_number'    => ['nullable', 'string', 'required_if:refund_method,gcash'],
         ]);
 
-        // Update appointment status
         $appointment = Appointments::find($request->appointment_id);
         if (!$appointment) {
             return response()->json(['message' => 'Appointment not found'], 404);
@@ -1598,7 +1468,6 @@ class JoinedController extends Controller
             'cancelled_at'        => now(),
         ]);
 
-        // Create refund record
         Refunds::create([
             'payment_id'       => $request->payment_id,
             'appointment_id'   => $request->appointment_id,
@@ -1610,8 +1479,51 @@ class JoinedController extends Controller
             'processed_at'     => now(),
         ]);
 
+        // ── Notify the customer ──
+        $customer = User::find($appointment->customer_id);
+        if ($customer) {
+            $customer->notify(new AppointmentCancelled(
+                $appointment,
+                $request->cancellation_reason
+            ));
+        }
+
         return response()->json([
             'message'     => 'Appointment cancelled and refund processed successfully',
+            'appointment' => $appointment,
+        ], 200);
+    }
+
+    public function cancelAppointment(Request $request)
+    {
+        $request->validate([
+            'appointment_id'      => ['required', 'numeric'],
+            'cancellation_reason' => ['required', 'string'],
+        ]);
+
+        $appointment = Appointments::find($request->appointment_id);
+        if (!$appointment) {
+            return response()->json(['message' => 'Appointment not found'], 404);
+        }
+
+        $appointment->update([
+            'status'              => 'cancelled',
+            'cancellation_reason' => $request->cancellation_reason,
+            'cancelled_by'        => auth()->id(),
+            'cancelled_at'        => now(),
+        ]);
+
+        // ── Notify the customer ──
+        $customer = User::find($appointment->customer_id);
+        if ($customer) {
+            $customer->notify(new AppointmentCancelled(
+                $appointment,
+                $request->cancellation_reason
+            ));
+        }
+
+        return response()->json([
+            'message'     => 'Appointment cancelled successfully',
             'appointment' => $appointment,
         ], 200);
     }
@@ -1619,7 +1531,6 @@ class JoinedController extends Controller
     public function getAppointmentDetails($id)
     {
         try {
-            // Find the appointment by ID
             $appointment = Appointments::with(['transaction', 'user'])->find($id);
             
             if (!$appointment) {
@@ -1628,13 +1539,9 @@ class JoinedController extends Controller
                 ], 404);
             }
             
-            // Get the transactions for this appointment
             $transactions = Transaction::where('appointment_id', $id)->get();
-            
-            // Get the customer/user details
             $customer = User::find($appointment->customer_id);
             
-            // Get the staff name from the first transaction
             $staffName = 'Unassigned';
             if ($transactions->isNotEmpty()) {
                 $firstTransaction = $transactions->first();
@@ -1646,7 +1553,6 @@ class JoinedController extends Controller
                 }
             }
             
-            // Format services data
             $services = [];
             $totalPrice = 0;
             $totalDuration = 0;
@@ -1670,7 +1576,6 @@ class JoinedController extends Controller
                 }
             }
             
-            // Build the response
             $response = [
                 'id' => $appointment->id,
                 'appointment_id' => $appointment->id,
@@ -1710,11 +1615,10 @@ class JoinedController extends Controller
             'open_time'        => ['required', 'date_format:H:i'],
             'close_time'       => ['required', 'date_format:H:i'],
             'is_open'          => ['required', 'boolean'],
-            'staff_ids'        => ['present', 'array'],       // can be empty
+            'staff_ids'        => ['present', 'array'],
             'staff_ids.*'      => ['numeric', 'exists:users,id'],
         ]);
 
-        // 1. Upsert the business schedule for that date
         $schedule = \App\Models\BusinessSchedules::updateOrCreate(
             ['business_date' => $request->business_date],
             [
@@ -1724,7 +1628,6 @@ class JoinedController extends Controller
             ]
         );
 
-        // 2. Sync the staff assignments (delete + reinsert for this date)
         \App\Models\AssignStaff::where('business_date_id', $schedule->id)->delete();
 
         foreach ($request->staff_ids as $staffId) {
@@ -1743,7 +1646,6 @@ class JoinedController extends Controller
     public function updateService(Request $request)
     {
         $request->validate([
-            // ── Main service fields ──
             'service_id'          => ['required', 'numeric'],
             'service_name'        => ['required', 'string'],
             'description'         => ['required', 'string'],
@@ -1752,14 +1654,10 @@ class JoinedController extends Controller
             'is_multitaskable'    => ['required', 'boolean'],
             'reqHairColor'        => ['nullable', 'boolean'],
             'service_status'      => ['required', 'string'],
-
-            // ── Price adjustments ──
             'price_adjustments'                     => ['nullable', 'array'],
             'price_adjustments.*.hair_length'       => ['required_with:price_adjustments', 'string', 'in:short,medium,long'],
             'price_adjustments.*.hair_thickness'    => ['required_with:price_adjustments', 'string', 'in:thin,medium,thick'],
             'price_adjustments.*.additional_price'  => ['required_with:price_adjustments', 'numeric', 'min:0'],
-
-            // ── Specialties / products / hair colors ──
             'specialty_id'          => ['nullable', 'numeric'],
             'product_id'            => ['nullable', 'numeric'],
             'estimated_usage'       => ['nullable', 'numeric'],
@@ -1782,7 +1680,6 @@ class JoinedController extends Controller
             'messages'              => [],
         ];
 
-        // ── 1. Update main service fields ──
         try {
             $service->update([
                 'service_name'     => $request->service_name,
@@ -1800,7 +1697,6 @@ class JoinedController extends Controller
             $results['messages'][] = 'Error updating service: ' . $e->getMessage();
         }
 
-        // ── 2. Price adjustments (replace all) ──
         if ($request->has('price_adjustments')) {
             try {
                 ServicePriceAdjustments::where('service_id', $service->id)->delete();
@@ -1821,7 +1717,6 @@ class JoinedController extends Controller
             }
         }
 
-        // ── 3. Add specialty ──
         if ($request->filled('specialty_id')) {
             try {
                 $exists = ServiceSpecialties::where('service_id', $service->id)
@@ -1843,7 +1738,6 @@ class JoinedController extends Controller
             }
         }
 
-        // ── 4. Add product usage ──
         if ($request->filled('product_id') && $request->filled('estimated_usage')) {
             try {
                 $exists = ServiceProductUsage::where('service_id', $service->id)
@@ -1866,7 +1760,6 @@ class JoinedController extends Controller
             }
         }
 
-        // ── 5. Sync hair colors ──
         if ($request->has('hair_color_ids')) {
             try {
                 if (!$service->reqHairColor) {
@@ -1904,5 +1797,28 @@ class JoinedController extends Controller
     }
 
 
+    /**
+     * Send a LowStockAlert to all owners if this inventory record
+     * is at or below its reorder level.
+     *
+     * Note: Fires on every inventory decrement while the stock stays
+     * at/below the threshold — by design, so owners keep getting
+     * nudged until they restock.
+     */
+    private function notifyIfLowStock(Inventory $inventory): void
+    {
+        if ($inventory->current_usages > $inventory->reorder_level) {
+            return;
+        }
+
+        $product = Products::find($inventory->product_id);
+        if (!$product) {
+            return;
+        }
+
+        User::whereIn('role', ['owner', 'admin'])->each(function ($owner) use ($product) {
+            $owner->notify(new LowStockAlert($product));
+        });
+    }
 
 }

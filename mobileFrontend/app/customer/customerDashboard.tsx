@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { StatusBar } from 'expo-status-bar';
 import { useAuth } from "@/contexts/auth-context";
+import NotificationBell from '@/components/NotificationBell';
 import { router } from "expo-router";
 import api from '@/api/axios';
 import * as DocumentPicker from 'expo-document-picker';
@@ -21,7 +22,7 @@ interface Transaction {
   service_name: string;
   duration_minutes: number;
   price: string;
-  service_status: string;
+  service_status: string;      // transaction-level status (kept as-is)
   assigned_employee_id?: number;
 }
 
@@ -30,20 +31,19 @@ interface Appointment {
   customer_id: number;
   appointment_date: string;
   appointment_time: string;
-  status: string;
+  status: string;               // appointment-level status
   service_names: string[];
   services: Array<{
     service_name: string;
     duration_minutes: number;
     price: string;
-    service_status: string;
+    service_status: string;     // per-service status (kept)
   }>;
   total_price: number;
   total_duration: number;
   service_name?: string;
   duration_minutes?: number;
   price?: string;
-  service_status?: string;
 
   billing_total_amount?: number | null;
   billing_paid_amount?: number | null;
@@ -687,7 +687,7 @@ export default function CustomerDashboard() {
           service_name: transaction.service_name || 'Unknown Service',
           duration_minutes: transaction.duration_minutes || 0,
           price: transaction.price || '0',
-          service_status: transaction.service_status || 'pending'
+          service_status: transaction.service_status || 'pending',
         });
       });
 
@@ -707,12 +707,6 @@ export default function CustomerDashboard() {
           ? `${stylistMember.first_name} ${stylistMember.last_name}`
           : 'Not assigned';
 
-        const overallStatus = appointment.services.some((s: any) => s.service_status === 'pending')
-          ? 'pending'
-          : appointment.services.every((s: any) => s.service_status === 'completed')
-            ? 'completed'
-            : 'in_progress';
-
         return {
           id: appointment.id,
           customer_id: appointment.customer_id,
@@ -726,7 +720,6 @@ export default function CustomerDashboard() {
           service_name: serviceNames.join(' + '),
           duration_minutes: totalDuration,
           price: totalPrice.toString(),
-          service_status: overallStatus,
 
           billing_total_amount: appointment.billing_total_amount ?? totalPrice,
           billing_paid_amount: appointment.billing_paid_amount ?? 0,
@@ -744,15 +737,21 @@ export default function CustomerDashboard() {
 
       setAppointments(groupedAppointments);
 
+      // Upcoming = pending or confirmed, and not expired by grace period
       const upcoming = groupedAppointments.filter((item) => {
         if (isGracePeriodExpired(item, new Date())) return false;
         return item.status === "pending" || item.status === "confirmed";
       });
       setUpcomingCount(upcoming.length);
 
+      // Total spent = sum of everything the customer has ACTUALLY paid
+      // across completed appointments (downpayment + remaining payments).
       const total = groupedAppointments
-        .filter((item: Appointment) => item.service_status === "completed")
-        .reduce((sum: number, item: Appointment) => sum + (item.billing_paid_amount ?? (item.total_price / 2)), 0);
+        .filter((item: Appointment) => item.status === "completed")
+        .reduce((sum: number, item: Appointment) => {
+          const paid = item.billing_paid_amount ?? 0;
+          return sum + (typeof paid === 'number' ? paid : parseFloat(paid) || 0);
+        }, 0);
       setTotalSpent(total);
 
       return groupedAppointments;
@@ -1016,7 +1015,6 @@ export default function CustomerDashboard() {
     }
   };
 
-  // ✅ Withdraw request — route now takes the ID in the URL: /user/appointment/request/cancel/{id}
   const withdrawRequest = async (requestId: number) => {
     Alert.alert(
       'Withdraw Request',
@@ -1616,11 +1614,7 @@ export default function CustomerDashboard() {
                   </Text>
                 </View>
 
-                <TouchableOpacity
-                  style={{ backgroundColor: 'rgba(255,255,255,0.2)', padding: 8, borderRadius: 9999 }}
-                >
-                  <Ionicons name="notifications-outline" size={24} color="white" />
-                </TouchableOpacity>
+                <NotificationBell userId={user?.id} />
               </View>
             </View>
 
@@ -1783,11 +1777,6 @@ export default function CustomerDashboard() {
                         <View className={`px-2 py-1 rounded-full ${getStatusColor(item.status || 'pending')}`}>
                           <Text className="text-xs font-semibold capitalize">{item.status || 'pending'}</Text>
                         </View>
-                        {item.service_status && item.service_status !== 'pending' && (
-                          <View className="ml-2 px-2 py-1 rounded-full bg-gray-100">
-                            <Text className="text-xs font-semibold capitalize text-gray-600">Service: {item.service_status}</Text>
-                          </View>
-                        )}
                       </View>
 
                       {pendingRequest && (

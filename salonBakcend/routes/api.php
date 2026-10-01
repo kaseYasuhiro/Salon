@@ -104,6 +104,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/refunds', [RefundsController::class, 'displayRefund']);
     Route::get('/appointment/payment-details/{appointmentId}', [JoinedController::class, 'getPaymentDetails']);
     Route::post('/appointment/cancel-with-refund', [JoinedController::class, 'cancelWithRefund']);
+    Route::post('/appointment/cancel', [JoinedController::class, 'cancelAppointment']);
     Route::get('/appointment/{id}', [JoinedController::class, 'getAppointmentDetails']);
     Route::get('/expenses', [JoinedController::class, 'displayExpenses']);
     Route::post('/expenses/add', [ExpensesController::class, 'addExpense']);
@@ -122,6 +123,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/daysched-staff/add', [JoinedController::class, 'saveScheduleWithStaff']);
 
     Route::post('/owner/update/{id}', [UserController::class, 'updateOwner']);
+
+    Route::get('/notifications', [\App\Http\Controllers\NotificationController::class, 'index']);
+    Route::post('/notifications/{id}/read', [\App\Http\Controllers\NotificationController::class, 'markAsRead']);
+    Route::post('/notifications/read-all', [\App\Http\Controllers\NotificationController::class, 'markAllAsRead']);
 
 
     //customer side

@@ -1,16 +1,33 @@
 import axios from "../api/axios";
-import { setToken } from "../services/auth-storage";
+import { setToken, getToken } from "../services/auth-storage";
 import { create } from "zustand";
 
 export const useAuth = create((set, get) => ({
   user: null,
+  isHydrated: false,
 
   getUser: async () => {
     try {
       const { data } = await axios.get("/user");
-      set({ user: data });
+      set({ user: data, isHydrated: true });
     } catch (error) {
-      console.log(error);
+      console.log("getUser failed:", error?.message || error);
+      set({ user: null, isHydrated: true });
+    }
+  },
+
+  // Called once on app boot to rehydrate user from stored token
+  hydrate: async () => {
+    try {
+      const token = await getToken();
+      if (!token) {
+        set({ user: null, isHydrated: true });
+        return;
+      }
+      await get().getUser();
+    } catch (error) {
+      console.log("hydrate failed:", error?.message || error);
+      set({ user: null, isHydrated: true });
     }
   },
 
@@ -18,7 +35,7 @@ export const useAuth = create((set, get) => ({
     try {
       const response = await axios.post("/login", data);
       await setToken(response.data.token);
-      get().getUser();
+      await get().getUser();
     } catch (error) {
       console.log(error);
     }
@@ -28,7 +45,7 @@ export const useAuth = create((set, get) => ({
     try {
       const response = await axios.post("/register", data);
       await setToken(response.data.token);
-      get().getUser();
+      await get().getUser();
     } catch (error) {
       console.log(error);
     }
@@ -37,10 +54,10 @@ export const useAuth = create((set, get) => ({
   logout: async () => {
     try {
       await axios.post("/logout");
-      await setToken(null);
-      set({ user: null });
     } catch (error) {
       console.log(error);
     }
+    await setToken(null);
+    set({ user: null, isHydrated: true });
   },
 }));

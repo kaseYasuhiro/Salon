@@ -2,8 +2,11 @@
 
 namespace App\Http\Controllers;
 
+
 use App\Models\AppointmentRequests;
 use App\Models\Appointments;
+use App\Models\User;
+use App\Notifications\AppointmentRequestReceived;
 use Illuminate\Http\Request;
 
 class AppointmentRequestsController extends Controller
@@ -34,7 +37,7 @@ class AppointmentRequestsController extends Controller
             ], 409);
         }
 
-        $req = AppointmentRequests::create([
+            $req = AppointmentRequests::create([
             'customer_id'    => auth()->id(),
             'appointment_id' => $appointment->id,
             'request_type'   => $request->request_type,
@@ -43,6 +46,11 @@ class AppointmentRequestsController extends Controller
             'preferred_time' => $request->preferred_time,
             'request_status' => 'pending',
         ]);
+
+        // ── Notify all owners about the request ──
+        User::whereIn('role', ['owner', 'admin'])->each(function ($owner) use ($appointment, $request) {
+            $owner->notify(new AppointmentRequestReceived($appointment, $request->request_type));
+        });
 
         return response()->json(['message' => 'Request submitted', 'request' => $req], 201);
     }

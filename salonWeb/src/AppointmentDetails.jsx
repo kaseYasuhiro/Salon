@@ -40,14 +40,14 @@ const Toast = ({ message, type, onClose }) => {
 };
 
 // ─────────────────────────────────────────────────────────────
-// Cancel/Refund Modal
+// Cancel Modal
 // ─────────────────────────────────────────────────────────────
 const CancelModal = ({ 
   showCancelModal, 
   cancelFormData, 
   setCancelFormData, 
   isProcessingCancel, 
-  handleCancelWithRefund, 
+  handleCancel, 
   resetCancelForm,
   setShowCancelModal 
 }) => {
@@ -57,7 +57,7 @@ const CancelModal = ({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
         <div className="bg-gradient-to-r from-red-500 to-red-600 px-6 py-3 flex items-center justify-between">
-          <h2 className="text-lg font-bold text-white">Cancel Appointment & Refund</h2>
+          <h2 className="text-lg font-bold text-white">Cancel Appointment</h2>
           <button 
             onClick={() => { 
               setShowCancelModal(false); 
@@ -69,81 +69,7 @@ const CancelModal = ({
           </button>
         </div>
 
-        <form onSubmit={handleCancelWithRefund} className="p-6 space-y-4">
-          <div>
-            <label className="block text-gray-700 text-xs font-semibold mb-1">
-              Refund Amount *
-            </label>
-            <div className="relative">
-              <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 font-semibold">₱</span>
-              <input
-                type="number"
-                value={cancelFormData.refund_amount}
-                onChange={(e) => setCancelFormData(prev => ({ ...prev, refund_amount: parseFloat(e.target.value) || 0 }))}
-                className="w-full pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-                step="0.01"
-                min="0"
-                required
-              />
-            </div>
-            <p className="text-xs text-gray-500 mt-1">Enter the amount to refund to the customer</p>
-          </div>
-
-          <div>
-            <label className="block text-gray-700 text-xs font-semibold mb-1">
-              Refund Method *
-            </label>
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() => setCancelFormData(prev => ({ ...prev, refund_method: 'cash', reference_number: '' }))}
-                className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border-2 transition-all ${
-                  cancelFormData.refund_method === 'cash'
-                    ? 'border-green-500 bg-green-50 text-green-700'
-                    : 'border-gray-200 hover:border-green-300'
-                }`}
-              >
-                <CreditCard size={18} />
-                <span className="font-medium text-sm">Cash</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setCancelFormData(prev => ({ ...prev, refund_method: 'gcash' }))}
-                className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border-2 transition-all ${
-                  cancelFormData.refund_method === 'gcash'
-                    ? 'border-blue-500 bg-blue-50 text-blue-700'
-                    : 'border-gray-200 hover:border-blue-300'
-                }`}
-              >
-                <Phone size={18} />
-                <span className="font-medium text-sm">GCash</span>
-              </button>
-            </div>
-            <p className="text-xs text-gray-500 mt-1">Select how the refund will be processed</p>
-          </div>
-
-          {/* ✅ Reference Number — only shown when GCash is selected */}
-          {cancelFormData.refund_method === 'gcash' && (
-            <div>
-              <label className="block text-gray-700 text-xs font-semibold mb-1">
-                Reference Number *
-              </label>
-              <input
-                type="text"
-                value={cancelFormData.reference_number || ''}
-                onChange={(e) =>
-                  setCancelFormData(prev => ({ ...prev, reference_number: e.target.value }))
-                }
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="e.g. 1234567890123"
-                required
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                Enter the GCash transaction reference number for this refund
-              </p>
-            </div>
-          )}
-
+        <form onSubmit={handleCancel} className="p-6 space-y-4">
           <div>
             <label className="block text-gray-700 text-xs font-semibold mb-1">
               Cancellation Reason *
@@ -151,7 +77,7 @@ const CancelModal = ({
             <textarea
               value={cancelFormData.cancellation_reason}
               onChange={(e) => setCancelFormData(prev => ({ ...prev, cancellation_reason: e.target.value }))}
-              rows="3"
+              rows="4"
               className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 resize-none"
               placeholder="Provide a reason for cancelling this appointment..."
               required
@@ -163,7 +89,7 @@ const CancelModal = ({
             <div className="flex items-start gap-2">
               <AlertCircle size={16} className="text-yellow-600 mt-0.5 flex-shrink-0" />
               <p className="text-xs text-yellow-700">
-                <span className="font-semibold">Note:</span> This action will cancel the appointment and process a refund to the customer. This cannot be undone.
+                <span className="font-semibold">Note:</span> This action will cancel the appointment. This cannot be undone.
               </p>
             </div>
           </div>
@@ -192,7 +118,7 @@ const CancelModal = ({
               ) : (
                 <>
                   <RefreshCw size={16} />
-                  Process Cancellation & Refund
+                  Cancel Appointment
                 </>
               )}
             </button>
@@ -265,7 +191,6 @@ const PaymentProofModal = ({ selectedPaymentData, setSelectedPaymentData, setSho
               </div>
             </div>
 
-            {/* ✅ Show paid / balance from the billing row */}
             <div className="grid grid-cols-3 gap-4 mt-3 pt-3 border-t border-gray-200">
               <div>
                 <p className="text-xs text-gray-500">Paid</p>
@@ -481,7 +406,7 @@ const AppointmentDetails = () => {
   const [selectedDate, setSelectedDate] = useState(null);
   const [isDateFiltered, setIsDateFiltered] = useState(false);
   
-  // Cancel/Refund state
+  // Cancel state
   const [isUpdating, setIsUpdating] = useState(false);
   const [isProcessingCancel, setIsProcessingCancel] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
@@ -489,11 +414,7 @@ const AppointmentDetails = () => {
   const [selectedPaymentData, setSelectedPaymentData] = useState(null);
   const [cancelFormData, setCancelFormData] = useState({
     appointment_id: '',
-    payment_id: '',
     cancellation_reason: '',
-    refund_method: 'cash',
-    refund_amount: 0,
-    reference_number: '' // ✅ new
   });
 
   // Reschedule state
@@ -558,7 +479,6 @@ const AppointmentDetails = () => {
               appointment_time: transaction.appointment_time,
               status: transaction.status || 'pending',
               assigned_employee_id: transaction.assigned_employee_id,
-              // ✅ Staff name fields (any of these may be returned by the backend)
               assigned_staff_name: transaction.assigned_staff_name || null,
               staff: transaction.staff || null,
               employee_first_name: transaction.employee_first_name || null,
@@ -569,7 +489,6 @@ const AppointmentDetails = () => {
               service_names: [],
               created_at: transaction.created_at,
               updated_at: transaction.updated_at,
-              // ✅ Billing fields from the backend
               billing_total_amount: transaction.billing_total_amount ?? null,
               billing_paid_amount: transaction.billing_paid_amount ?? null,
               billing_balance: transaction.billing_balance ?? null,
@@ -593,7 +512,6 @@ const AppointmentDetails = () => {
         });
         
         const groupedAppointments = Array.from(appointmentMap.values()).map((appointment) => {
-          // ✅ Prefer a real staff name from the backend
           let staffName = 'Unassigned';
           if (appointment.assigned_staff_name) {
             staffName = appointment.assigned_staff_name;
@@ -701,17 +619,6 @@ const AppointmentDetails = () => {
     }
   };
 
-  // ── Fetch payment details for cancellation ──
-  const fetchPaymentDetails = async (appointmentId) => {
-    try {
-      const response = await api.get(`/appointment/payment-details/${appointmentId}`);
-      return response.data;
-    } catch (error) {
-      showToast('Failed to fetch payment details', 'error');
-      return null;
-    }
-  };
-
   // ── Fetch payment proof ──
   const fetchPaymentProof = async (appointmentId) => {
     try {
@@ -737,7 +644,7 @@ const AppointmentDetails = () => {
   // ── Update appointment status ──
   const handleUpdateStatus = async (appointmentId, newStatus) => {
     if (newStatus === 'cancelled') {
-      await handleOpenCancelModal(appointmentId);
+      handleOpenCancelModal(appointmentId);
       return;
     }
     
@@ -762,37 +669,16 @@ const AppointmentDetails = () => {
   };
 
   // ── Open cancel modal ──
-  const handleOpenCancelModal = async (appointmentId) => {
-    try {
-      const paymentData = await fetchPaymentDetails(appointmentId);
-      
-      if (!paymentData) {
-        showToast('No payment record found for this appointment', 'warning');
-        return;
-      }
-      
-      const billing = paymentData.billing || {};
-      const paidAmount = parseFloat(billing.paid_amount ?? 0);
-      const grandTotal = parseFloat(billing.total_amount ?? 0);
-      const refundAmount = paidAmount > 0 ? paidAmount : (grandTotal / 2);
-      
-      setCancelFormData({
-        appointment_id: appointmentId,
-        payment_id: paymentData.id,
-        cancellation_reason: '',
-        refund_method: 'cash',
-        refund_amount: refundAmount,
-        reference_number: ''
-      });
-      
-      setShowCancelModal(true);
-    } catch (error) {
-      showToast('Failed to load payment details', 'error');
-    }
+  const handleOpenCancelModal = (appointmentId) => {
+    setCancelFormData({
+      appointment_id: appointmentId,
+      cancellation_reason: '',
+    });
+    setShowCancelModal(true);
   };
 
-  // ── Cancel with refund ──
-  const handleCancelWithRefund = async (e) => {
+  // ── Cancel appointment ──
+  const handleCancel = async (e) => {
     e.preventDefault();
     
     if (!cancelFormData.cancellation_reason.trim()) {
@@ -800,42 +686,14 @@ const AppointmentDetails = () => {
       return;
     }
     
-    if (!cancelFormData.refund_method) {
-      showToast('Please select a refund method', 'warning');
-      return;
-    }
-    
-    if (cancelFormData.refund_amount <= 0) {
-      showToast('Refund amount must be greater than 0', 'warning');
-      return;
-    }
-
-    // ✅ Require reference number when method is GCash
-    if (
-      cancelFormData.refund_method === 'gcash' &&
-      !cancelFormData.reference_number?.trim()
-    ) {
-      showToast('Please enter the reference number', 'warning');
-      return;
-    }
-    
     setIsProcessingCancel(true);
     try {
-      // ✅ Send refund_status: 'completed' — refund status, not appointment status
-      await api.post('/appointment/cancel-with-refund', {
+      await api.post('/appointment/cancel', {
         appointment_id: cancelFormData.appointment_id,
-        payment_id: cancelFormData.payment_id,
         cancellation_reason: cancelFormData.cancellation_reason,
-        refund_method: cancelFormData.refund_method,
-        refund_amount: cancelFormData.refund_amount,
-        reference_number:
-          cancelFormData.refund_method === 'gcash'
-            ? cancelFormData.reference_number.trim()
-            : null,
-        refund_status: 'completed'
       });
       
-      showToast('Appointment cancelled and refund processed successfully!', 'success');
+      showToast('Appointment cancelled successfully!', 'success');
       
       setShowCancelModal(false);
       resetCancelForm();
@@ -909,11 +767,7 @@ const AppointmentDetails = () => {
   const resetCancelForm = () => {
     setCancelFormData({
       appointment_id: '',
-      payment_id: '',
       cancellation_reason: '',
-      refund_method: 'cash',
-      refund_amount: 0,
-      reference_number: ''
     });
   };
 
@@ -1054,7 +908,6 @@ const AppointmentDetails = () => {
     const balance = selectedAppointment.billing_balance ?? (grandTotal - paidAmount);
     const hasAdjustments = grandTotal > basePriceSum + 0.01;
 
-    // ✅ Resolve staff name
     const resolveStaffName = () => {
       if (selectedAppointment.assigned_staff_name) return selectedAppointment.assigned_staff_name;
       if (selectedAppointment.staff) {
@@ -1125,7 +978,6 @@ const AppointmentDetails = () => {
                 </div>
                 <div>
                   <p className="text-xs text-gray-500">Assigned Staff</p>
-                  {/* ✅ Now shows the staff's full name */}
                   <p className="text-sm font-medium text-gray-800">{staffDisplayName}</p>
                 </div>
               </div>
@@ -1202,10 +1054,9 @@ const AppointmentDetails = () => {
               )}
             </div>
 
-            {/* ✅ Payment Summary Card */}
+            {/* Payment Summary Card */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
               <h2 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                {/* ✅ Peso sign instead of DollarSign icon */}
                 <span className="text-pink-500 font-bold text-xl leading-none">₱</span>
                 Payment Summary
               </h2>
@@ -1300,7 +1151,7 @@ const AppointmentDetails = () => {
                     className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-red-500 hover:bg-red-600 text-white rounded-lg transition-colors font-medium disabled:opacity-50"
                   >
                     <XCircle size={18} />
-                    Cancel & Refund
+                    Cancel Appointment
                   </button>
                   <button
                     onClick={handleOpenRescheduleModal}
@@ -1334,8 +1185,7 @@ const AppointmentDetails = () => {
 
               {isCancelled && (
                 <div className="text-center py-3">
-                  <p className="text-sm text-red-500">❌ This appointment has been rejected and cancelled</p>
-                  <p className="text-xs text-gray-400 mt-1">A refund has been processed</p>
+                  <p className="text-sm text-red-500">❌ This appointment has been cancelled</p>
                 </div>
               )}
 
@@ -1376,7 +1226,6 @@ const AppointmentDetails = () => {
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-gray-500">Staff Assigned</span>
-                  {/* ✅ Now shows the staff's full name */}
                   <span className="text-sm font-medium text-gray-700">{staffDisplayName}</span>
                 </div>
               </div>
@@ -1394,7 +1243,7 @@ const AppointmentDetails = () => {
           cancelFormData={cancelFormData}
           setCancelFormData={setCancelFormData}
           isProcessingCancel={isProcessingCancel}
-          handleCancelWithRefund={handleCancelWithRefund}
+          handleCancel={handleCancel}
           resetCancelForm={resetCancelForm}
           setShowCancelModal={setShowCancelModal}
         />
@@ -1615,7 +1464,7 @@ const AppointmentDetails = () => {
         cancelFormData={cancelFormData}
         setCancelFormData={setCancelFormData}
         isProcessingCancel={isProcessingCancel}
-        handleCancelWithRefund={handleCancelWithRefund}
+        handleCancel={handleCancel}
         resetCancelForm={resetCancelForm}
         setShowCancelModal={setShowCancelModal}
       />
