@@ -26,6 +26,7 @@ import { getToken } from "@/services/auth-storage";
 
 const axios = axiosClient.create({
   baseURL: process.env.EXPO_PUBLIC_API_URL,
+  timeout: 120000,
   headers: {
     Accept: "application/json",
   },
