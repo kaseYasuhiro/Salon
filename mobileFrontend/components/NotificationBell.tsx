@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
     View, Text, TouchableOpacity, Modal, FlatList, StyleSheet, Pressable,
 } from 'react-native';
@@ -12,6 +12,16 @@ interface Props {
 export default function NotificationBell({ userId }: Props) {
     const [open, setOpen] = useState(false);
     const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications(userId);
+
+    // 🔍 Diagnostic logs
+    useEffect(() => {
+        console.log('[Bell] MOUNTED, userId =', userId);
+        return () => console.log('[Bell] UNMOUNTED, userId =', userId);
+    }, []);
+
+    useEffect(() => {
+        console.log('[Bell] notifications state changed. Count =', notifications.length, 'Unread =', unreadCount);
+    }, [notifications, unreadCount]);
 
     const handlePress = (n: AppNotification) => {
         markAsRead(n);

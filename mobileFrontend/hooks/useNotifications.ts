@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createEcho } from '../services/echo';
 
@@ -13,6 +13,13 @@ export interface AppNotification {
 export function useNotifications(userId?: number | string | null, onNew?: (n: AppNotification) => void) {
     const [notifications, setNotifications] = useState<AppNotification[]>([]);
     const [loading, setLoading] = useState(false);
+
+    // Keep the latest `onNew` in a ref so the subscription effect below
+    // never re-runs when the parent re-renders with a fresh callback.
+    const onNewRef = useRef(onNew);
+    useEffect(() => {
+        onNewRef.current = onNew;
+    }, [onNew]);
 
     // ── Load persisted notifications ──
     useEffect(() => {
@@ -44,6 +51,9 @@ export function useNotifications(userId?: number | string | null, onNew?: (n: Ap
     }, [userId]);
 
     // ── Subscribe to Reverb (lazy init) ──
+    // Note: only `userId` is in the dependency array.
+    // `onNew` is accessed through `onNewRef` so that changing the callback
+    // does NOT unsubscribe and resubscribe (which was losing notifications).
     useEffect(() => {
         if (!userId) return;
 
@@ -62,7 +72,7 @@ export function useNotifications(userId?: number | string | null, onNew?: (n: Ap
                 created_at: new Date().toISOString(),
             };
             setNotifications((prev) => [entry, ...prev]);
-            onNew?.(entry);
+            onNewRef.current?.(entry);
         });
 
         return () => {
@@ -120,7 +130,6 @@ export function useNotifications(userId?: number | string | null, onNew?: (n: Ap
         try {
             const token = await AsyncStorage.getItem('token');
             const apiUrl = process.env.EXPO_PUBLIC_API_URL ?? '';
-            // ✅ Corrected path to match backend route
             const res = await fetch(`${apiUrl}/notifications/read-all`, {
                 method: 'POST',
                 headers: {

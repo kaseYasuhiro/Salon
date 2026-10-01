@@ -145,7 +145,10 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
   const [showTimePickerModal, setShowTimePickerModal] = useState(false);
   const [selectedDateForModal, setSelectedDateForModal] = useState<Date | null>(null);
   const [bookingStep, setBookingStep] = useState<'stylist' | 'services' | 'hair_options' | 'datetime' | 'payment'>('stylist');
-  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string | null>(null);
+  // ✅ Default to GCash
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string | null>('gcash');
+  // ✅ NEW: payment type (downpayment vs full)
+  const [selectedPaymentType, setSelectedPaymentType] = useState<'downpayment' | 'full'>('downpayment');
   const [paymentProof, setPaymentProof] = useState<any>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [currentMonth, setCurrentMonth] = useState(new Date());
@@ -428,7 +431,6 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
 
     const slots = generateTimeSlots(schedule.open_time, schedule.close_time);
 
-    // Filter to slots that are not past (today) and, for barbers, not booked.
     const anyFree = slots.some((t) => {
       if (isPastSlotOnToday(date, t)) return false;
       if (selectedServicesIncludeBarber() && isTimeSlotTakenByBarber(date, t)) return false;
@@ -580,13 +582,15 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     return selectedServices.reduce((sum, s) => sum + s.duration_minutes, 0);
   };
 
+  // ✅ UPDATED: amount now depends on selectedPaymentType
   const getAmount = () => {
     const totalPrice = getTotalPriceWithAdjustments();
-    return totalPrice / 2;
+    return selectedPaymentType === 'full' ? totalPrice : totalPrice / 2;
   };
 
+  // ✅ UPDATED: label reflects payment type
   const getPaymentTypeLabel = () => {
-    return 'Downpayment (50%)';
+    return selectedPaymentType === 'full' ? 'Full Payment' : 'Downpayment (50%)';
   };
 
   const getDaysInMonth = (date: Date) => {
@@ -841,7 +845,6 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
   };
 
   const handleTimeSelect = (time: string) => {
-    // Guard: cannot select a slot that has already passed today.
     if (selectedDateForModal && isPastSlotOnToday(selectedDateForModal, time)) {
       Alert.alert(
         "Time Has Passed",
@@ -892,7 +895,6 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     const appointmentDate = `${selectedDate.getUTCFullYear()}-${String(selectedDate.getUTCMonth() + 1).padStart(2, '0')}-${String(selectedDate.getUTCDate()).padStart(2, '0')}`;
     const formattedTime = selectedTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
 
-    // Final guard: past-time check on today
     if (isPastSlotOnToday(selectedDate, formattedTime)) {
       Alert.alert(
         "Time Has Passed",
@@ -906,7 +908,8 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
 
     try {
       const totalAmount = getTotalPriceWithAdjustments();
-      const downpaymentAmount = totalAmount / 2;
+      // ✅ amount depends on selected payment type
+      const amountToPay = selectedPaymentType === 'full' ? totalAmount : totalAmount / 2;
 
       const formData = new FormData();
       formData.append('appointment_date', appointmentDate);
@@ -921,7 +924,8 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
       formData.append('service_status', 'pending');
 
       formData.append('total_amount', totalAmount.toString());
-      formData.append('payment_type', 'downpayment');
+      // ✅ send correct payment type
+      formData.append('payment_type', selectedPaymentType === 'full' ? 'full' : 'downpayment');
       formData.append('payment_method', selectedPaymentMethod || 'gcash');
       formData.append('customer_id', user?.id?.toString() || '0');
 
@@ -961,8 +965,9 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
         totalAmount: totalAmount,
         paymentType: getPaymentTypeLabel(),
         paymentMethod: paymentMethodLabel,
-        amountPaid: downpaymentAmount,
-        remainingBalance: totalAmount - downpaymentAmount,
+        amountPaid: amountToPay,
+        // ✅ remaining balance is 0 when full payment
+        remainingBalance: totalAmount - amountToPay,
         status: 'Pending Confirmation',
         bookingDate: new Date().toLocaleDateString('en-US', {
           weekday: 'long',
@@ -996,7 +1001,10 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     setBookingStep('stylist');
     setSelectedStaffId(null);
     setSelectedServiceIds([]);
-    setSelectedPaymentMethod(null);
+    // ✅ reset to default GCash
+    setSelectedPaymentMethod('gcash');
+    // ✅ reset payment type
+    setSelectedPaymentType('downpayment');
     setPaymentProof(null);
     setSelectedHairLength('');
     setSelectedHairThickness('');
@@ -1242,12 +1250,11 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     );
   };
 
-  // ── Time Picker Modal (with past + booked indicators) ──
+  // ── Time Picker Modal ──
   const TimePickerModal = () => {
     const rawTimeSlots = selectedDateForModal ? getTimeSlotsForDate(selectedDateForModal) : [];
     const isBarber = selectedServicesIncludeBarber();
 
-    // Each slot has two flags: past (today only) and booked (barber)
     const slotsWithStatus = rawTimeSlots.map((time) => {
       const isPast = selectedDateForModal ? isPastSlotOnToday(selectedDateForModal, time) : false;
       const booked = !isPast && isBarber && selectedDateForModal
@@ -1297,7 +1304,6 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
               </TouchableOpacity>
             </View>
 
-            {/* Legend */}
             {rawTimeSlots.length > 0 && (
               <View className="flex-row items-center flex-wrap gap-4 mb-3 pb-3 border-b border-gray-100">
                 <View className="flex-row items-center gap-1">
@@ -1445,6 +1451,17 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                   <Text className="text-gray-500 text-xs mt-1">Thank you for booking with us!</Text>
                 </View>
 
+                {/* ✅ No-refund warning inside receipt */}
+                <View className="bg-red-50 rounded-xl p-3 mb-4 border border-red-200">
+                  <View className="flex-row items-start gap-2">
+                    <Ionicons name="warning-outline" size={16} color="#ef4444" />
+                    <Text className="text-red-600 text-xs flex-1 font-semibold">
+                      No-Show Policy: Payments are non-refundable if you fail to show up for your scheduled appointment.
+                      Please arrive on time.
+                    </Text>
+                  </View>
+                </View>
+
                 <View className="border-b border-gray-200 pb-3 mb-3">
                   <Text className="text-gray-500 text-xs font-semibold uppercase tracking-wider mb-2">Booking Details</Text>
                   <View className="space-y-2">
@@ -1490,6 +1507,12 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                       <View className="flex-row justify-between">
                         <Text className="text-gray-600 text-sm">Remaining Balance</Text>
                         <Text className="text-orange-600 font-semibold text-sm">₱{receiptData.remainingBalance.toLocaleString()}</Text>
+                      </View>
+                    )}
+                    {receiptData.remainingBalance === 0 && (
+                      <View className="flex-row justify-between">
+                        <Text className="text-gray-600 text-sm">Remaining Balance</Text>
+                        <Text className="text-green-600 font-semibold text-sm">₱0 (Paid in Full)</Text>
                       </View>
                     )}
                     {receiptData.paymentProof && (
@@ -1541,7 +1564,8 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
   const renderContent = () => {
     const totalPrice = getTotalPriceWithAdjustments();
     const totalDuration = getTotalDuration();
-    const downpaymentAmount = totalPrice / 2;
+    // ✅ dynamic amount based on payment type
+    const paymentAmount = selectedPaymentType === 'full' ? totalPrice : totalPrice / 2;
     const servicesForStaff = getServicesForStaff();
     const selectedStaff = selectedStaffId ? staff.find(s => s.id === selectedStaffId) : null;
     const selectedColorObj = getSelectedHairColorObject();
@@ -1585,7 +1609,7 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                bookingStep === 'services' ? `Selected: ${selectedStaff?.first_name} ${selectedStaff?.last_name}` :
                bookingStep === 'hair_options' ? 'Select hair details for your service' :
                bookingStep === 'datetime' ? `Selected: ${selectedStaff?.first_name} ${selectedStaff?.last_name} - ${getServiceNames()}` :
-               'Complete your booking with GCash downpayment'}
+               'Complete your booking with GCash payment'}
             </Text>
 
             {/* Step 1: Stylist Selection */}
@@ -1794,7 +1818,7 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                     </View>
                     <View className="flex-row justify-between mt-1">
                       <Text className="text-gray-600 text-sm">Downpayment (50%):</Text>
-                      <Text className="text-blue-500 font-bold text-lg">₱{downpaymentAmount.toLocaleString()}</Text>
+                      <Text className="text-blue-500 font-bold text-lg">₱{(totalPrice / 2).toLocaleString()}</Text>
                     </View>
                     <Text className="text-gray-400 text-[10px] mt-1">
                       Final price may change based on hair length & thickness adjustments.
@@ -2190,14 +2214,81 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                     <Text className="text-gray-600 font-semibold">Total Amount:</Text>
                     <Text className="text-pink-500 font-bold">₱{totalPrice.toLocaleString()}</Text>
                   </View>
-                  <View className="flex-row justify-between mt-1">
-                    <Text className="text-gray-600">Downpayment (50%):</Text>
-                    <Text className="text-blue-600 font-bold">₱{downpaymentAmount.toLocaleString()}</Text>
+                </View>
+
+                {/* ✅ NEW: Payment type selector */}
+                <Text className="text-gray-700 font-semibold text-sm mb-2">Payment Option</Text>
+                <View className="flex-row gap-2 mb-4">
+                  <TouchableOpacity
+                    className={`flex-1 p-3 rounded-xl border-2 ${
+                      selectedPaymentType === 'downpayment'
+                        ? 'border-pink-500 bg-pink-50'
+                        : 'border-gray-200 bg-white'
+                    }`}
+                    onPress={() => setSelectedPaymentType('downpayment')}
+                    disabled={isProcessing}
+                  >
+                    <View className="flex-row items-center justify-between">
+                      <View>
+                        <Text className={`text-sm font-semibold ${
+                          selectedPaymentType === 'downpayment' ? 'text-pink-600' : 'text-gray-800'
+                        }`}>
+                          Downpayment
+                        </Text>
+                        <Text className="text-gray-500 text-[10px] mt-0.5">50% now, rest at salon</Text>
+                      </View>
+                      <Text className={`text-sm font-bold ${
+                        selectedPaymentType === 'downpayment' ? 'text-pink-600' : 'text-gray-700'
+                      }`}>
+                        ₱{(totalPrice / 2).toLocaleString()}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    className={`flex-1 p-3 rounded-xl border-2 ${
+                      selectedPaymentType === 'full'
+                        ? 'border-pink-500 bg-pink-50'
+                        : 'border-gray-200 bg-white'
+                    }`}
+                    onPress={() => setSelectedPaymentType('full')}
+                    disabled={isProcessing}
+                  >
+                    <View className="flex-row items-center justify-between">
+                      <View>
+                        <Text className={`text-sm font-semibold ${
+                          selectedPaymentType === 'full' ? 'text-pink-600' : 'text-gray-800'
+                        }`}>
+                          Full Payment
+                        </Text>
+                        <Text className="text-gray-500 text-[10px] mt-0.5">Pay everything now</Text>
+                      </View>
+                      <Text className={`text-sm font-bold ${
+                        selectedPaymentType === 'full' ? 'text-pink-600' : 'text-gray-700'
+                      }`}>
+                        ₱{totalPrice.toLocaleString()}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                </View>
+
+                <View className="bg-gray-50 rounded-xl p-3 mb-4">
+                  <View className="flex-row justify-between">
+                    <Text className="text-gray-600">Amount to Pay Now:</Text>
+                    <Text className="text-blue-600 font-bold text-lg">₱{paymentAmount.toLocaleString()}</Text>
                   </View>
-                  <View className="flex-row justify-between mt-1">
-                    <Text className="text-gray-600">Remaining Balance:</Text>
-                    <Text className="text-orange-500 font-semibold">₱{(totalPrice - downpaymentAmount).toLocaleString()}</Text>
-                  </View>
+                  {selectedPaymentType === 'downpayment' && (
+                    <View className="flex-row justify-between mt-1">
+                      <Text className="text-gray-500 text-xs">Remaining Balance:</Text>
+                      <Text className="text-orange-500 font-semibold text-sm">₱{(totalPrice - paymentAmount).toLocaleString()}</Text>
+                    </View>
+                  )}
+                  {selectedPaymentType === 'full' && (
+                    <View className="flex-row justify-between mt-1">
+                      <Text className="text-gray-500 text-xs">Remaining Balance:</Text>
+                      <Text className="text-green-600 font-semibold text-sm">₱0 (Paid in Full)</Text>
+                    </View>
+                  )}
                 </View>
 
                 <View className="items-center mb-4">
@@ -2225,7 +2316,7 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                   )}
 
                   <Text className="text-gray-500 text-sm mt-2 text-center">
-                    Amount to pay: <Text className="font-bold text-blue-600">₱{downpaymentAmount.toLocaleString()}</Text>
+                    Amount to pay: <Text className="font-bold text-blue-600">₱{paymentAmount.toLocaleString()}</Text>
                   </Text>
 
                   {gcashNumber ? (
@@ -2243,12 +2334,13 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                   <View className="space-y-1">
                     <Text className="text-gray-600 text-xs">1. Open GCash app → Tap "Pay QR"</Text>
                     <Text className="text-gray-600 text-xs">2. Scan the QR code above</Text>
-                    <Text className="text-gray-600 text-xs">3. Enter amount: <Text className="font-bold">₱{downpaymentAmount.toLocaleString()}</Text></Text>
+                    <Text className="text-gray-600 text-xs">3. Enter amount: <Text className="font-bold">₱{paymentAmount.toLocaleString()}</Text></Text>
                     <Text className="text-gray-600 text-xs">4. Complete payment & take a screenshot</Text>
                     <Text className="text-gray-600 text-xs">5. Upload the screenshot below</Text>
                   </View>
                 </View>
 
+                {/* ✅ Payment method now pre-selected and shown as active */}
                 <Text className="text-gray-700 font-semibold text-sm mb-2">Payment Method</Text>
                 <TouchableOpacity
                   className={`flex-row items-center justify-between p-3 rounded-xl mb-4 border-2 ${
@@ -2263,7 +2355,7 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                     </View>
                     <View>
                       <Text className="text-gray-800 font-semibold text-sm">GCash</Text>
-                      <Text className="text-gray-500 text-xs">Pay your downpayment via GCash</Text>
+                      <Text className="text-gray-500 text-xs">Pay your {selectedPaymentType === 'full' ? 'full payment' : 'downpayment'} via GCash</Text>
                     </View>
                   </View>
                   <View className={`w-5 h-5 rounded-full border-2 items-center justify-center ${
@@ -2306,6 +2398,17 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                     <Text className="text-yellow-700 text-xs flex-1">
                       Please upload a clear screenshot of your GCash payment receipt.
                       This will be reviewed by our staff to confirm your booking.
+                    </Text>
+                  </View>
+                </View>
+
+                {/* ✅ NEW: No-refund / no-show warning */}
+                <View className="bg-red-50 rounded-xl p-3 mb-4 border border-red-200">
+                  <View className="flex-row items-start gap-2">
+                    <Ionicons name="warning-outline" size={16} color="#ef4444" />
+                    <Text className="text-red-600 text-xs flex-1 font-semibold">
+                      No-Show Policy: All payments are NON-REFUNDABLE if you fail to show up
+                      for your scheduled appointment. Please make sure you can attend before confirming.
                     </Text>
                   </View>
                 </View>

@@ -364,7 +364,7 @@ class JoinedController extends Controller
             'hair_thickness' => ['nullable', 'string'],
             'preferred_color' => ['nullable', 'string'],
             'total_amount' => ['required', 'numeric', 'min:0'],
-            'payment_type' => ['required', 'string', 'in:downpayment'],
+            'payment_type' => ['required', 'string', 'in:downpayment,full'],
             'payment_method' => ['required', 'string', 'in:gcash,cash'],
             'payment_proof' => ['required', 'image', 'mimes:jpeg,png,jpg,gif', 'max:2048']
         ]);

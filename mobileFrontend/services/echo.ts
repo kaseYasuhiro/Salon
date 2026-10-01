@@ -4,10 +4,12 @@ import Pusher from 'pusher-js/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://192.168.100.73:8000/api';
-const REVERB_APP_KEY = process.env.EXPO_PUBLIC_REVERB_APP_KEY ?? 'oo7wrw5fvios0uspuzmd';
-const REVERB_HOST = process.env.EXPO_PUBLIC_REVERB_HOST ?? '192.168.100.73';
+const REVERB_APP_KEY = process.env.EXPO_PUBLIC_REVERB_APP_KEY ?? '';
+const REVERB_HOST = process.env.EXPO_PUBLIC_REVERB_HOST ?? '127.0.0.1';
 const REVERB_PORT = Number(process.env.EXPO_PUBLIC_REVERB_PORT ?? 8080);
+const REVERB_SCHEME = process.env.EXPO_PUBLIC_REVERB_SCHEME ?? 'http';
 
+const useTLS = REVERB_SCHEME === 'https';
 const BASE_URL = API_URL.replace(/\/api\/?$/, '');
 
 let echoInstance: any = null;
@@ -21,9 +23,9 @@ export function createEcho() {
         wsHost: REVERB_HOST,
         wsPort: REVERB_PORT,
         wssPort: REVERB_PORT,
-        forceTLS: false,
-        enabledTransports: ['ws'],
-        Pusher, // ← pass the imported Pusher explicitly
+        forceTLS: useTLS,
+        enabledTransports: useTLS ? ['wss'] : ['ws'],
+        Pusher,
 
         authorizer: (channel: any) => ({
             authorize: async (socketId: string, callback: (error: any, data: any) => void) => {
@@ -43,6 +45,7 @@ export function createEcho() {
                     });
 
                     if (!response.ok) {
+                        console.log('[Echo] Auth failed:', response.status);
                         throw new Error(`Auth failed: ${response.status}`);
                     }
 
