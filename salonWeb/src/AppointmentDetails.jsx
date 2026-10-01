@@ -10,6 +10,29 @@ import {
 import api from '../api/axios';
 
 // ─────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────
+const getPaymentTypeLabel = (paymentType) => {
+  if (!paymentType) return 'N/A';
+  if (paymentType === 'full') return 'Full Payment';
+  if (paymentType === 'downpayment') return 'Downpayment (50%)';
+  if (paymentType === 'remaining') return 'Remaining Balance';
+  return paymentType;
+};
+
+const computePaymentTotals = (appointment) => {
+  const grandTotal = appointment.billing_total_amount ?? appointment.total_price ?? 0;
+  const paymentType = appointment.billing_payment_type;
+  const paidAmount = appointment.billing_paid_amount
+    ?? (paymentType === 'full' ? grandTotal : grandTotal / 2);
+  const balance = appointment.billing_balance ?? (grandTotal - paidAmount);
+  const isFullyPaid = paymentType === 'full' || balance <= 0;
+  const isPartial = !isFullyPaid && paidAmount > 0;
+  const isUnpaid = !isFullyPaid && paidAmount <= 0;
+  return { grandTotal, paymentType, paidAmount, balance, isFullyPaid, isPartial, isUnpaid };
+};
+
+// ─────────────────────────────────────────────────────────────
 // Toast
 // ─────────────────────────────────────────────────────────────
 const Toast = ({ message, type, onClose }) => {
@@ -140,7 +163,7 @@ const PaymentProofModal = ({ selectedPaymentData, setSelectedPaymentData, setSho
   const total_amount = billing?.total_amount || '0.00';
   const paid_amount = billing?.paid_amount || '0.00';
   const balance = billing?.balance || '0.00';
-  const payment_type = billing?.payment_type || 'N/A';
+  const payment_type = billing?.payment_type || null;
 
   const API_URL = import.meta.env.VITE_API_URL || "http://192.168.100.73:8000/api";
   const BASE_URL = API_URL.replace(/\/api\/?$/, "");
@@ -151,6 +174,10 @@ const PaymentProofModal = ({ selectedPaymentData, setSelectedPaymentData, setSho
     return `${BASE_URL}/storage/${path}`;
   };
   const proofUrl = getImageUrl(payment_proof);
+  
+  // ✅ Determine status respecting payment_type
+  const isFullyPaid = payment_type === 'full' || parseFloat(balance) <= 0;
+  const isPartial = !isFullyPaid && parseFloat(paid_amount) > 0;
   
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
@@ -177,7 +204,7 @@ const PaymentProofModal = ({ selectedPaymentData, setSelectedPaymentData, setSho
               </div>
               <div>
                 <p className="text-xs text-gray-500">Payment Type</p>
-                <p className="text-sm font-semibold text-gray-800 capitalize">{payment_type}</p>
+                <p className="text-sm font-semibold text-gray-800">{getPaymentTypeLabel(payment_type)}</p>
               </div>
               <div>
                 <p className="text-xs text-gray-500">Total Amount</p>
@@ -207,9 +234,9 @@ const PaymentProofModal = ({ selectedPaymentData, setSelectedPaymentData, setSho
               <div>
                 <p className="text-xs text-gray-500">Status</p>
                 <p className="text-sm font-semibold">
-                  {parseFloat(balance) <= 0 ? (
+                  {isFullyPaid ? (
                     <span className="text-green-600">Paid in Full</span>
-                  ) : parseFloat(paid_amount) > 0 ? (
+                  ) : isPartial ? (
                     <span className="text-yellow-600">Partial</span>
                   ) : (
                     <span className="text-red-600">Unpaid</span>
@@ -401,6 +428,7 @@ const AppointmentDetails = () => {
   const [error, setError] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('all');
+  const [paymentFilter, setPaymentFilter] = useState('all'); // ✅ all | full | partial | unpaid
   const [toast, setToast] = useState(null);
   const [showAppointmentDetail, setShowAppointmentDetail] = useState(false);
   const [selectedDate, setSelectedDate] = useState(null);
@@ -847,9 +875,18 @@ const AppointmentDetails = () => {
     return appointments;
   };
 
+  // ✅ Filtered appointments with payment filter
   const filteredAppointments = getFilteredAppointments().filter(app => {
     if (selectedStatus !== 'all' && app.status !== selectedStatus) return false;
     if (searchTerm && !app.customer_name?.toLowerCase().includes(searchTerm.toLowerCase())) return false;
+
+    if (paymentFilter !== 'all') {
+      const { isFullyPaid, isPartial, isUnpaid } = computePaymentTotals(app);
+      if (paymentFilter === 'full' && !isFullyPaid) return false;
+      if (paymentFilter === 'partial' && !isPartial) return false;
+      if (paymentFilter === 'unpaid' && !isUnpaid) return false;
+    }
+
     return true;
   });
 
@@ -901,11 +938,17 @@ const AppointmentDetails = () => {
     const basePriceSum = selectedAppointment.base_price ?? services.reduce(
       (sum, s) => sum + (parseFloat(s.price) || 0), 0
     );
-    const grandTotal = selectedAppointment.billing_total_amount
-      ?? selectedAppointment.total_price
-      ?? basePriceSum;
-    const paidAmount = selectedAppointment.billing_paid_amount ?? (grandTotal / 2);
-    const balance = selectedAppointment.billing_balance ?? (grandTotal - paidAmount);
+
+    // ✅ Compute payment totals respecting payment_type
+    const {
+      grandTotal,
+      paymentType,
+      paidAmount,
+      balance,
+      isFullyPaid,
+      isPartial,
+    } = computePaymentTotals(selectedAppointment);
+
     const hasAdjustments = grandTotal > basePriceSum + 0.01;
 
     const resolveStaffName = () => {
@@ -948,8 +991,15 @@ const AppointmentDetails = () => {
             <h1 className="text-2xl font-bold text-gray-800">Appointment Details</h1>
             <p className="text-gray-500 text-sm">View and manage appointment information</p>
           </div>
-          <div className={`px-3 py-1 rounded-full text-sm font-medium ${statusBadge.color}`}>
-            {statusBadge.label}
+          <div className="flex items-center gap-2">
+            {isFullyPaid && (
+              <span className="px-3 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700">
+                PAID IN FULL
+              </span>
+            )}
+            <div className={`px-3 py-1 rounded-full text-sm font-medium ${statusBadge.color}`}>
+              {statusBadge.label}
+            </div>
           </div>
         </div>
 
@@ -1056,10 +1106,17 @@ const AppointmentDetails = () => {
 
             {/* Payment Summary Card */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-              <h2 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                <span className="text-pink-500 font-bold text-xl leading-none">₱</span>
-                Payment Summary
-              </h2>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+                  <span className="text-pink-500 font-bold text-xl leading-none">₱</span>
+                  Payment Summary
+                </h2>
+                {isFullyPaid && (
+                  <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-green-100 text-green-700">
+                    PAID IN FULL
+                  </span>
+                )}
+              </div>
               <div className="space-y-3">
                 <div className="flex items-center justify-between py-2 border-b border-gray-100">
                   <span className="text-sm text-gray-600">Total Amount</span>
@@ -1076,19 +1133,30 @@ const AppointmentDetails = () => {
                 <div className="flex items-center justify-between py-2 border-b border-gray-100">
                   <span className="text-sm text-gray-600">Remaining Balance</span>
                   <span className={`text-sm font-semibold ${balance > 0 ? 'text-orange-600' : 'text-green-600'}`}>
-                    {balance > 0 ? `₱${balance.toLocaleString()}` : 'Paid in Full'}
+                    {balance > 0 ? `₱${balance.toLocaleString()}` : '₱0.00'}
                   </span>
                 </div>
+
+                {/* ✅ Payment Type row */}
+                {paymentType && (
+                  <div className="flex items-center justify-between py-2 border-b border-gray-100">
+                    <span className="text-sm text-gray-600">Payment Type</span>
+                    <span className="text-sm font-semibold text-gray-800">
+                      {getPaymentTypeLabel(paymentType)}
+                    </span>
+                  </div>
+                )}
+
                 <div className="flex items-center justify-between py-2">
                   <span className="text-sm text-gray-600">Payment Status</span>
                   <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${
-                    balance <= 0
+                    isFullyPaid
                       ? 'bg-green-100 text-green-700'
-                      : paidAmount > 0
+                      : isPartial
                         ? 'bg-yellow-100 text-yellow-700'
                         : 'bg-red-100 text-red-700'
                   }`}>
-                    {balance <= 0 ? 'Paid in Full' : paidAmount > 0 ? 'Partial' : 'Unpaid'}
+                    {isFullyPaid ? 'Paid in Full' : isPartial ? 'Partial' : 'Unpaid'}
                   </span>
                 </div>
               </div>
@@ -1220,6 +1288,19 @@ const AppointmentDetails = () => {
                     ₱{balance.toLocaleString()}
                   </span>
                 </div>
+
+                {/* ✅ Payment Type */}
+                {paymentType && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-gray-500">Payment</span>
+                    <span className={`text-xs font-semibold ${
+                      isFullyPaid ? 'text-green-600' : 'text-yellow-600'
+                    }`}>
+                      {isFullyPaid ? 'Paid in Full' : isPartial ? 'Partial' : 'Unpaid'}
+                    </span>
+                  </div>
+                )}
+
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-gray-500">Services</span>
                   <span className="text-sm font-medium text-gray-700">{services.length}</span>
@@ -1315,8 +1396,10 @@ const AppointmentDetails = () => {
           <p className="text-xl font-bold text-green-600">{filteredAppointments.filter(a => a.status === 'confirmed').length}</p>
         </div>
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-          <p className="text-xs text-gray-500">Completed</p>
-          <p className="text-xl font-bold text-blue-600">{filteredAppointments.filter(a => a.status === 'completed').length}</p>
+          <p className="text-xs text-gray-500">Paid in Full</p>
+          <p className="text-xl font-bold text-emerald-600">
+            {filteredAppointments.filter(a => computePaymentTotals(a).isFullyPaid).length}
+          </p>
         </div>
       </div>
 
@@ -1344,6 +1427,18 @@ const AppointmentDetails = () => {
             <option value="completed">Completed</option>
             <option value="cancelled">Cancelled</option>
           </select>
+
+          {/* ✅ Payment filter */}
+          <select 
+            value={paymentFilter}
+            onChange={(e) => setPaymentFilter(e.target.value)}
+            className="px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-pink-500"
+          >
+            <option value="all">All Payments</option>
+            <option value="full">Paid in Full</option>
+            <option value="partial">Partial</option>
+            <option value="unpaid">Unpaid</option>
+          </select>
         </div>
       </div>
 
@@ -1364,30 +1459,50 @@ const AppointmentDetails = () => {
           {filteredAppointments.map((appointment) => {
             const isMultipleServices = appointment.services && appointment.services.length > 1;
             const statusBadge = getStatusBadge(appointment.status);
-            const grandTotal = appointment.billing_total_amount ?? appointment.total_price ?? 0;
-            const paidAmount = appointment.billing_paid_amount ?? (grandTotal / 2);
-            const balance = appointment.billing_balance ?? (grandTotal - paidAmount);
+            const {
+              grandTotal,
+              paidAmount,
+              balance,
+              isFullyPaid,
+              isPartial,
+            } = computePaymentTotals(appointment);
 
             return (
               <div 
                 key={appointment.id}
                 className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 border border-gray-100 overflow-hidden"
               >
-                <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 bg-gradient-to-br from-pink-100 to-pink-200 rounded-full flex items-center justify-center">
+                <div className="px-4 py-3 border-b border-gray-100 flex items-start justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="w-8 h-8 bg-gradient-to-br from-pink-100 to-pink-200 rounded-full flex items-center justify-center flex-shrink-0">
                       <User size={14} className="text-pink-600" />
                     </div>
-                    <div>
+                    <div className="min-w-0">
                       <p className="text-sm font-semibold text-gray-800 truncate max-w-[120px]">
                         {appointment.customer_name}
                       </p>
                       <p className="text-xs text-gray-500">{appointment.customer_phone || 'N/A'}</p>
                     </div>
                   </div>
-                  <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${statusBadge.color}`}>
-                    {statusBadge.label}
-                  </span>
+                  <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                    <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${statusBadge.color}`}>
+                      {statusBadge.label}
+                    </span>
+                    {/* ✅ Payment badge */}
+                    {isFullyPaid ? (
+                      <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-green-100 text-green-700">
+                        PAID IN FULL
+                      </span>
+                    ) : isPartial ? (
+                      <span className="px-2 py-0.5 text-[10px] font-semibold rounded-full bg-yellow-100 text-yellow-700">
+                        PARTIAL
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 text-[10px] font-semibold rounded-full bg-red-100 text-red-700">
+                        UNPAID
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 <div className="px-4 py-3 space-y-2">
@@ -1429,14 +1544,23 @@ const AppointmentDetails = () => {
                     </span>
                   </div>
 
-                  {balance > 0 && (
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-gray-500">Balance</span>
-                      <span className="text-xs font-semibold text-orange-600">
-                        ₱{balance.toLocaleString()}
-                      </span>
-                    </div>
-                  )}
+                  {/* ✅ Paid amount always shown */}
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-gray-500">Paid</span>
+                    <span className="text-xs font-semibold text-green-600">
+                      ₱{paidAmount.toLocaleString()}
+                    </span>
+                  </div>
+
+                  {/* ✅ Balance row */}
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-gray-500">Balance</span>
+                    <span className={`text-xs font-semibold ${
+                      isFullyPaid ? 'text-green-600' : 'text-orange-600'
+                    }`}>
+                      ₱{balance.toLocaleString()}
+                    </span>
+                  </div>
                 </div>
 
                 <div className="px-4 py-3 bg-gray-50 border-t border-gray-100">
