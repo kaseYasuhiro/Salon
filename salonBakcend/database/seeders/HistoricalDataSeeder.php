@@ -806,19 +806,17 @@ class HistoricalDataSeeder extends Seeder
      ============================================================ */
     protected function seedRefunds(array $payments, array $appointments): void
     {
-        // Only refund ~5% of payments
+        // Build a lookup: payment_id => appointment_id
+        // Join payments -> billings -> appointment_id in one query
+        $paymentAppointmentMap = DB::table('payments')
+            ->join('billings', 'billings.id', '=', 'payments.billing_id')
+            ->pluck('billings.appointment_id', 'payments.id')
+            ->all();
+
         foreach ($payments as $payment) {
-            if (rand(1, 100) > 5) continue;
+            if (rand(1, 100) > 5) continue; // ~5% refund rate
 
-            $appointment = collect($appointments)->firstWhere('id', function () use ($payment) {
-                // find appointment via billing
-                return true;
-            });
-
-            $apptId = DB::table('billings')->where('id', function () use ($payment) {
-                return DB::table('payments')->where('id', $payment['id'])->value('billing_id');
-            })->value('appointment_id');
-
+            $apptId = $paymentAppointmentMap[$payment['id']] ?? null;
             if (! $apptId) continue;
 
             DB::table('refunds')->insert([
@@ -826,8 +824,13 @@ class HistoricalDataSeeder extends Seeder
                 'appointment_id'   => $apptId,
                 'refund_amount'    => rand(100, 1000),
                 'refund_method'    => collect(['Cash', 'GCash'])->random(),
-                'reference_number' => 'REF-' . strtoupper(Str::random(8)),
-                'refund_reason'    => collect(['Customer dissatisfied', 'Service not rendered', 'Duplicate payment', 'Cancelled appointment'])->random(),
+                'reference_number' => 'REF-' . strtoupper(\Str::random(8)),
+                'refund_reason'    => collect([
+                    'Customer dissatisfied',
+                    'Service not rendered',
+                    'Duplicate payment',
+                    'Cancelled appointment',
+                ])->random(),
                 'status'           => collect(['pending', 'completed', 'rejected'])->random(),
                 'processed_at'     => $payment['date']->copy()->addDays(rand(1, 5))->toDateString(),
                 'created_at'       => $payment['date']->copy()->addDays(rand(1, 5)),
