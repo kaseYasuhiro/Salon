@@ -1,14 +1,73 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { 
-  BarChart3, Calendar, TrendingUp, 
-  TrendingDown, Download, Printer, RefreshCw, 
-  AlertTriangle, CheckCircle, Clock, FileText,
-  LineChart, Activity, Users, User, Star, Award,
-  Scissors, Percent, CreditCard, Filter, X,
-  ChevronDown, Receipt, PieChart
+import { useState, useEffect, useRef } from 'react';
+import {
+  BarChart3, TrendingUp, TrendingDown, Download, Printer, RefreshCw,
+  AlertTriangle, CheckCircle, FileText, Users, Scissors, X,
+  Filter, ChevronLeft, ChevronRight, Footprints,
 } from 'lucide-react';
 import api from '../api/axios';
 
+// ─────────────────────────────────────────────────────────────
+// Design tokens (mirrors Dashboard.jsx)
+// ─────────────────────────────────────────────────────────────
+function StatCard({ label, value, sub, icon: Icon, color, badge, badgeClass }) {
+  return (
+    <div className="group relative bg-white rounded-2xl border border-slate-200/70 shadow-sm hover:shadow-[0_12px_32px_-16px_rgba(15,23,42,0.35)] hover:-translate-y-0.5 transition-all duration-300 p-5 overflow-hidden">
+      <div className={`absolute -top-8 -right-8 w-24 h-24 rounded-full opacity-[0.08] bg-gradient-to-br ${color} group-hover:scale-125 transition-transform duration-500`} />
+      <div className="relative flex items-start justify-between">
+        <div className={`w-11 h-11 rounded-xl bg-gradient-to-br ${color} flex items-center justify-center shadow-md`}>
+          <Icon size={20} className="text-white" />
+        </div>
+        {badge && (
+          <span className={`inline-flex items-center gap-0.5 text-[11px] font-semibold px-2 py-0.5 rounded-full ${badgeClass}`}>
+            {badge}
+          </span>
+        )}
+      </div>
+      <p className="relative text-xs font-medium text-slate-500 mt-4">{label}</p>
+      <p className="relative text-3xl font-bold text-slate-800 mt-0.5 tracking-tight">{value}</p>
+      {sub && <p className="relative text-[11px] text-slate-400 mt-2">{sub}</p>}
+    </div>
+  );
+}
+
+function EmptyState({ icon: Icon, title, subtitle }) {
+  return (
+    <div className="flex flex-col items-center justify-center text-center py-12">
+      <div className="w-14 h-14 rounded-2xl bg-slate-50 flex items-center justify-center mb-3">
+        <Icon size={26} className="text-slate-300" />
+      </div>
+      <p className="text-sm font-semibold text-slate-700">{title}</p>
+      {subtitle && <p className="text-xs text-slate-400 mt-1 max-w-xs">{subtitle}</p>}
+    </div>
+  );
+}
+
+function Toast({ message, type = 'success', onClose }) {
+  const accent =
+    type === 'success' ? { bar: 'bg-emerald-500', icon: 'bg-emerald-100 text-emerald-600' } :
+    type === 'warning' ? { bar: 'bg-amber-500', icon: 'bg-amber-100 text-amber-600' } :
+    { bar: 'bg-red-500', icon: 'bg-red-100 text-red-600' };
+  const Icon = type === 'success' ? CheckCircle : AlertTriangle;
+
+  return (
+    <div className="fixed top-4 right-4 z-[100] animate-slide-in">
+      <div className="relative bg-white rounded-xl shadow-2xl border border-slate-100 p-3.5 pl-5 flex items-center gap-3 min-w-[300px] max-w-md overflow-hidden">
+        <span className={`absolute left-0 top-0 bottom-0 w-1.5 ${accent.bar}`} />
+        <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${accent.icon}`}>
+          <Icon size={16} />
+        </div>
+        <span className="text-sm font-medium text-slate-700 flex-1">{message}</span>
+        <button onClick={onClose} className="text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg p-1 flex-shrink-0 transition-colors">
+          <X size={16} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Main Component
+// ─────────────────────────────────────────────────────────────
 function Sales() {
   const [salesData, setSalesData] = useState({
     totalRevenue: 0,
@@ -21,40 +80,44 @@ function Sales() {
     grossProfit: 0,
     netProfit: 0,
     totalExpenses: 0,
-    totalCommissions: 0
+    totalCommissions: 0,
+    totalWalkInRevenue: 0,
+    totalWalkInCount: 0,
+    totalWalkInCommissions: 0,
   });
-  
+
   const [profitFilter, setProfitFilter] = useState('weekly');
-  
   const [isLoadingSales, setIsLoadingSales] = useState(false);
   const [isLoadingProfit, setIsLoadingProfit] = useState(false);
-  
-  const [reports, setReports] = useState([]);
+
   const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
   const [staffList, setStaffList] = useState([]);
   const [services, setServices] = useState([]);
   const [expenses, setExpenses] = useState([]);
   const [commissionsData, setCommissionsData] = useState([]);
-  const [dateRange, setDateRange] = useState({
-    startDate: '',
-    endDate: ''
-  });
+  const [walkIns, setWalkIns] = useState([]);
+  const [dateRange, setDateRange] = useState({ startDate: '', endDate: '' });
   const [showDateFilter, setShowDateFilter] = useState(false);
   const [selectedStaff, setSelectedStaff] = useState('all');
   const [selectedService, setSelectedService] = useState('all');
-  const tableRef = useRef(null);
+
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
+
+  const commissionsRef = useRef([]);
+  const expensesRef = useRef([]);
+  const reportsRef = useRef([]);
+  const walkInsRef = useRef([]);
 
   const showToast = (message, type = 'success') => {
     setToast({ show: true, message, type });
-    setTimeout(() => {
-      setToast({ show: false, message: '', type: 'success' });
-    }, 3000);
+    setTimeout(() => setToast({ show: false, message: '', type: 'success' }), 3000);
   };
 
   // ============================================================
   // DATE HELPERS
   // ============================================================
-  
+
   const getLocalDateString = (date) => {
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -113,7 +176,7 @@ function Sales() {
   const formatCurrency = (amount) =>
     parseFloat(amount || 0).toLocaleString('en-US', {
       minimumFractionDigits: 2,
-      maximumFractionDigits: 2
+      maximumFractionDigits: 2,
     });
 
   const formatNumber = (num) => num.toLocaleString();
@@ -138,18 +201,12 @@ function Sales() {
           status: tx.status,
           assigned_employee_id: tx.assigned_employee_id,
           customer_name: tx.customer_name,
-          billing_total_amount: tx.billing_total_amount != null
-            ? parseFloat(tx.billing_total_amount)
-            : null,
-          billing_paid_amount: tx.billing_paid_amount != null
-            ? parseFloat(tx.billing_paid_amount)
-            : null,
-          billing_balance: tx.billing_balance != null
-            ? parseFloat(tx.billing_balance)
-            : null,
+          billing_total_amount: tx.billing_total_amount != null ? parseFloat(tx.billing_total_amount) : null,
+          billing_paid_amount: tx.billing_paid_amount != null ? parseFloat(tx.billing_paid_amount) : null,
+          billing_balance: tx.billing_balance != null ? parseFloat(tx.billing_balance) : null,
           billing_payment_type: tx.billing_payment_type ?? null,
           services: [],
-          priceSum: 0
+          priceSum: 0,
         });
       }
 
@@ -157,7 +214,7 @@ function Sales() {
       grouped.services.push({
         service_id: tx.service_id,
         service_name: tx.service_name,
-        price: parseFloat(tx.price) || 0
+        price: parseFloat(tx.price) || 0,
       });
       grouped.priceSum += parseFloat(tx.price) || 0;
     });
@@ -172,6 +229,16 @@ function Sales() {
     return appointment.priceSum;
   };
 
+  const getWalkInRevenue = (walkIn) => {
+    if (walkIn.amount_paid != null) return parseFloat(walkIn.amount_paid) || 0;
+    if (walkIn.total_amount != null) return parseFloat(walkIn.total_amount) || 0;
+    if (walkIn.price != null) return parseFloat(walkIn.price) || 0;
+    return 0;
+  };
+
+  const getWalkInDate = (walkIn) =>
+    normalizeDateStr(walkIn.created_at || walkIn.walk_in_date || walkIn.date);
+
   // ============================================================
   // FETCHERS
   // ============================================================
@@ -179,19 +246,19 @@ function Sales() {
   const fetchReports = async () => {
     try {
       const response = await api.get('/report');
-      if (Array.isArray(response.data)) setReports(response.data);
-    } catch (error) {
-      // silently ignore
-    }
+      if (Array.isArray(response.data)) {
+        reportsRef.current = response.data;
+      }
+    } catch {}
   };
 
   const getWrittenOffAmountForDate = (dateStr) => {
-    const rows = reports.filter(r => r.status === 'written-off' && normalizeDateStr(r.date) === dateStr);
+    const rows = reportsRef.current.filter(r => r.status === 'written-off' && normalizeDateStr(r.date) === dateStr);
     return rows.reduce((sum, r) => sum + (parseFloat(r.amount) || 0), 0);
   };
 
   const getWrittenOffAmountForRange = (startDate, endDate) => {
-    const rows = reports.filter(r => {
+    const rows = reportsRef.current.filter(r => {
       if (r.status !== 'written-off') return false;
       const reportDate = normalizeDateStr(r.date);
       return reportDate && reportDate >= startDate && reportDate <= endDate;
@@ -203,39 +270,49 @@ function Sales() {
     try {
       const response = await api.get('/staff-list');
       if (Array.isArray(response.data)) setStaffList(response.data);
-    } catch (error) {
-      // silently ignore
-    }
+    } catch {}
   };
 
   const fetchServices = async () => {
     try {
       const response = await api.get('/services');
       if (Array.isArray(response.data)) setServices(response.data);
-    } catch (error) {
-      // silently ignore
-    }
+    } catch {}
   };
 
   const fetchExpenses = async () => {
     try {
       const response = await api.get('/expenses');
       if (Array.isArray(response.data)) {
+        expensesRef.current = response.data;
         setExpenses(response.data);
         const total = response.data.reduce((sum, exp) => sum + (parseFloat(exp.amount) || 0), 0);
         setSalesData(prev => ({ ...prev, totalExpenses: total }));
       }
-    } catch (error) {
-      // silently ignore
-    }
+    } catch {}
   };
 
   const fetchCommissions = async () => {
     try {
       const response = await api.get('/employee/commission');
-      setCommissionsData(Array.isArray(response.data) ? response.data : []);
-    } catch (error) {
+      const data = Array.isArray(response.data) ? response.data : [];
+      commissionsRef.current = data;
+      setCommissionsData(data);
+    } catch {
+      commissionsRef.current = [];
       setCommissionsData([]);
+    }
+  };
+
+  const fetchWalkIns = async () => {
+    try {
+      const response = await api.get('/walk-in');
+      const data = Array.isArray(response.data) ? response.data : [];
+      walkInsRef.current = data;
+      setWalkIns(data);
+    } catch {
+      walkInsRef.current = [];
+      setWalkIns([]);
     }
   };
 
@@ -244,7 +321,7 @@ function Sales() {
   // ============================================================
 
   const getEmployeeCommissionRate = (employeeId) => {
-    const c = commissionsData.find(c => c.employee_id === employeeId);
+    const c = commissionsRef.current.find(c => c.employee_id === employeeId);
     return c ? parseFloat(c.commission_amount) : 0;
   };
 
@@ -261,6 +338,26 @@ function Sales() {
     return total;
   };
 
+  const calculateCommissionsForWalkIns = (walkInList) => {
+    let total = 0;
+    walkInList.forEach(w => {
+      const empId = w.stylist_id;
+      if (!empId) return;
+      const rate = getEmployeeCommissionRate(empId);
+      const svcRevenue =
+        w.service_revenue != null ? parseFloat(w.service_revenue) || 0
+        : w.amount_paid != null ? parseFloat(w.amount_paid) || 0
+        : w.total_amount != null ? parseFloat(w.total_amount) || 0
+        : 0;
+      total += svcRevenue * rate;
+    });
+    return total;
+  };
+
+  // ============================================================
+  // FILTER HELPERS
+  // ============================================================
+
   const applyStaffFilter = (appointments, staffValue) => {
     if (!staffValue || staffValue === 'all') return appointments;
     const target = parseInt(staffValue, 10);
@@ -271,30 +368,40 @@ function Sales() {
     });
   };
 
+  const applyWalkInStaffFilter = (list, staffValue) => {
+    if (!staffValue || staffValue === 'all') return list;
+    const target = parseInt(staffValue, 10);
+    if (isNaN(target)) return list;
+    return list.filter(w => {
+      const id = w.stylist_id;
+      return id != null && parseInt(id, 10) === target;
+    });
+  };
+
+  const filterWalkIns = (list, startDate, endDate) => {
+    if (!startDate || !endDate) return list;
+    return list.filter(w => {
+      const d = getWalkInDate(w);
+      return d && d >= startDate && d <= endDate;
+    });
+  };
+
   // ============================================================
-  // BUCKET BUILDERS
-  //
-  // ✅ Updated: only keep buckets that actually had at least one
-  //    completed appointment. This applies to ALL filters (daily,
-  //    weekly, monthly) and to both "All Staff" and per-staff views.
-  //    Buckets are also sorted chronologically ascending.
+  // BUCKET BUILDERS (walk-in revenue/commission folded in)
   // ============================================================
 
-  const buildDailyBuckets = (appointments, daysBack = 30, isAllStaff = true) => {
+  const buildDailyBuckets = (appointments, walkInList = [], daysBack = 30, isAllStaff = true) => {
     const map = {};
-
-    // Pre-seed empty buckets for the recent window so that placeholder
-    // ranges still exist, but we drop them at the end.
     const today = new Date();
     for (let i = daysBack - 1; i >= 0; i--) {
       const d = new Date(today);
       d.setDate(d.getDate() - i);
       const key = getLocalDateString(d);
       map[key] = {
-        key, date: key,
-        label: formatDailyLabel(key),
-        revenue: 0, count: 0, writtenOff: 0, expenses: 0,
-        commissions: 0, grossProfit: 0, netProfit: 0, appointments: []
+        key, date: key, label: formatDailyLabel(key),
+        revenue: 0, count: 0, walkInCount: 0, writtenOff: 0, expenses: 0,
+        commissions: 0, grossProfit: 0, netProfit: 0,
+        appointments: [], walkIns: [],
       };
     }
 
@@ -303,10 +410,10 @@ function Sales() {
       if (!dateStr) return;
       if (!map[dateStr]) {
         map[dateStr] = {
-          key: dateStr, date: dateStr,
-          label: formatDailyLabel(dateStr),
-          revenue: 0, count: 0, writtenOff: 0, expenses: 0,
-          commissions: 0, grossProfit: 0, netProfit: 0, appointments: []
+          key: dateStr, date: dateStr, label: formatDailyLabel(dateStr),
+          revenue: 0, count: 0, walkInCount: 0, writtenOff: 0, expenses: 0,
+          commissions: 0, grossProfit: 0, netProfit: 0,
+          appointments: [], walkIns: [],
         };
       }
       map[dateStr].revenue += getAppointmentRevenue(appt);
@@ -314,29 +421,48 @@ function Sales() {
       map[dateStr].appointments.push(appt);
     });
 
-    const globalExpenses = expenses.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0);
-    const totalRevenue = appointments.reduce((s, a) => s + getAppointmentRevenue(a), 0);
+    walkInList.forEach(w => {
+      const dateStr = getWalkInDate(w);
+      if (!dateStr) return;
+      if (!map[dateStr]) {
+        map[dateStr] = {
+          key: dateStr, date: dateStr, label: formatDailyLabel(dateStr),
+          revenue: 0, count: 0, walkInCount: 0, writtenOff: 0, expenses: 0,
+          commissions: 0, grossProfit: 0, netProfit: 0,
+          appointments: [], walkIns: [],
+        };
+      }
+      map[dateStr].revenue += getWalkInRevenue(w);
+      map[dateStr].walkInCount += 1;
+      map[dateStr].walkIns.push(w);
+    });
+
+    const globalExpenses = expensesRef.current.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0);
+    const totalRevenue = appointments.reduce((s, a) => s + getAppointmentRevenue(a), 0)
+      + walkInList.reduce((s, w) => s + getWalkInRevenue(w), 0);
 
     Object.keys(map).forEach(key => {
       const b = map[key];
       const w = getWrittenOffAmountForDate(key);
-      const c = calculateCommissionsForGroupedAppointments(b.appointments);
+      const apptComm = calculateCommissionsForGroupedAppointments(b.appointments);
+      const walkInComm = calculateCommissionsForWalkIns(b.walkIns);
+      const totalComm = apptComm + walkInComm;
       const e = totalRevenue > 0 ? globalExpenses * (b.revenue / totalRevenue) : 0;
       b.writtenOff = w;
-      b.commissions = c;
+      b.commissions = totalComm;
       b.expenses = isAllStaff ? e : 0;
       b.grossProfit = b.revenue - w;
-      b.netProfit = isAllStaff ? b.revenue - w - e - c : b.revenue - w - c;
+      b.netProfit = isAllStaff
+        ? b.revenue - w - e - totalComm
+        : b.revenue - w - totalComm;
     });
 
-    // ✅ Only keep buckets with at least one completed appointment,
-    //    regardless of staff filter.
     return Object.values(map)
-      .filter(b => b.count > 0)
+      .filter(b => b.count > 0 || b.walkInCount > 0)
       .sort((a, b) => a.date.localeCompare(b.date));
   };
 
-  const buildWeeklyBuckets = (appointments, weeksBack = 7, isAllStaff = true) => {
+  const buildWeeklyBuckets = (appointments, walkInList = [], weeksBack = 7, isAllStaff = true) => {
     const map = {};
     const today = new Date();
 
@@ -347,12 +473,11 @@ function Sales() {
       ws.setDate(ws.getDate() - ws.getDay());
       const key = getLocalDateString(ws);
       map[key] = {
-        key,
-        week: `Week ${weeksBack - i}`,
-        weekRange: getWeekRange(key),
-        label: getWeekRange(key),
-        revenue: 0, count: 0, writtenOff: 0, expenses: 0,
-        commissions: 0, grossProfit: 0, netProfit: 0, appointments: []
+        key, week: `Week ${weeksBack - i}`,
+        weekRange: getWeekRange(key), label: getWeekRange(key),
+        revenue: 0, count: 0, walkInCount: 0, writtenOff: 0, expenses: 0,
+        commissions: 0, grossProfit: 0, netProfit: 0,
+        appointments: [], walkIns: [],
       };
     }
 
@@ -364,8 +489,9 @@ function Sales() {
         map[ws] = {
           key: ws, week: ws,
           weekRange: getWeekRange(ws), label: getWeekRange(ws),
-          revenue: 0, count: 0, writtenOff: 0, expenses: 0,
-          commissions: 0, grossProfit: 0, netProfit: 0, appointments: []
+          revenue: 0, count: 0, walkInCount: 0, writtenOff: 0, expenses: 0,
+          commissions: 0, grossProfit: 0, netProfit: 0,
+          appointments: [], walkIns: [],
         };
       }
       map[ws].revenue += getAppointmentRevenue(appt);
@@ -373,29 +499,51 @@ function Sales() {
       map[ws].appointments.push(appt);
     });
 
-    const globalExpenses = expenses.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0);
-    const totalRevenue = appointments.reduce((s, a) => s + getAppointmentRevenue(a), 0);
+    walkInList.forEach(w => {
+      const dateStr = getWalkInDate(w);
+      if (!dateStr) return;
+      const ws = getWeekStartStr(dateStr);
+      if (!map[ws]) {
+        map[ws] = {
+          key: ws, week: ws,
+          weekRange: getWeekRange(ws), label: getWeekRange(ws),
+          revenue: 0, count: 0, walkInCount: 0, writtenOff: 0, expenses: 0,
+          commissions: 0, grossProfit: 0, netProfit: 0,
+          appointments: [], walkIns: [],
+        };
+      }
+      map[ws].revenue += getWalkInRevenue(w);
+      map[ws].walkInCount += 1;
+      map[ws].walkIns.push(w);
+    });
+
+    const globalExpenses = expensesRef.current.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0);
+    const totalRevenue = appointments.reduce((s, a) => s + getAppointmentRevenue(a), 0)
+      + walkInList.reduce((s, w) => s + getWalkInRevenue(w), 0);
 
     Object.keys(map).forEach(key => {
       const b = map[key];
       const we = getLocalDateString(new Date(new Date(key + 'T00:00:00').getTime() + 6 * 86400000));
       const w = getWrittenOffAmountForRange(key, we);
-      const c = calculateCommissionsForGroupedAppointments(b.appointments);
+      const apptComm = calculateCommissionsForGroupedAppointments(b.appointments);
+      const walkInComm = calculateCommissionsForWalkIns(b.walkIns);
+      const totalComm = apptComm + walkInComm;
       const e = totalRevenue > 0 ? globalExpenses * (b.revenue / totalRevenue) : 0;
       b.writtenOff = w;
-      b.commissions = c;
+      b.commissions = totalComm;
       b.expenses = isAllStaff ? e : 0;
       b.grossProfit = b.revenue - w;
-      b.netProfit = isAllStaff ? b.revenue - w - e - c : b.revenue - w - c;
+      b.netProfit = isAllStaff
+        ? b.revenue - w - e - totalComm
+        : b.revenue - w - totalComm;
     });
 
-    // ✅ Only keep weeks that actually had completed appointments.
     return Object.values(map)
-      .filter(b => b.count > 0)
+      .filter(b => b.count > 0 || b.walkInCount > 0)
       .sort((a, b) => a.key.localeCompare(b.key));
   };
 
-  const buildMonthlyBuckets = (appointments, monthsBack = 6, isAllStaff = true) => {
+  const buildMonthlyBuckets = (appointments, walkInList = [], monthsBack = 6, isAllStaff = true) => {
     const map = {};
     const today = new Date();
 
@@ -406,8 +554,9 @@ function Sales() {
         key,
         month: d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
         label: d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
-        revenue: 0, count: 0, writtenOff: 0, expenses: 0,
-        commissions: 0, grossProfit: 0, netProfit: 0, appointments: []
+        revenue: 0, count: 0, walkInCount: 0, writtenOff: 0, expenses: 0,
+        commissions: 0, grossProfit: 0, netProfit: 0,
+        appointments: [], walkIns: [],
       };
     }
 
@@ -422,8 +571,9 @@ function Sales() {
           key: mk,
           month: d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
           label: d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
-          revenue: 0, count: 0, writtenOff: 0, expenses: 0,
-          commissions: 0, grossProfit: 0, netProfit: 0, appointments: []
+          revenue: 0, count: 0, walkInCount: 0, writtenOff: 0, expenses: 0,
+          commissions: 0, grossProfit: 0, netProfit: 0,
+          appointments: [], walkIns: [],
         };
       }
       map[mk].revenue += getAppointmentRevenue(appt);
@@ -431,8 +581,30 @@ function Sales() {
       map[mk].appointments.push(appt);
     });
 
-    const globalExpenses = expenses.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0);
-    const totalRevenue = appointments.reduce((s, a) => s + getAppointmentRevenue(a), 0);
+    walkInList.forEach(w => {
+      const dateStr = getWalkInDate(w);
+      if (!dateStr) return;
+      const mk = getMonthKey(dateStr);
+      if (!map[mk]) {
+        const [y, m] = mk.split('-').map(Number);
+        const d = new Date(y, m - 1, 1);
+        map[mk] = {
+          key: mk,
+          month: d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+          label: d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+          revenue: 0, count: 0, walkInCount: 0, writtenOff: 0, expenses: 0,
+          commissions: 0, grossProfit: 0, netProfit: 0,
+          appointments: [], walkIns: [],
+        };
+      }
+      map[mk].revenue += getWalkInRevenue(w);
+      map[mk].walkInCount += 1;
+      map[mk].walkIns.push(w);
+    });
+
+    const globalExpenses = expensesRef.current.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0);
+    const totalRevenue = appointments.reduce((s, a) => s + getAppointmentRevenue(a), 0)
+      + walkInList.reduce((s, w) => s + getWalkInRevenue(w), 0);
 
     Object.keys(map).forEach(key => {
       const b = map[key];
@@ -440,18 +612,21 @@ function Sales() {
       const ms = `${key}-01`;
       const me = getLocalDateString(new Date(year, month, 0));
       const w = getWrittenOffAmountForRange(ms, me);
-      const c = calculateCommissionsForGroupedAppointments(b.appointments);
+      const apptComm = calculateCommissionsForGroupedAppointments(b.appointments);
+      const walkInComm = calculateCommissionsForWalkIns(b.walkIns);
+      const totalComm = apptComm + walkInComm;
       const e = totalRevenue > 0 ? globalExpenses * (b.revenue / totalRevenue) : 0;
       b.writtenOff = w;
-      b.commissions = c;
+      b.commissions = totalComm;
       b.expenses = isAllStaff ? e : 0;
       b.grossProfit = b.revenue - w;
-      b.netProfit = isAllStaff ? b.revenue - w - e - c : b.revenue - w - c;
+      b.netProfit = isAllStaff
+        ? b.revenue - w - e - totalComm
+        : b.revenue - w - totalComm;
     });
 
-    // ✅ Only keep months that actually had completed appointments.
     return Object.values(map)
-      .filter(b => b.count > 0)
+      .filter(b => b.count > 0 || b.walkInCount > 0)
       .sort((a, b) => a.key.localeCompare(b.key));
   };
 
@@ -490,18 +665,33 @@ function Sales() {
           );
         }
 
-        const totalRevenue = filtered.reduce((s, a) => s + getAppointmentRevenue(a), 0);
-        const totalAppointments = filtered.length;
-        const averageRevenue = totalAppointments > 0 ? totalRevenue / totalAppointments : 0;
+        const scopedWalkIns = applyWalkInStaffFilter(
+          filterWalkIns(walkInsRef.current, dateRange.startDate, dateRange.endDate),
+          activeStaff
+        );
 
-        const totalWrittenOff = reports
+        const apptRevenue = filtered.reduce((s, a) => s + getAppointmentRevenue(a), 0);
+        const walkInRevenue = scopedWalkIns.reduce((s, w) => s + getWalkInRevenue(w), 0);
+        const totalRevenue = apptRevenue + walkInRevenue;
+
+        const totalAppointments = filtered.length;
+        const totalWalkInCount = scopedWalkIns.length;
+        const averageRevenue =
+          totalAppointments + totalWalkInCount > 0
+            ? totalRevenue / (totalAppointments + totalWalkInCount)
+            : 0;
+
+        const totalWrittenOff = reportsRef.current
           .filter(r => r.status === 'written-off')
           .reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
 
-        const globalExpenses = expenses.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0);
+        const globalExpenses = expensesRef.current.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0);
         const totalExpenses = isAllStaff ? globalExpenses : 0;
 
-        const totalCommissions = calculateCommissionsForGroupedAppointments(filtered);
+        const totalApptCommissions = calculateCommissionsForGroupedAppointments(filtered);
+        const totalWalkInCommissions = calculateCommissionsForWalkIns(scopedWalkIns);
+        const totalCommissions = totalApptCommissions + totalWalkInCommissions;
+
         const grossProfit = totalRevenue - totalWrittenOff;
         const netProfit = isAllStaff
           ? grossProfit - globalExpenses - totalCommissions
@@ -512,17 +702,20 @@ function Sales() {
           totalRevenue,
           totalAppointments,
           averageRevenue,
-          dailyData: buildDailyBuckets(filtered, 30, isAllStaff),
-          weeklyData: buildWeeklyBuckets(filtered, 7, isAllStaff),
-          monthlyData: buildMonthlyBuckets(filtered, 6, isAllStaff),
+          dailyData: buildDailyBuckets(filtered, scopedWalkIns, 30, isAllStaff),
+          weeklyData: buildWeeklyBuckets(filtered, scopedWalkIns, 7, isAllStaff),
+          monthlyData: buildMonthlyBuckets(filtered, scopedWalkIns, 6, isAllStaff),
           totalWrittenOff,
           grossProfit,
           netProfit,
           totalExpenses,
-          totalCommissions
+          totalCommissions,
+          totalWalkInRevenue: walkInRevenue,
+          totalWalkInCount,
+          totalWalkInCommissions,
         }));
       }
-    } catch (error) {
+    } catch {
       showToast('Failed to fetch sales data', 'error');
     } finally {
       setIsLoadingSales(false);
@@ -555,29 +748,38 @@ function Sales() {
 
         filtered = applyStaffFilter(filtered, activeStaff);
 
-        const totalRevenue = filtered.reduce((s, a) => s + getAppointmentRevenue(a), 0);
-        const totalAppointments = filtered.length;
+        const scopedWalkIns = applyWalkInStaffFilter(
+          filterWalkIns(walkInsRef.current, dateRange.startDate, dateRange.endDate),
+          activeStaff
+        );
 
-        const totalWrittenOff = reports
+        const apptRevenue = filtered.reduce((s, a) => s + getAppointmentRevenue(a), 0);
+        const walkInRevenue = scopedWalkIns.reduce((s, w) => s + getWalkInRevenue(w), 0);
+        const totalRevenue = apptRevenue + walkInRevenue;
+
+        const totalAppointments = filtered.length;
+        const totalWalkInCount = scopedWalkIns.length;
+
+        const totalWrittenOff = reportsRef.current
           .filter(r => r.status === 'written-off')
           .reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
 
-        const globalExpenses = expenses.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0);
+        const globalExpenses = expensesRef.current.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0);
         const totalExpenses = isAllStaff ? globalExpenses : 0;
-        const totalCommissions = calculateCommissionsForGroupedAppointments(filtered);
+
+        const totalApptCommissions = calculateCommissionsForGroupedAppointments(filtered);
+        const totalWalkInCommissions = calculateCommissionsForWalkIns(scopedWalkIns);
+        const totalCommissions = totalApptCommissions + totalWalkInCommissions;
+
         const grossProfit = totalRevenue - totalWrittenOff;
         const netProfit = isAllStaff
           ? grossProfit - globalExpenses - totalCommissions
           : grossProfit - totalCommissions;
 
         let profitData = [];
-        if (profitFilter === 'daily') {
-          profitData = buildDailyBuckets(filtered, 7, isAllStaff);
-        } else if (profitFilter === 'weekly') {
-          profitData = buildWeeklyBuckets(filtered, 7, isAllStaff);
-        } else {
-          profitData = buildMonthlyBuckets(filtered, 6, isAllStaff);
-        }
+        if (profitFilter === 'daily') profitData = buildDailyBuckets(filtered, scopedWalkIns, 7, isAllStaff);
+        else if (profitFilter === 'weekly') profitData = buildWeeklyBuckets(filtered, scopedWalkIns, 7, isAllStaff);
+        else profitData = buildMonthlyBuckets(filtered, scopedWalkIns, 6, isAllStaff);
 
         setSalesData(prev => ({
           ...prev,
@@ -588,12 +790,17 @@ function Sales() {
           netProfit,
           totalExpenses,
           totalCommissions,
+          totalWalkInRevenue: walkInRevenue,
+          totalWalkInCount,
+          totalWalkInCommissions,
           dailyData: profitFilter === 'daily' ? profitData : prev.dailyData,
           weeklyData: profitFilter === 'weekly' ? profitData : prev.weeklyData,
-          monthlyData: profitFilter === 'monthly' ? profitData : prev.monthlyData
+          monthlyData: profitFilter === 'monthly' ? profitData : prev.monthlyData,
         }));
+
+        setCurrentPage(1);
       }
-    } catch (error) {
+    } catch {
       showToast('Failed to fetch profit data', 'error');
     } finally {
       setIsLoadingProfit(false);
@@ -627,19 +834,34 @@ function Sales() {
     setSelectedService('all');
     setDateRange({ startDate: '', endDate: '' });
     setShowDateFilter(false);
+    setCurrentPage(1);
     showToast('Filters reset', 'success');
     fetchProfitData('all');
   };
 
   const handleStaffFilterChange = (value) => {
     setSelectedStaff(value);
+    setCurrentPage(1);
     fetchProfitData(value);
   };
 
   const handleProfitFilterChange = (value) => {
     setProfitFilter(value);
+    setCurrentPage(1);
     setTimeout(() => fetchProfitData(), 0);
   };
+
+  // ============================================================
+  // PAGINATION
+  // ============================================================
+
+  const allProfitData = getProfitData();
+  const totalPages = Math.ceil(allProfitData.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const paginatedData = allProfitData.slice(startIndex, startIndex + itemsPerPage);
+
+  const handleNextPage = () => { if (currentPage < totalPages) setCurrentPage(prev => prev + 1); };
+  const handlePrevPage = () => { if (currentPage > 1) setCurrentPage(prev => prev - 1); };
 
   // ============================================================
   // EXPORTS
@@ -689,6 +911,7 @@ function Sales() {
           <td>${label}</td>
           <td class="currency">₱${formatCurrency(item.revenue)}</td>
           <td class="currency">${item.count}</td>
+          <td class="currency">${item.walkInCount || 0}</td>
           <td class="currency">₱${formatCurrency(item.writtenOff || 0)}</td>
           <td class="currency">₱${formatCurrency(item.expenses || 0)}</td>
           <td class="currency">₱${formatCurrency(item.commissions || 0)}</td>
@@ -710,7 +933,8 @@ function Sales() {
             </div>
             <div class="summary-box">
               <div class="summary-item"><div class="label">Total Revenue</div><div class="value">₱${formatCurrency(salesData.totalRevenue)}</div></div>
-              <div class="summary-item"><div class="label">Total Appointments</div><div class="value">${formatNumber(salesData.totalAppointments)}</div></div>
+              <div class="summary-item"><div class="label">Appointments</div><div class="value">${formatNumber(salesData.totalAppointments)}</div></div>
+              <div class="summary-item"><div class="label">Walk-ins</div><div class="value">${formatNumber(salesData.totalWalkInCount)} (₱${formatCurrency(salesData.totalWalkInRevenue)})</div></div>
               <div class="summary-item"><div class="label">Incidents</div><div class="value">₱${formatCurrency(salesData.totalWrittenOff)}</div></div>
               <div class="summary-item"><div class="label">Total Expenses</div><div class="value">₱${formatCurrency(salesData.totalExpenses)}</div></div>
               <div class="summary-item"><div class="label">Commissions</div><div class="value">₱${formatCurrency(salesData.totalCommissions)}</div></div>
@@ -724,6 +948,7 @@ function Sales() {
                     <th>Period</th>
                     <th style="text-align:right;">Revenue (₱)</th>
                     <th style="text-align:right;">Appointments</th>
+                    <th style="text-align:right;">Walk-ins (#)</th>
                     <th style="text-align:right;">Incidents (₱)</th>
                     <th style="text-align:right;">Expenses (₱)</th>
                     <th style="text-align:right;">Commissions (₱)</th>
@@ -731,13 +956,14 @@ function Sales() {
                   </tr>
                 </thead>
                 <tbody>
-                  ${profitRows || '<tr><td colspan="7" style="text-align:center;color:#999;">No data available</td></tr>'}
+                  ${profitRows || '<tr><td colspan="8" style="text-align:center;color:#999;">No data available</td></tr>'}
                 </tbody>
                 <tfoot>
                   <tr class="total-row">
                     <td>Total</td>
                     <td class="currency">₱${formatCurrency(salesData.totalRevenue)}</td>
                     <td class="currency">${formatNumber(salesData.totalAppointments)}</td>
+                    <td class="currency">${formatNumber(salesData.totalWalkInCount)}</td>
                     <td class="currency">₱${formatCurrency(salesData.totalWrittenOff)}</td>
                     <td class="currency">₱${formatCurrency(salesData.totalExpenses)}</td>
                     <td class="currency">₱${formatCurrency(salesData.totalCommissions)}</td>
@@ -776,18 +1002,19 @@ function Sales() {
     csv += `"=== SUMMARY ===\n"`;
     csv += `"Total Revenue","₱${formatCurrency(salesData.totalRevenue)}"\n`;
     csv += `"Total Appointments","${formatNumber(salesData.totalAppointments)}"\n`;
+    csv += `"Total Walk-ins","${formatNumber(salesData.totalWalkInCount)} (₱${formatCurrency(salesData.totalWalkInRevenue)})"\n`;
     csv += `"Total Incidents","₱${formatCurrency(salesData.totalWrittenOff)}"\n`;
     csv += `"Total Expenses","₱${formatCurrency(salesData.totalExpenses)}"\n`;
     csv += `"Commissions","₱${formatCurrency(salesData.totalCommissions)}"\n`;
     csv += `"Net Profit","₱${formatCurrency(salesData.netProfit)}"\n`;
     csv += `\n`;
     csv += `"=== PROFIT REPORT (${profitFilter.charAt(0).toUpperCase() + profitFilter.slice(1)}) ===\n"`;
-    csv += `"Period","Revenue","Appointments","Incidents","Expenses","Commissions","Net Profit"\n`;
+    csv += `"Period","Revenue","Appointments","Walk-ins (#)","Incidents","Expenses","Commissions","Net Profit"\n`;
     profitData.forEach(item => {
       const label = item.weekRange || item.month || item.label || item.date || item.week;
-      csv += `"${label}","${item.revenue}","${item.count}","${item.writtenOff || 0}","${item.expenses || 0}","${item.commissions || 0}","${item.netProfit || 0}"\n`;
+      csv += `"${label}","${item.revenue}","${item.count}","${item.walkInCount || 0}","${item.writtenOff || 0}","${item.expenses || 0}","${item.commissions || 0}","${item.netProfit || 0}"\n`;
     });
-    csv += `"TOTAL","${salesData.totalRevenue}","${formatNumber(salesData.totalAppointments)}","${salesData.totalWrittenOff}","${salesData.totalExpenses}","${salesData.totalCommissions}","${salesData.netProfit}"\n`;
+    csv += `"TOTAL","${salesData.totalRevenue}","${formatNumber(salesData.totalAppointments)}","${formatNumber(salesData.totalWalkInCount)}","${salesData.totalWrittenOff}","${salesData.totalExpenses}","${salesData.totalCommissions}","${salesData.netProfit}"\n`;
     csv += `\n\n`;
     csv += `"Report generated on:",${new Date().toLocaleString()}\n`;
     csv += `"All amounts are in Philippine Pesos (₱)"\n`;
@@ -809,36 +1036,36 @@ function Sales() {
   // ============================================================
 
   useEffect(() => {
-    fetchReports();
-    fetchStaffList();
-    fetchServices();
-    fetchExpenses();
-    fetchCommissions();
+    (async () => {
+      await Promise.all([
+        fetchReports(),
+        fetchStaffList(),
+        fetchServices(),
+        fetchExpenses(),
+        fetchCommissions(),
+        fetchWalkIns(),
+      ]);
+      await Promise.all([fetchSalesData(), fetchProfitData()]);
+    })();
   }, []);
-
-  useEffect(() => {
-    if (reports.length > 0 || reports.length === 0) {
-      fetchSalesData();
-    }
-  }, [reports]);
 
   const handleRefresh = async () => {
     await Promise.all([
       fetchReports(),
-      fetchSalesData(),
       fetchExpenses(),
-      fetchCommissions()
+      fetchCommissions(),
+      fetchWalkIns(),
     ]);
-    fetchProfitData();
+    await Promise.all([fetchSalesData(), fetchProfitData()]);
     showToast('Data refreshed successfully!', 'success');
   };
 
-  if (isLoadingSales && salesData.totalAppointments === 0) {
+  if (isLoadingSales && salesData.totalAppointments === 0 && salesData.totalWalkInCount === 0) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
-          <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-gray-500">Loading sales data...</p>
+          <div className="w-10 h-10 border-[3px] border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+          <p className="text-xs text-slate-500">Loading sales data...</p>
         </div>
       </div>
     );
@@ -846,57 +1073,67 @@ function Sales() {
 
   return (
     <div className="space-y-6">
-      {toast.show && (
-        <div className="fixed top-4 right-4 z-50 animate-slide-in">
-          <div className={`rounded-lg shadow-lg p-4 flex items-center gap-3 ${
-            toast.type === 'success' ? 'bg-green-500' : 'bg-red-500'
-          } text-white min-w-[300px]`}>
-            {toast.type === 'success' ? <CheckCircle size={20} /> : <AlertTriangle size={20} />}
-            <span>{toast.message}</span>
+      {toast.show && <Toast message={toast.message} type={toast.type} onClose={() => setToast({ ...toast, show: false })} />}
+
+      {/* Page header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-md">
+            <BarChart3 size={20} className="text-white" />
+          </div>
+          <div>
+            <h2 className="text-lg font-bold text-slate-800">Income Report</h2>
+            <p className="text-xs text-slate-500">
+              Revenue and appointment statistics{selectedStaff !== 'all' && ` — ${getSelectedStaffName()}`}
+            </p>
           </div>
         </div>
-      )}
-
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
-            <BarChart3 size={24} className="text-blue-500" />
-            Income Report
-          </h2>
-          <p className="text-sm text-gray-500 mt-1">
-            Revenue and appointment statistics {selectedStaff !== 'all' && `— ${getSelectedStaffName()}`}
-          </p>
-        </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <button onClick={handleRefresh} className="px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors flex items-center gap-2">
-            <RefreshCw size={16} />
-            <span className="text-sm">Refresh</span>
+          <button
+            onClick={handleRefresh}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-slate-50 border border-slate-200 text-slate-700 rounded-xl hover:bg-slate-100 transition-all text-xs font-semibold"
+          >
+            <RefreshCw size={14} />
+            <span>Refresh</span>
           </button>
-          <button onClick={resetFilters} className="px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors flex items-center gap-2">
-            <X size={16} />
-            <span className="text-sm">Reset Filters</span>
+          <button
+            onClick={resetFilters}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-slate-50 border border-slate-200 text-slate-700 rounded-xl hover:bg-slate-100 transition-all text-xs font-semibold"
+          >
+            <X size={14} />
+            <span>Reset Filters</span>
           </button>
-          <button onClick={downloadSalesReport} className="px-3 py-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors flex items-center gap-2" title="Download CSV">
-            <Download size={18} />
-            <span className="text-sm hidden sm:inline">CSV</span>
+          <button
+            onClick={downloadSalesReport}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-slate-50 border border-slate-200 text-slate-700 rounded-xl hover:bg-slate-100 transition-all text-xs font-semibold"
+            title="Download CSV"
+          >
+            <Download size={14} />
+            <span className="hidden sm:inline">CSV</span>
           </button>
-          <button onClick={exportAsPDF} className="px-3 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors flex items-center gap-2" title="Export as PDF">
-            <Printer size={18} />
-            <span className="text-sm hidden sm:inline">PDF</span>
+          <button
+            onClick={exportAsPDF}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl shadow-sm shadow-blue-500/30 hover:shadow-md transition-all text-xs font-semibold"
+            title="Export as PDF"
+          >
+            <Printer size={14} />
+            <span className="hidden sm:inline">PDF</span>
           </button>
         </div>
       </div>
 
       {/* Date Range Filter */}
-      <div className="flex flex-wrap items-center gap-3 p-3 bg-white rounded-xl shadow-sm border border-gray-100">
-        <button onClick={() => setShowDateFilter(!showDateFilter)} className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-3 p-3 bg-white rounded-2xl shadow-sm border border-slate-200/70">
+        <button
+          onClick={() => setShowDateFilter(!showDateFilter)}
+          className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-slate-700 bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100 transition-all"
+        >
           <Filter size={14} />
           <span>Date Range</span>
-          {(dateRange.startDate || dateRange.endDate) && <span className="w-2 h-2 bg-blue-500 rounded-full"></span>}
+          {(dateRange.startDate || dateRange.endDate) && <span className="w-1.5 h-1.5 bg-blue-500 rounded-full" />}
         </button>
         {(dateRange.startDate || dateRange.endDate) && (
-          <span className="text-sm text-gray-500">
+          <span className="text-xs text-slate-500">
             {dateRange.startDate && `From: ${formatDate(dateRange.startDate)}`}
             {dateRange.startDate && dateRange.endDate && ' | '}
             {dateRange.endDate && `To: ${formatDate(dateRange.endDate)}`}
@@ -905,101 +1142,228 @@ function Sales() {
       </div>
 
       {showDateFilter && (
-        <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg border border-gray-200 flex-wrap">
+        <div className="flex items-center gap-3 p-4 bg-slate-50/60 rounded-2xl border border-slate-200 flex-wrap">
           <div className="flex items-center gap-2">
-            <span className="text-sm text-gray-600">From:</span>
-            <input type="date" value={dateRange.startDate} onChange={(e) => setDateRange(prev => ({ ...prev, startDate: e.target.value }))} className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <span className="text-xs font-semibold text-slate-600">From:</span>
+            <input
+              type="date"
+              value={dateRange.startDate}
+              onChange={(e) => setDateRange(prev => ({ ...prev, startDate: e.target.value }))}
+              className="px-3 py-1.5 text-sm bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-pink-500"
+            />
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-sm text-gray-600">To:</span>
-            <input type="date" value={dateRange.endDate} onChange={(e) => setDateRange(prev => ({ ...prev, endDate: e.target.value }))} className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <span className="text-xs font-semibold text-slate-600">To:</span>
+            <input
+              type="date"
+              value={dateRange.endDate}
+              onChange={(e) => setDateRange(prev => ({ ...prev, endDate: e.target.value }))}
+              className="px-3 py-1.5 text-sm bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-pink-500"
+            />
           </div>
-          <button onClick={clearDateFilter} className="px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 rounded-lg transition-colors">Clear</button>
-          <button onClick={() => { setShowDateFilter(false); fetchProfitData(); }} className="px-3 py-1.5 text-sm bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors">Apply</button>
+          <button onClick={clearDateFilter} className="px-3 py-1.5 text-xs font-semibold text-red-600 bg-red-50 border border-red-100 rounded-xl hover:bg-red-100 transition-colors">
+            Clear
+          </button>
+          <button
+            onClick={() => { setShowDateFilter(false); fetchProfitData(); }}
+            className="px-3.5 py-1.5 text-xs font-semibold text-white bg-gradient-to-r from-pink-500 to-pink-600 rounded-xl shadow-sm shadow-pink-500/25 hover:shadow-md transition-all"
+          >
+            Apply
+          </button>
         </div>
       )}
 
+      {/* KPI stats */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
+        <StatCard
+          label="Total Revenue"
+          value={`₱${formatCurrency(salesData.totalRevenue)}`}
+          sub={`${formatNumber(salesData.totalAppointments)} appts · ${formatNumber(salesData.totalWalkInCount)} walk-ins`}
+          icon={TrendingUp}
+          color="from-emerald-500 to-emerald-600"
+        />
+        <StatCard
+          label="Walk-in Revenue"
+          value={`₱${formatCurrency(salesData.totalWalkInRevenue)}`}
+          sub={`${formatNumber(salesData.totalWalkInCount)} walk-in${salesData.totalWalkInCount === 1 ? '' : 's'}`}
+          icon={Footprints}
+          color="from-cyan-500 to-sky-600"
+        />
+        <StatCard
+          label="Avg per Visit"
+          value={`₱${formatCurrency(salesData.averageRevenue)}`}
+          sub="Appointments + walk-ins"
+          icon={Scissors}
+          color="from-blue-500 to-indigo-600"
+        />
+        <StatCard
+          label="Incidents / Write-offs"
+          value={`₱${formatCurrency(salesData.totalWrittenOff)}`}
+          sub="Deducted from gross"
+          icon={AlertTriangle}
+          color="from-amber-500 to-amber-600"
+          badge={salesData.totalWrittenOff > 0 ? 'Attention' : null}
+          badgeClass="bg-amber-50 text-amber-600"
+        />
+        <StatCard
+          label="Net Profit"
+          value={`₱${formatCurrency(salesData.netProfit)}`}
+          sub={`Gross ₱${formatCurrency(salesData.grossProfit)} − costs`}
+          icon={salesData.netProfit >= 0 ? TrendingUp : TrendingDown}
+          color={salesData.netProfit >= 0 ? 'from-pink-500 to-fuchsia-600' : 'from-red-500 to-rose-600'}
+        />
+      </div>
+
       <div id="sales-report-content">
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-100">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <FileText size={20} className="text-blue-500" />
-                <h3 className="text-lg font-semibold text-gray-800">Profit Report</h3>
+        {/* Profit Report Panel */}
+        <section className="bg-white rounded-2xl border border-slate-200/70 shadow-sm overflow-hidden">
+          <div className="px-5 py-4 border-b border-slate-100 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-blue-50 flex items-center justify-center">
+                <FileText size={17} className="text-blue-500" />
               </div>
-              <div className="flex items-center gap-3 flex-wrap">
-                <div className="flex items-center gap-2">
-                  <Users size={14} className="text-gray-400" />
-                  <select value={selectedStaff} onChange={(e) => handleStaffFilterChange(e.target.value)} className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
-                    <option value="all">All Staff</option>
-                    {staffList.map((staff) => (
-                      <option key={staff.id} value={staff.id}>{staff.name}</option>
-                    ))}
-                  </select>
-                </div>
-                <select value={profitFilter} onChange={(e) => handleProfitFilterChange(e.target.value)} className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
-                  <option value="daily">Daily</option>
-                  <option value="weekly">Weekly</option>
-                  <option value="monthly">Monthly</option>
+              <div>
+                <h3 className="text-sm font-semibold text-slate-800">Profit Report</h3>
+                <p className="text-[11px] text-slate-500">
+                  {profitFilter.charAt(0).toUpperCase() + profitFilter.slice(1)} breakdown · {allProfitData.length} entries
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl">
+                <Users size={14} className="text-slate-400" />
+                <select
+                  value={selectedStaff}
+                  onChange={(e) => handleStaffFilterChange(e.target.value)}
+                  className="bg-transparent text-xs font-medium text-slate-700 focus:outline-none"
+                >
+                  <option value="all">All Staff</option>
+                  {staffList.map((staff) => (
+                    <option key={staff.id} value={staff.id}>{staff.name}</option>
+                  ))}
                 </select>
-                <span className="text-xs text-gray-500">{getProfitData().length} entries</span>
+              </div>
+
+              <div className="inline-flex bg-slate-100 rounded-xl p-1">
+                {['daily', 'weekly', 'monthly'].map((mode) => (
+                  <button
+                    key={mode}
+                    onClick={() => handleProfitFilterChange(mode)}
+                    className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all capitalize ${
+                      profitFilter === mode
+                        ? 'bg-white text-pink-600 shadow-sm'
+                        : 'text-slate-500 hover:text-slate-700'
+                    }`}
+                  >
+                    {mode}
+                  </button>
+                ))}
               </div>
             </div>
           </div>
-          <div className="overflow-x-auto p-4">
+
+          <div className="overflow-x-auto">
             {isLoadingProfit ? (
               <div className="flex items-center justify-center h-48">
-                <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                <div className="w-8 h-8 border-[3px] border-pink-500 border-t-transparent rounded-full animate-spin" />
               </div>
-            ) : getProfitData().length === 0 ? (
-              <div className="text-center py-12">
-                <BarChart3 size={48} className="text-gray-300 mx-auto mb-3" />
-                <p className="text-sm text-gray-400">No sales data available</p>
-              </div>
+            ) : allProfitData.length === 0 ? (
+              <EmptyState
+                icon={BarChart3}
+                title="No sales data available"
+                subtitle="Try adjusting the date range or filters"
+              />
             ) : (
-              <table className="w-full">
-                <thead className="bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Period</th>
-                    <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">Revenue (₱)</th>
-                    <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">Appointments</th>
-                    <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">Incidents (₱)</th>
-                    <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">Costs (₱)</th>
-                    <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">Commissions (₱)</th>
-                    <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">Net Profit (₱)</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {getProfitData().map((item, index) => {
-                    const label = item.weekRange || item.month || item.label || item.date || item.week;
-                    return (
-                      <tr key={index} className="hover:bg-gray-50/50 transition-colors">
-                        <td className="px-4 py-3 text-sm font-medium text-black">{label}</td>
-                        <td className="px-4 py-3 text-sm font-semibold text-black text-right tabular-nums">{formatCurrency(item.revenue)}</td>
-                        <td className="px-4 py-3 text-sm text-black text-right tabular-nums">{item.count}</td>
-                        <td className="px-4 py-3 text-sm font-semibold text-black text-right tabular-nums">{formatCurrency(item.writtenOff || 0)}</td>
-                        <td className="px-4 py-3 text-sm text-black text-right tabular-nums">{formatCurrency(item.expenses || 0)}</td>
-                        <td className="px-4 py-3 text-sm text-black text-right tabular-nums">{formatCurrency(item.commissions || 0)}</td>
-                        <td className="px-4 py-3 text-sm font-bold text-black text-right tabular-nums">{formatCurrency(item.netProfit || 0)}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-                <tfoot className="bg-gray-50 border-t border-gray-200">
-                  <tr>
-                    <td className="px-4 py-3 text-sm font-bold text-black">Total</td>
-                    <td className="px-4 py-3 text-sm font-bold text-black text-right tabular-nums">{formatCurrency(salesData.totalRevenue)}</td>
-                    <td className="px-4 py-3 text-sm font-bold text-black text-right tabular-nums">{formatNumber(salesData.totalAppointments)}</td>
-                    <td className="px-4 py-3 text-sm font-bold text-black text-right tabular-nums">{formatCurrency(salesData.totalWrittenOff)}</td>
-                    <td className="px-4 py-3 text-sm font-bold text-black text-right tabular-nums">{formatCurrency(salesData.totalExpenses)}</td>
-                    <td className="px-4 py-3 text-sm font-bold text-black text-right tabular-nums">{formatCurrency(salesData.totalCommissions)}</td>
-                    <td className="px-4 py-3 text-sm font-bold text-black text-right tabular-nums">{formatCurrency(salesData.netProfit)}</td>
-                  </tr>
-                </tfoot>
-              </table>
+              <>
+                <table className="w-full">
+                  <thead className="bg-slate-50/80">
+                    <tr>
+                      {[
+                        'Period',
+                        'Revenue (₱)',
+                        'Appointments',
+                        'Walk-ins (#)',
+                        'Incidents (₱)',
+                        'Costs (₱)',
+                        'Commissions (₱)',
+                        'Net Profit (₱)',
+                      ].map((h, i) => (
+                        <th
+                          key={h}
+                          className={`px-4 py-3 text-[10px] font-semibold text-slate-500 uppercase tracking-wider ${i === 0 ? 'text-left' : 'text-right'}`}
+                        >
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {paginatedData.map((item, index) => {
+                      const label = item.weekRange || item.month || item.label || item.date || item.week;
+                      return (
+                        <tr key={index} className="hover:bg-pink-50/40 transition-colors">
+                          <td className="px-4 py-3 text-xs font-semibold text-black whitespace-nowrap">{label}</td>
+                          <td className="px-4 py-3 text-xs font-semibold text-black text-right tabular-nums">{formatCurrency(item.revenue)}</td>
+                          <td className="px-4 py-3 text-xs text-black text-right tabular-nums">{item.count}</td>
+                          <td className="px-4 py-3 text-xs text-black text-right tabular-nums">{item.walkInCount || 0}</td>
+                          <td className="px-4 py-3 text-xs font-semibold text-black text-right tabular-nums">{formatCurrency(item.writtenOff || 0)}</td>
+                          <td className="px-4 py-3 text-xs text-black text-right tabular-nums">{formatCurrency(item.expenses || 0)}</td>
+                          <td className="px-4 py-3 text-xs text-black text-right tabular-nums">{formatCurrency(item.commissions || 0)}</td>
+                          <td className={`px-4 py-3 text-xs font-bold text-right tabular-nums ${(item.netProfit || 0) >= 0 ? 'text-black' : 'text-red-600'}`}>
+                            {formatCurrency(item.netProfit || 0)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot className="bg-slate-50 border-t border-slate-200">
+                    <tr>
+                      <td className="px-4 py-3 text-xs font-bold text-black uppercase tracking-wider">Total</td>
+                      <td className="px-4 py-3 text-xs font-bold text-black text-right tabular-nums">{formatCurrency(salesData.totalRevenue)}</td>
+                      <td className="px-4 py-3 text-xs font-bold text-black text-right tabular-nums">{formatNumber(salesData.totalAppointments)}</td>
+                      <td className="px-4 py-3 text-xs font-bold text-black text-right tabular-nums">{formatNumber(salesData.totalWalkInCount)}</td>
+                      <td className="px-4 py-3 text-xs font-bold text-black text-right tabular-nums">{formatCurrency(salesData.totalWrittenOff)}</td>
+                      <td className="px-4 py-3 text-xs font-bold text-black text-right tabular-nums">{formatCurrency(salesData.totalExpenses)}</td>
+                      <td className="px-4 py-3 text-xs font-bold text-black text-right tabular-nums">{formatCurrency(salesData.totalCommissions)}</td>
+                      <td className={`px-4 py-3 text-xs font-bold text-right tabular-nums ${salesData.netProfit >= 0 ? 'text-black' : 'text-red-600'}`}>
+                        {formatCurrency(salesData.netProfit)}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+
+                {/* Pagination */}
+                <div className="flex items-center justify-between px-4 py-3 bg-white border-t border-slate-100 flex-wrap gap-3">
+                  <div className="text-[11px] text-slate-500">
+                    Showing <span className="font-semibold text-slate-700">{startIndex + 1}</span> to{' '}
+                    <span className="font-semibold text-slate-700">{Math.min(startIndex + itemsPerPage, allProfitData.length)}</span> of{' '}
+                    <span className="font-semibold text-slate-700">{allProfitData.length}</span> entries
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={handlePrevPage}
+                      disabled={currentPage === 1}
+                      className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      <ChevronLeft size={16} />
+                    </button>
+                    <span className="text-xs text-slate-600 px-3 font-semibold">
+                      Page {currentPage} of {totalPages || 1}
+                    </span>
+                    <button
+                      onClick={handleNextPage}
+                      disabled={currentPage >= totalPages}
+                      className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      <ChevronRight size={16} />
+                    </button>
+                  </div>
+                </div>
+              </>
             )}
           </div>
-        </div>
+        </section>
       </div>
     </div>
   );

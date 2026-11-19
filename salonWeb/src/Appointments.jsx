@@ -1,15 +1,32 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { 
+import {
   Calendar, Scissors, Plus, Filter,
   ChevronLeft, ChevronRight, Search,
   User, Clock, Phone, Edit, Trash2, MoreVertical,
   CheckCircle, XCircle, AlertCircle, Eye, X, Save,
   Settings, Clock as ClockIcon, Sun, Moon, Users as UsersIcon,
   Image as ImageIcon, FileText, CreditCard, RefreshCw,
-  CalendarClock, CalendarX2, Inbox
+  CalendarClock, CalendarX2, Inbox, Sparkles, TrendingUp,
+  ArrowUpRight, ArrowDownRight, Minus, Crown, Award
 } from 'lucide-react';
 import api from '../api/axios';
+
+// ─────────────────────────────────────────────────────────────
+// Design tokens (mirrors Dashboard.jsx)
+// ─────────────────────────────────────────────────────────────
+const STATUS_STYLES = {
+  confirmed: { pill: 'bg-emerald-50 text-emerald-700 border-emerald-200', dot: 'bg-emerald-500', soft: 'bg-emerald-50 text-emerald-700' },
+  pending:   { pill: 'bg-amber-50 text-amber-700 border-amber-200',       dot: 'bg-amber-500',   soft: 'bg-amber-50 text-amber-700' },
+  completed: { pill: 'bg-blue-50 text-blue-700 border-blue-200',         dot: 'bg-blue-500',    soft: 'bg-blue-50 text-blue-700' },
+  cancelled: { pill: 'bg-red-50 text-red-700 border-red-200',           dot: 'bg-red-500',     soft: 'bg-red-50 text-red-700' },
+};
+const DEFAULT_STATUS = { pill: 'bg-slate-100 text-slate-700 border-slate-200', dot: 'bg-slate-400', soft: 'bg-slate-100 text-slate-700' };
+
+const inputClass = (hasError) =>
+  `w-full pl-10 pr-3 py-2.5 text-sm bg-slate-50/60 border rounded-xl focus:outline-none focus:ring-2 focus:bg-white focus:border-transparent transition-all ${
+    hasError ? 'border-red-300 focus:ring-red-400' : 'border-slate-200 focus:ring-pink-500'
+  }`;
 
 // ─────────────────────────────────────────────────────────────
 // Toast
@@ -20,27 +37,48 @@ const Toast = ({ message, type, onClose }) => {
     return () => clearTimeout(timer);
   }, [onClose]);
 
-  const bgColor = type === 'success' ? 'bg-green-500' :
-                  type === 'error' ? 'bg-red-500' :
-                  type === 'warning' ? 'bg-yellow-500' : 'bg-blue-500';
-
-  const icon = type === 'success' ? <CheckCircle size={18} /> :
-               type === 'error' ? <XCircle size={18} /> :
-               <AlertCircle size={18} />;
+  const accent =
+    type === 'success' ? { bar: 'bg-emerald-500', icon: 'bg-emerald-100 text-emerald-600', Icon: CheckCircle } :
+    type === 'error'   ? { bar: 'bg-red-500',     icon: 'bg-red-100 text-red-600',         Icon: XCircle } :
+    type === 'warning' ? { bar: 'bg-amber-500',   icon: 'bg-amber-100 text-amber-600',     Icon: AlertCircle } :
+                         { bar: 'bg-blue-500',    icon: 'bg-blue-100 text-blue-600',       Icon: AlertCircle };
+  const { bar, icon, Icon } = accent;
 
   return (
-    <div className={`fixed top-4 right-4 z-50 ${bgColor} text-white rounded-lg shadow-lg p-4 flex items-center gap-3 min-w-[300px] max-w-md`}>
-      {icon}
-      <span className="text-sm font-medium">{message}</span>
-      <button onClick={onClose} className="ml-auto hover:bg-white/20 rounded-lg p-1">
-        <X size={16} />
-      </button>
+    <div className="fixed top-4 right-4 z-[100] animate-slide-in">
+      <div className="relative bg-white rounded-xl shadow-2xl border border-slate-100 p-3.5 pl-5 flex items-center gap-3 min-w-[300px] max-w-md overflow-hidden">
+        <span className={`absolute left-0 top-0 bottom-0 w-1.5 ${bar}`} />
+        <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${icon}`}>
+          <Icon size={16} />
+        </div>
+        <span className="text-sm font-medium text-slate-700 flex-1">{message}</span>
+        <button onClick={onClose} className="text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg p-1 flex-shrink-0 transition-colors">
+          <X size={16} />
+        </button>
+      </div>
     </div>
   );
 };
 
 // ─────────────────────────────────────────────────────────────
-// Cancel/Refund Modal — TOP-LEVEL
+// Small building blocks
+// ─────────────────────────────────────────────────────────────
+const StatusPill = ({ status }) => {
+  const style = STATUS_STYLES[status] || DEFAULT_STATUS;
+  return (
+    <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 text-[11px] font-semibold rounded-full border capitalize ${style.pill}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${style.dot}`} />
+      {status}
+    </span>
+  );
+};
+
+const Spinner = ({ className = 'border-pink-500' }) => (
+  <div className={`w-6 h-6 border-[3px] border-t-transparent rounded-full animate-spin ${className}`} />
+);
+
+// ─────────────────────────────────────────────────────────────
+// Cancel/Refund Modal
 // ─────────────────────────────────────────────────────────────
 const CancelModal = ({
   showCancelModal,
@@ -55,100 +93,108 @@ const CancelModal = ({
   if (!showCancelModal) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
-        <div className="bg-gradient-to-r from-red-500 to-red-600 px-6 py-3 flex items-center justify-between">
-          <h2 className="text-lg font-bold text-white">Cancel Appointment & Refund</h2>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
+        <div className="relative bg-gradient-to-r from-red-500 to-rose-600 px-6 py-4 flex items-center justify-between overflow-hidden">
+          <div className="absolute -right-6 -top-6 w-24 h-24 rounded-full bg-white/10" />
+          <div className="relative flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center">
+              <RefreshCw size={18} className="text-white" />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold text-white">Cancel & Refund</h2>
+              <p className="text-[11px] text-red-100">This action cannot be undone</p>
+            </div>
+          </div>
           <button
             onClick={() => { setShowCancelModal(false); resetCancelForm(); clearPendingApproval?.(); }}
-            className="text-white hover:bg-white/20 rounded-lg p-1"
+            className="relative text-white hover:bg-white/20 rounded-lg p-1.5 transition-colors"
           >
             <X size={20} />
           </button>
         </div>
 
-        <form onSubmit={handleCancelWithRefund} className="p-6 space-y-4">
+        <form onSubmit={handleCancelWithRefund} className="p-6 space-y-4 max-h-[70vh] overflow-y-auto scrollbar-hide">
           <div>
-            <label className="block text-gray-700 text-xs font-semibold mb-1">Refund Amount *</label>
+            <label className="block text-slate-700 text-xs font-semibold mb-1.5">Refund Amount <span className="text-pink-500">*</span></label>
             <div className="relative">
-              <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 font-semibold">₱</span>
+              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500 font-semibold">₱</span>
               <input
                 type="number"
                 value={cancelFormData.refund_amount}
                 onChange={(e) => setCancelFormData(prev => ({ ...prev, refund_amount: parseFloat(e.target.value) || 0 }))}
-                className="w-full pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+                className={`${inputClass(false)} pl-8`}
                 step="0.01"
                 min="0"
                 required
               />
             </div>
-            <p className="text-xs text-gray-500 mt-1">Enter the amount to refund to the customer</p>
+            <p className="text-[11px] text-slate-500 mt-1">Enter the amount to refund to the customer</p>
           </div>
 
           <div>
-            <label className="block text-gray-700 text-xs font-semibold mb-1">Refund Method *</label>
+            <label className="block text-slate-700 text-xs font-semibold mb-1.5">Refund Method <span className="text-pink-500">*</span></label>
             <div className="grid grid-cols-2 gap-3">
               <button
                 type="button"
                 onClick={() => setCancelFormData(prev => ({ ...prev, refund_method: 'cash', reference_number: '' }))}
-                className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border-2 transition-all ${
+                className={`flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 transition-all ${
                   cancelFormData.refund_method === 'cash'
-                    ? 'border-green-500 bg-green-50 text-green-700'
-                    : 'border-gray-200 hover:border-green-300'
+                    ? 'border-emerald-500 bg-emerald-50 text-emerald-700 shadow-sm'
+                    : 'border-slate-200 hover:border-emerald-300 bg-white'
                 }`}
               >
                 <CreditCard size={18} />
-                <span className="font-medium text-sm">Cash</span>
+                <span className="font-semibold text-sm">Cash</span>
               </button>
               <button
                 type="button"
                 onClick={() => setCancelFormData(prev => ({ ...prev, refund_method: 'gcash' }))}
-                className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border-2 transition-all ${
+                className={`flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 transition-all ${
                   cancelFormData.refund_method === 'gcash'
-                    ? 'border-blue-500 bg-blue-50 text-blue-700'
-                    : 'border-gray-200 hover:border-blue-300'
+                    ? 'border-blue-500 bg-blue-50 text-blue-700 shadow-sm'
+                    : 'border-slate-200 hover:border-blue-300 bg-white'
                 }`}
               >
                 <Phone size={18} />
-                <span className="font-medium text-sm">GCash</span>
+                <span className="font-semibold text-sm">GCash</span>
               </button>
             </div>
-            <p className="text-xs text-gray-500 mt-1">Select how the refund will be processed</p>
           </div>
 
           {cancelFormData.refund_method === 'gcash' && (
             <div>
-              <label className="block text-gray-700 text-xs font-semibold mb-1">Reference Number *</label>
+              <label className="block text-slate-700 text-xs font-semibold mb-1.5">Reference Number <span className="text-pink-500">*</span></label>
               <input
                 type="text"
                 value={cancelFormData.reference_number || ''}
                 onChange={(e) => setCancelFormData(prev => ({ ...prev, reference_number: e.target.value }))}
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className={`${inputClass(false)} pl-3`}
                 placeholder="e.g. 1234567890123"
                 required
               />
-              <p className="text-xs text-gray-500 mt-1">Enter the GCash transaction reference number for this refund</p>
+              <p className="text-[11px] text-slate-500 mt-1">Enter the GCash transaction reference number</p>
             </div>
           )}
 
           <div>
-            <label className="block text-gray-700 text-xs font-semibold mb-1">Cancellation Reason *</label>
+            <label className="block text-slate-700 text-xs font-semibold mb-1.5">Cancellation Reason <span className="text-pink-500">*</span></label>
             <textarea
               value={cancelFormData.cancellation_reason}
               onChange={(e) => setCancelFormData(prev => ({ ...prev, cancellation_reason: e.target.value }))}
               rows="3"
-              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 resize-none"
+              className="w-full px-3.5 py-2.5 text-sm bg-slate-50/60 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-400 focus:bg-white focus:border-transparent resize-none transition-all"
               placeholder="Provide a reason for cancelling this appointment..."
               required
             />
-            <p className="text-xs text-gray-500 mt-1">This reason will be visible to the customer</p>
+            <p className="text-[11px] text-slate-500 mt-1">This reason will be visible to the customer</p>
           </div>
 
-          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
             <div className="flex items-start gap-2">
-              <AlertCircle size={16} className="text-yellow-600 mt-0.5 flex-shrink-0" />
-              <p className="text-xs text-yellow-700">
-                <span className="font-semibold">Note:</span> This action will cancel the appointment and process a refund to the customer. This cannot be undone.
+              <AlertCircle size={16} className="text-amber-600 mt-0.5 flex-shrink-0" />
+              <p className="text-xs text-amber-700">
+                <span className="font-semibold">Note:</span> This action will cancel the appointment and process a refund. This cannot be undone.
               </p>
             </div>
           </div>
@@ -157,25 +203,19 @@ const CancelModal = ({
             <button
               type="button"
               onClick={() => { setShowCancelModal(false); resetCancelForm(); clearPendingApproval?.(); }}
-              className="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium"
+              className="flex-1 px-4 py-2.5 border border-slate-200 text-slate-700 rounded-xl hover:bg-slate-50 transition-colors text-sm font-semibold"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={isProcessingCancel}
-              className="flex-1 px-4 py-2.5 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 text-sm font-medium disabled:opacity-50 flex items-center justify-center gap-2"
+              className="flex-1 px-4 py-2.5 bg-gradient-to-r from-red-500 to-rose-600 text-white rounded-xl shadow-md shadow-red-500/25 hover:shadow-lg transition-all text-sm font-semibold disabled:opacity-50 flex items-center justify-center gap-2"
             >
               {isProcessingCancel ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                  Processing...
-                </>
+                <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>Processing...</>
               ) : (
-                <>
-                  <RefreshCw size={16} />
-                  Process Cancellation & Refund
-                </>
+                <><RefreshCw size={16} />Cancel & Refund</>
               )}
             </button>
           </div>
@@ -186,7 +226,7 @@ const CancelModal = ({
 };
 
 // ─────────────────────────────────────────────────────────────
-// Reschedule Modal — TOP-LEVEL
+// Reschedule Modal
 // ─────────────────────────────────────────────────────────────
 const RescheduleModal = ({
   showRescheduleModal,
@@ -204,13 +244,22 @@ const RescheduleModal = ({
   if (!showRescheduleModal) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
-        <div className="bg-gradient-to-r from-blue-500 to-blue-600 px-6 py-3 flex items-center justify-between">
-          <h2 className="text-lg font-bold text-white">Reschedule Appointment</h2>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+        <div className="relative bg-gradient-to-r from-blue-500 to-indigo-600 px-6 py-4 flex items-center justify-between overflow-hidden">
+          <div className="absolute -right-6 -top-6 w-24 h-24 rounded-full bg-white/10" />
+          <div className="relative flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center">
+              <CalendarClock size={18} className="text-white" />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold text-white">Reschedule</h2>
+              <p className="text-[11px] text-blue-100">Move this appointment to a new date</p>
+            </div>
+          </div>
           <button
             onClick={() => { setShowRescheduleModal(false); resetRescheduleForm(); clearPendingApproval?.(); }}
-            className="text-white hover:bg-white/20 rounded-lg p-1"
+            className="relative text-white hover:bg-white/20 rounded-lg p-1.5 transition-colors"
           >
             <X size={20} />
           </button>
@@ -218,20 +267,20 @@ const RescheduleModal = ({
 
         <form onSubmit={handleReschedule} className="p-6 space-y-4">
           <div>
-            <label className="block text-gray-700 text-xs font-semibold mb-1">New Date *</label>
+            <label className="block text-slate-700 text-xs font-semibold mb-1.5">New Date <span className="text-pink-500">*</span></label>
             {isLoadingDates ? (
-              <div className="w-full px-3 py-2 text-sm text-gray-400 bg-gray-50 rounded-lg border border-gray-200">
-                Loading available dates...
+              <div className="w-full px-3.5 py-2.5 text-sm text-slate-400 bg-slate-50 rounded-xl border border-slate-200 flex items-center gap-2">
+                <Spinner className="border-blue-500 w-4 h-4 border-2" />Loading dates...
               </div>
             ) : openScheduleDates.length === 0 ? (
-              <div className="w-full px-3 py-2 text-sm text-yellow-600 bg-yellow-50 rounded-lg border border-yellow-200">
+              <div className="w-full px-3.5 py-2.5 text-sm text-amber-700 bg-amber-50 rounded-xl border border-amber-200">
                 No future open dates available. Please check business schedule.
               </div>
             ) : (
               <select
                 value={rescheduleFormData.appointment_date}
                 onChange={(e) => setRescheduleFormData(prev => ({ ...prev, appointment_date: e.target.value }))}
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3.5 py-2.5 text-sm bg-slate-50/60 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white focus:border-transparent transition-all"
                 required
               >
                 <option value="">Select an available date...</option>
@@ -240,27 +289,27 @@ const RescheduleModal = ({
                 ))}
               </select>
             )}
-            <p className="text-xs text-gray-500 mt-1">Select a date when the salon is open</p>
+            <p className="text-[11px] text-slate-500 mt-1">Select a date when the salon is open</p>
           </div>
 
           <div>
-            <label className="block text-gray-700 text-xs font-semibold mb-1">New Time *</label>
+            <label className="block text-slate-700 text-xs font-semibold mb-1.5">New Time <span className="text-pink-500">*</span></label>
             <input
               type="time"
               value={rescheduleFormData.appointment_time}
               onChange={(e) => setRescheduleFormData(prev => ({ ...prev, appointment_time: e.target.value }))}
-              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3.5 py-2.5 text-sm bg-slate-50/60 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white focus:border-transparent transition-all"
               step="900"
               required
             />
-            <p className="text-xs text-gray-500 mt-1">Select the new time for this appointment</p>
+            <p className="text-[11px] text-slate-500 mt-1">Select the new time for this appointment</p>
           </div>
 
-          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
             <div className="flex items-start gap-2">
-              <AlertCircle size={16} className="text-yellow-600 mt-0.5 flex-shrink-0" />
-              <p className="text-xs text-yellow-700">
-                <span className="font-semibold">Note:</span> Rescheduling will update the appointment date and time. The customer will be notified of the change.
+              <AlertCircle size={16} className="text-amber-600 mt-0.5 flex-shrink-0" />
+              <p className="text-xs text-amber-700">
+                <span className="font-semibold">Note:</span> Rescheduling will update the appointment date and time. The customer will be notified.
               </p>
             </div>
           </div>
@@ -269,25 +318,19 @@ const RescheduleModal = ({
             <button
               type="button"
               onClick={() => { setShowRescheduleModal(false); resetRescheduleForm(); clearPendingApproval?.(); }}
-              className="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium"
+              className="flex-1 px-4 py-2.5 border border-slate-200 text-slate-700 rounded-xl hover:bg-slate-50 transition-colors text-sm font-semibold"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={isRescheduling || isLoadingDates || openScheduleDates.length === 0}
-              className="flex-1 px-4 py-2.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 text-sm font-medium disabled:opacity-50 flex items-center justify-center gap-2"
+              className="flex-1 px-4 py-2.5 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl shadow-md shadow-blue-500/25 hover:shadow-lg transition-all text-sm font-semibold disabled:opacity-50 flex items-center justify-center gap-2"
             >
               {isRescheduling ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                  Processing...
-                </>
+                <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>Processing...</>
               ) : (
-                <>
-                  <Calendar size={16} />
-                  Reschedule Appointment
-                </>
+                <><Calendar size={16} />Reschedule</>
               )}
             </button>
           </div>
@@ -298,7 +341,7 @@ const RescheduleModal = ({
 };
 
 // ─────────────────────────────────────────────────────────────
-// Payment Proof Modal — TOP-LEVEL
+// Payment Proof Modal
 // ─────────────────────────────────────────────────────────────
 const PaymentProofModal = ({ selectedPaymentData, setSelectedPaymentData, setShowPaymentProofModal }) => {
   if (!selectedPaymentData) return null;
@@ -320,67 +363,82 @@ const PaymentProofModal = ({ selectedPaymentData, setSelectedPaymentData, setSho
   };
   const proofUrl = getImageUrl(payment_proof);
 
+  const bal = parseFloat(balance);
+  const statusPill = bal <= 0
+    ? { bg: 'bg-emerald-100', text: 'text-emerald-700', label: 'PAID IN FULL' }
+    : parseFloat(paid_amount) > 0
+      ? { bg: 'bg-amber-100', text: 'text-amber-700', label: 'PARTIAL' }
+      : { bg: 'bg-red-100', text: 'text-red-700', label: 'UNPAID' };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl mx-4 overflow-hidden">
-        <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-6 py-3 flex items-center justify-between">
-          <h2 className="text-lg font-bold text-white">Payment Proof</h2>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden">
+        <div className="relative bg-gradient-to-r from-pink-500 to-fuchsia-600 px-6 py-4 flex items-center justify-between overflow-hidden">
+          <div className="absolute -right-6 -top-6 w-24 h-24 rounded-full bg-white/10" />
+          <div className="relative flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center">
+              <ImageIcon size={18} className="text-white" />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold text-white">Payment Proof</h2>
+              <p className="text-[11px] text-pink-100">Appointment #{appointment_id}</p>
+            </div>
+          </div>
           <button
             onClick={() => { setShowPaymentProofModal(false); setSelectedPaymentData(null); }}
-            className="text-white hover:bg-white/20 rounded-lg p-1"
+            className="relative text-white hover:bg-white/20 rounded-lg p-1.5 transition-colors"
           >
             <X size={20} />
           </button>
         </div>
 
-        <div className="p-6">
-          <div className="bg-gray-50 rounded-lg p-4 mb-4">
-            <div className="grid grid-cols-4 gap-4">
+        <div className="p-6 max-h-[75vh] overflow-y-auto scrollbar-hide">
+          <div className={`rounded-xl p-3 mb-4 flex items-center gap-2 border ${
+            bal <= 0 ? 'bg-emerald-50 border-emerald-200' : parseFloat(paid_amount) > 0 ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200'
+          }`}>
+            <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full ${statusPill.bg} ${statusPill.text}`}>
+              {statusPill.label}
+            </span>
+            <span className="text-xs text-slate-600">
+              {bal <= 0 ? 'Customer has settled the full amount' : parseFloat(paid_amount) > 0 ? 'Customer still has an outstanding balance' : 'No payment received yet'}
+            </span>
+          </div>
+
+          <div className="bg-slate-50 rounded-xl p-4 mb-4 border border-slate-100">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               <div>
-                <p className="text-xs text-gray-500">Appointment ID</p>
-                <p className="text-sm font-semibold text-gray-800">#{appointment_id}</p>
+                <p className="text-[10px] text-slate-500 uppercase tracking-wide">Appointment</p>
+                <p className="text-sm font-semibold text-slate-800 mt-0.5">#{appointment_id}</p>
               </div>
               <div>
-                <p className="text-xs text-gray-500">Payment Type</p>
-                <p className="text-sm font-semibold text-gray-800 capitalize">{payment_type}</p>
+                <p className="text-[10px] text-slate-500 uppercase tracking-wide">Payment Type</p>
+                <p className="text-sm font-semibold text-slate-800 mt-0.5 capitalize">{payment_type}</p>
               </div>
               <div>
-                <p className="text-xs text-gray-500">Total Amount</p>
-                <p className="text-sm font-bold text-pink-600">₱{parseFloat(total_amount).toLocaleString()}</p>
+                <p className="text-[10px] text-slate-500 uppercase tracking-wide">Total</p>
+                <p className="text-sm font-bold text-pink-600 mt-0.5">₱{parseFloat(total_amount).toLocaleString()}</p>
               </div>
               <div>
-                <p className="text-xs text-gray-500">Payment Method</p>
-                <p className="text-sm font-semibold text-gray-800">{payment_method || 'N/A'}</p>
+                <p className="text-[10px] text-slate-500 uppercase tracking-wide">Method</p>
+                <p className="text-sm font-semibold text-slate-800 mt-0.5">{payment_method || 'N/A'}</p>
               </div>
             </div>
-            <div className="grid grid-cols-3 gap-4 mt-3 pt-3 border-t border-gray-200">
+            <div className="grid grid-cols-2 gap-4 mt-3 pt-3 border-t border-slate-200">
               <div>
-                <p className="text-xs text-gray-500">Paid</p>
-                <p className="text-sm font-semibold text-green-600">₱{parseFloat(paid_amount).toLocaleString()}</p>
+                <p className="text-[10px] text-slate-500 uppercase tracking-wide">Paid</p>
+                <p className="text-sm font-bold text-emerald-600 mt-0.5">₱{parseFloat(paid_amount).toLocaleString()}</p>
               </div>
               <div>
-                <p className="text-xs text-gray-500">Balance</p>
-                <p className="text-sm font-semibold text-orange-600">₱{parseFloat(balance).toLocaleString()}</p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-500">Status</p>
-                <p className="text-sm font-semibold">
-                  {parseFloat(balance) <= 0 ? (
-                    <span className="text-green-600">Paid in Full</span>
-                  ) : parseFloat(paid_amount) > 0 ? (
-                    <span className="text-yellow-600">Partial</span>
-                  ) : (
-                    <span className="text-red-600">Unpaid</span>
-                  )}
-                </p>
+                <p className="text-[10px] text-slate-500 uppercase tracking-wide">Balance</p>
+                <p className="text-sm font-bold text-orange-600 mt-0.5">₱{parseFloat(balance).toLocaleString()}</p>
               </div>
             </div>
           </div>
 
           {proofUrl ? (
             <div className="mb-4">
-              <p className="text-xs text-gray-500 mb-2">Payment Proof Screenshot</p>
-              <div className="bg-gray-100 rounded-lg overflow-hidden border border-gray-200 h-80 flex items-center justify-center">
+              <p className="text-xs font-semibold text-slate-600 mb-2">Payment Proof Screenshot</p>
+              <div className="bg-slate-100 rounded-xl overflow-hidden border border-slate-200 h-80 flex items-center justify-center">
                 <img
                   src={proofUrl}
                   alt="Payment Proof"
@@ -391,8 +449,8 @@ const PaymentProofModal = ({ selectedPaymentData, setSelectedPaymentData, setSho
                     if (parent) {
                       parent.innerHTML = `
                         <div class="flex flex-col items-center justify-center p-8">
-                          <p class="text-gray-500 text-sm">Failed to load image</p>
-                          <p class="text-gray-400 text-xs mt-1 break-all">${proofUrl}</p>
+                          <p class="text-slate-500 text-sm">Failed to load image</p>
+                          <p class="text-slate-400 text-xs mt-1 break-all">${proofUrl}</p>
                         </div>
                       `;
                     }
@@ -401,15 +459,15 @@ const PaymentProofModal = ({ selectedPaymentData, setSelectedPaymentData, setSho
               </div>
             </div>
           ) : (
-            <div className="bg-gray-100 rounded-lg p-8 text-center mb-4 h-64 flex flex-col items-center justify-center">
-              <FileText size={48} className="text-gray-400 mx-auto mb-2" />
-              <p className="text-gray-500 text-sm">No payment proof uploaded</p>
+            <div className="bg-slate-100 rounded-xl p-8 text-center mb-4 h-64 flex flex-col items-center justify-center border border-dashed border-slate-300">
+              <FileText size={40} className="text-slate-300 mx-auto mb-2" />
+              <p className="text-slate-500 text-sm">No payment proof uploaded</p>
             </div>
           )}
 
           <button
             onClick={() => { setShowPaymentProofModal(false); setSelectedPaymentData(null); }}
-            className="w-full py-2.5 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 text-sm font-medium"
+            className="w-full py-2.5 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-xl shadow-md shadow-pink-500/25 hover:shadow-lg transition-all text-sm font-semibold"
           >
             Close
           </button>
@@ -420,7 +478,7 @@ const PaymentProofModal = ({ selectedPaymentData, setSelectedPaymentData, setSho
 };
 
 // ─────────────────────────────────────────────────────────────
-// Appointment Requests Panel — TOP-LEVEL
+// Appointment Requests Panel
 // ─────────────────────────────────────────────────────────────
 const AppointmentRequestsPanel = ({
   appointmentRequests,
@@ -435,43 +493,42 @@ const AppointmentRequestsPanel = ({
   const pendingRequests = appointmentRequests.filter(r => r.request_status === 'pending');
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-      <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between flex-wrap gap-3">
-        <div className="flex items-center gap-2">
-          <div className="bg-pink-100 p-2 rounded-lg">
-            <Inbox size={16} className="text-pink-600" />
+    <section className="bg-white rounded-2xl border border-slate-200/70 shadow-sm overflow-hidden">
+      <header className="px-5 py-4 border-b border-slate-100 flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-pink-50 flex items-center justify-center">
+            <Inbox size={17} className="text-pink-500" />
           </div>
           <div>
-            <h3 className="text-base font-semibold text-gray-800">Cancellation/Reschedule Requests</h3>
-            <p className="text-xs text-gray-500">Customer requests to cancel or reschedule</p>
+            <h3 className="text-sm font-semibold text-slate-800">Cancellation / Reschedule Requests</h3>
+            <p className="text-[11px] text-slate-500 mt-0.5">Customer requests to cancel or reschedule</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-yellow-100 text-yellow-700 text-xs font-semibold">
-            <AlertCircle size={12} />
-            {pendingRequests.length} pending
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 text-[11px] font-semibold border border-amber-200">
+            <AlertCircle size={12} />{pendingRequests.length} pending
           </span>
           <button
             onClick={onRefresh}
             disabled={isLoadingRequests}
-            className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 transition-colors disabled:opacity-50"
+            className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 transition-colors disabled:opacity-50"
             title="Refresh requests"
           >
             <RefreshCw size={14} className={isLoadingRequests ? 'animate-spin' : ''} />
           </button>
         </div>
-      </div>
+      </header>
 
-      <div className="p-4">
+      <div className="p-5">
         {isLoadingRequests ? (
-          <div className="py-8 flex justify-center">
-            <div className="w-8 h-8 border-4 border-pink-500 border-t-transparent rounded-full animate-spin"></div>
-          </div>
+          <div className="py-10 flex justify-center"><Spinner /></div>
         ) : pendingRequests.length === 0 ? (
-          <div className="py-8 text-center">
-            <Inbox size={36} className="text-gray-300 mx-auto mb-2" />
-            <p className="text-sm text-gray-500">No pending requests</p>
-            <p className="text-xs text-gray-400 mt-1">Requests from customers will appear here</p>
+          <div className="py-10 text-center">
+            <div className="w-14 h-14 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-3">
+              <Inbox size={26} className="text-slate-300" />
+            </div>
+            <p className="text-sm font-medium text-slate-500">No pending requests</p>
+            <p className="text-xs text-slate-400 mt-1">Requests from customers will appear here</p>
           </div>
         ) : (
           <div className="space-y-3">
@@ -482,18 +539,22 @@ const AppointmentRequestsPanel = ({
               return (
                 <div
                   key={req.id}
-                  className={`rounded-lg border-2 p-3 transition-colors ${
-                    isCancel ? 'border-red-100 bg-red-50/50' : 'border-blue-100 bg-blue-50/50'
+                  className={`rounded-xl border p-4 transition-all ${
+                    isCancel
+                      ? 'border-red-100 bg-red-50/50 hover:border-red-200'
+                      : 'border-blue-100 bg-blue-50/50 hover:border-blue-200'
                   }`}
                 >
                   <div className="flex justify-between items-start flex-wrap gap-2">
-                    <div className="flex items-center gap-2">
-                      <div className={`w-9 h-9 rounded-full flex items-center justify-center ${isCancel ? 'bg-red-100' : 'bg-blue-100'}`}>
-                        {isCancel ? <CalendarX2 size={16} className="text-red-600" /> : <CalendarClock size={16} className="text-blue-600" />}
+                    <div className="flex items-center gap-3">
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${
+                        isCancel ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'
+                      }`}>
+                        {isCancel ? <CalendarX2 size={18} /> : <CalendarClock size={18} />}
                       </div>
                       <div>
-                        <div className="flex items-center gap-2">
-                          <p className="text-sm font-semibold text-gray-800">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-sm font-semibold text-slate-800">
                             {req.customer?.first_name
                               ? `${req.customer.first_name} ${req.customer.last_name}`
                               : req.appointment?.customer_name || 'Customer'}
@@ -504,15 +565,15 @@ const AppointmentRequestsPanel = ({
                             {isCancel ? 'CANCEL' : 'RESCHEDULE'}
                           </span>
                         </div>
-                        <p className="text-xs text-gray-500 mt-0.5">
+                        <p className="text-[11px] text-slate-500 mt-0.5">
                           Appointment #{req.appointment_id}
                           {req.appointment?.appointment_date && (
-                            <> • Original: {formatShortDate(req.appointment.appointment_date)} {formatTime(req.appointment.appointment_time)}</>
+                            <> · Original: {formatShortDate(req.appointment.appointment_date)} {formatTime(req.appointment.appointment_time)}</>
                           )}
                         </p>
                       </div>
                     </div>
-                    <span className="text-[10px] text-gray-400">
+                    <span className="text-[10px] text-slate-400">
                       {req.created_at
                         ? new Date(req.created_at).toLocaleDateString('en-US', {
                             month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
@@ -522,9 +583,9 @@ const AppointmentRequestsPanel = ({
                   </div>
 
                   {!isCancel && req.preferred_date && (
-                    <div className="mt-2 bg-white rounded-md p-2 border border-blue-100">
-                      <p className="text-[10px] text-gray-500 uppercase tracking-wide">Requested new schedule</p>
-                      <p className="text-xs font-semibold text-blue-700">
+                    <div className="mt-3 bg-white rounded-lg p-2.5 border border-blue-100">
+                      <p className="text-[10px] text-slate-500 uppercase tracking-wide">Requested new schedule</p>
+                      <p className="text-xs font-semibold text-blue-700 mt-0.5">
                         {formatShortDate(req.preferred_date)}
                         {req.preferred_time && ` at ${formatTime(req.preferred_time)}`}
                       </p>
@@ -532,9 +593,9 @@ const AppointmentRequestsPanel = ({
                   )}
 
                   {req.reason && (
-                    <div className="mt-2 bg-white rounded-md p-2 border border-gray-100">
-                      <p className="text-[10px] text-gray-500 uppercase tracking-wide">Reason</p>
-                      <p className="text-xs text-gray-700 italic">"{req.reason}"</p>
+                    <div className="mt-2 bg-white rounded-lg p-2.5 border border-slate-100">
+                      <p className="text-[10px] text-slate-500 uppercase tracking-wide">Reason</p>
+                      <p className="text-xs text-slate-700 italic mt-0.5">"{req.reason}"</p>
                     </div>
                   )}
 
@@ -542,7 +603,7 @@ const AppointmentRequestsPanel = ({
                     <button
                       onClick={() => onApprove(req)}
                       disabled={isProcessing}
-                      className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg transition-colors text-xs font-semibold disabled:opacity-50"
+                      className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:shadow-md text-white rounded-lg transition-all text-xs font-semibold disabled:opacity-50 shadow-sm shadow-emerald-500/25"
                     >
                       <CheckCircle size={14} />
                       {isCancel ? 'Approve & Refund' : 'Approve & Reschedule'}
@@ -562,7 +623,7 @@ const AppointmentRequestsPanel = ({
           </div>
         )}
       </div>
-    </div>
+    </section>
   );
 };
 
@@ -625,8 +686,8 @@ function Appointments() {
 
   const [stats, setStats] = useState([
     { label: 'Total Appointments', value: '0', change: '+0%', changeType: 'up', color: 'from-blue-500 to-blue-600', bgColor: 'bg-blue-50', icon: Calendar },
-    { label: "Today's Appointments", value: '0', change: '+0', changeType: 'up', color: 'from-green-500 to-green-600', bgColor: 'bg-green-50', icon: Clock },
-    { label: 'Pending Appointments', value: '0', change: '-0', changeType: 'down', color: 'from-yellow-500 to-yellow-600', bgColor: 'bg-yellow-50', icon: AlertCircle },
+    { label: "Today's Appointments", value: '0', change: '+0', changeType: 'up', color: 'from-emerald-500 to-emerald-600', bgColor: 'bg-emerald-50', icon: Clock },
+    { label: 'Pending Appointments', value: '0', change: '-0', changeType: 'down', color: 'from-amber-500 to-amber-600', bgColor: 'bg-amber-50', icon: AlertCircle },
     { label: 'Completed Appointments', value: '0', change: '+0%', changeType: 'up', color: 'from-purple-500 to-purple-600', bgColor: 'bg-purple-50', icon: CheckCircle },
   ]);
 
@@ -644,7 +705,6 @@ function Appointments() {
   const goToNextMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
   const goToCurrentMonth = () => setCurrentDate(new Date());
 
-  // ── Helpers for "past date" detection ──
   const getTodayStr = () => {
     const today = new Date();
     const y = today.getFullYear();
@@ -665,7 +725,6 @@ function Appointments() {
     return getDateStrForDay(day) < getTodayStr();
   };
 
-  // ── Fetchers ──
   const fetchBusinessSchedules = useCallback(async () => {
     try {
       const response = await api.get('/daysched');
@@ -747,7 +806,6 @@ function Appointments() {
     }
   }, [fetchAppointmentRequests, showToast]);
 
-  // ── Schedule save ──
   const handleSaveSchedule = async (e) => {
     e.preventDefault();
     setIsSavingSchedule(true);
@@ -771,7 +829,6 @@ function Appointments() {
     }
   };
 
-  // ── Payment details ──
   const fetchPaymentDetails = async (appointmentId) => {
     try {
       const response = await api.get(`/appointment/payment-details/${appointmentId}`);
@@ -801,7 +858,6 @@ function Appointments() {
     }
   };
 
-  // ── Cancel/Refund ──
   const handleCancelWithRefund = async (e) => {
     e.preventDefault();
 
@@ -875,7 +931,6 @@ function Appointments() {
     });
   };
 
-  // ── Reschedule ──
   const handleReschedule = async (e) => {
     e.preventDefault();
 
@@ -950,7 +1005,6 @@ function Appointments() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [appointments]);
 
-  // ── Fetch all appointments ──
   const fetchAppointments = async () => {
     setIsLoading(true);
     try {
@@ -1125,20 +1179,12 @@ function Appointments() {
     return counts;
   };
 
-  // ✅ Day click: only opens modal for clickable days
   const handleDayClick = (day) => {
     const dateStr = getDateStrForDay(day);
     const schedule = getScheduleForDate(dateStr);
 
-    // ❌ Past date with NO schedule — not clickable
-    if (isPastDate(day) && !schedule) {
-      return;
-    }
-
-    // ❌ Closed schedule — not clickable
-    if (schedule && schedule.is_open !== 1) {
-      return;
-    }
+    if (isPastDate(day) && !schedule) return;
+    if (schedule && schedule.is_open !== 1) return;
 
     const businessScheduleId = getBusinessScheduleId(dateStr);
     const assignedStaffForDate = businessScheduleId ? getAssignedStaffForDate(businessScheduleId) : [];
@@ -1215,28 +1261,18 @@ function Appointments() {
 
   const calendarDays = generateCalendarDays();
 
-  const getStatusColor = (status) => {
-    const colors = {
-      confirmed: 'bg-green-100 text-green-700',
-      pending: 'bg-yellow-100 text-yellow-700',
-      completed: 'bg-blue-100 text-blue-700',
-      cancelled: 'bg-red-100 text-red-700'
-    };
-    return colors[status] || 'bg-gray-100 text-gray-700';
-  };
-
   const getCalendarCellStyle = (status) => {
     const styles = {
-      closed: 'bg-red-100 border-red-300',
-      open: 'bg-green-100 border-green-300',
-      default: 'bg-white border-gray-200'
+      closed: 'bg-red-50 border-red-200 hover:border-red-300',
+      open: 'bg-emerald-50 border-emerald-200 hover:border-emerald-300',
+      default: 'bg-white border-slate-200 hover:border-pink-300'
     };
-    return styles[status] || 'bg-white border-gray-200';
+    return styles[status] || 'bg-white border-slate-200';
   };
 
   const getCalendarCellTextColor = (status) => {
-    const colors = { closed: 'text-red-700', open: 'text-green-700', default: 'text-gray-700' };
-    return colors[status] || 'text-gray-700';
+    const colors = { closed: 'text-red-700', open: 'text-emerald-700', default: 'text-slate-700' };
+    return colors[status] || 'text-slate-700';
   };
 
   const formatTime = (time) => {
@@ -1277,8 +1313,8 @@ function Appointments() {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
-          <div className="w-12 h-12 border-4 border-pink-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-gray-500">Loading appointments...</p>
+          <Spinner className="border-pink-500 w-12 h-12 border-4 mx-auto mb-4" />
+          <p className="text-slate-500">Loading appointments...</p>
         </div>
       </div>
     );
@@ -1290,52 +1326,78 @@ function Appointments() {
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {stats.map((stat, index) => (
-          <div key={index} className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 p-4 border border-gray-100">
-            <div className="flex items-center justify-between mb-2">
-              <div className={`${stat.bgColor} p-2 rounded-xl`}>
-                <stat.icon size={18} className="text-pink-600" />
+        {stats.map((stat, index) => {
+          const isNegative = stat.changeType === 'down';
+          const isNeutral = stat.change === '+0%' || stat.change === '0%';
+          const trendClass = isNeutral
+            ? 'bg-slate-100 text-slate-500'
+            : isNegative
+              ? 'bg-red-50 text-red-600'
+              : 'bg-emerald-50 text-emerald-600';
+          const TrendIcon = isNeutral ? Minus : isNegative ? ArrowDownRight : ArrowUpRight;
+
+          return (
+            <div
+              key={index}
+              className="group relative bg-white rounded-2xl border border-slate-200/70 shadow-sm hover:shadow-[0_12px_32px_-16px_rgba(15,23,42,0.35)] hover:-translate-y-0.5 transition-all duration-300 p-5 overflow-hidden"
+            >
+              <div className={`absolute -top-8 -right-8 w-24 h-24 rounded-full opacity-[0.08] bg-gradient-to-br ${stat.color} group-hover:scale-125 transition-transform duration-500`} />
+              <div className="relative flex items-start justify-between">
+                <div className={`w-11 h-11 rounded-xl bg-gradient-to-br ${stat.color} flex items-center justify-center shadow-md`}>
+                  <stat.icon size={20} className="text-white" />
+                </div>
+                <span className={`inline-flex items-center gap-0.5 text-[11px] font-semibold px-2 py-0.5 rounded-full ${trendClass}`}>
+                  <TrendIcon size={12} />
+                  {stat.change}
+                </span>
               </div>
-              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
-                stat.changeType === 'up' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'
-              }`}>
-                {stat.change}
-              </span>
+              <p className="relative text-xs font-medium text-slate-500 mt-4">{stat.label}</p>
+              <p className="relative text-3xl font-bold text-slate-800 mt-0.5 tracking-tight">{stat.value}</p>
+              <div className={`relative mt-3 h-1 rounded-full ${stat.bgColor} overflow-hidden`}>
+                <div className={`h-full w-2/3 rounded-full bg-gradient-to-r ${stat.color}`} />
+              </div>
             </div>
-            <p className="text-gray-500 text-xs mb-1">{stat.label}</p>
-            <p className="text-xl font-bold text-gray-800">{stat.value}</p>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* Controls */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div className="flex gap-2">
-          <button onClick={goToPreviousMonth} className="px-3 py-2 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 transition-all duration-200">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={goToPreviousMonth}
+            className="w-9 h-9 flex items-center justify-center rounded-xl bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-all shadow-sm"
+          >
             <ChevronLeft size={16} />
           </button>
-          <button onClick={goToCurrentMonth} className="px-4 py-2 rounded-lg bg-pink-500 text-white shadow-md hover:bg-pink-600 transition-all duration-200 text-sm font-medium">
+          <button
+            onClick={goToCurrentMonth}
+            className="px-4 py-2 rounded-xl bg-gradient-to-r from-pink-500 to-pink-600 text-white shadow-md shadow-pink-500/25 hover:shadow-lg transition-all text-sm font-semibold"
+          >
             Today
           </button>
-          <button onClick={goToNextMonth} className="px-3 py-2 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 transition-all duration-200">
+          <button
+            onClick={goToNextMonth}
+            className="w-9 h-9 flex items-center justify-center rounded-xl bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-all shadow-sm"
+          >
             <ChevronRight size={16} />
           </button>
         </div>
-        <div className="flex flex-wrap gap-3">
+        <div className="flex flex-wrap gap-2">
           <div className="relative">
-            <Search size={16} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
               placeholder="Search customers..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-9 pr-3 py-1.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent text-sm w-48"
+              className="pl-9 pr-3 py-2 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent w-48 transition-all"
             />
           </div>
           <select
             value={selectedStatus}
             onChange={(e) => setSelectedStatus(e.target.value)}
-            className="px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-pink-500"
+            className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent transition-all"
           >
             <option value="all">All Status</option>
             <option value="confirmed">Confirmed</option>
@@ -1347,36 +1409,44 @@ function Appointments() {
       </div>
 
       {/* Calendar */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between flex-wrap gap-3">
-          <h3 className="text-base font-semibold text-gray-800">{getCurrentMonthYear()}</h3>
-          <div className="flex gap-3 text-xs">
-            <div className="flex items-center gap-1">
-              <div className="w-2.5 h-2.5 bg-green-100 rounded border border-green-300"></div>
-              <span className="text-gray-500">Open</span>
+      <section className="bg-white rounded-2xl border border-slate-200/70 shadow-sm overflow-hidden">
+        <header className="px-5 py-4 border-b border-slate-100 flex items-center justify-between flex-wrap gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-pink-50 flex items-center justify-center">
+              <Calendar size={17} className="text-pink-500" />
             </div>
-            <div className="flex items-center gap-1">
-              <div className="w-2.5 h-2.5 bg-red-100 rounded border border-red-300"></div>
-              <span className="text-gray-500">Closed</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <div className="w-2.5 h-2.5 bg-white rounded border border-gray-200"></div>
-              <span className="text-gray-500">No Schedule</span>
+            <div>
+              <h3 className="text-sm font-semibold text-slate-800">{getCurrentMonthYear()}</h3>
+              <p className="text-[11px] text-slate-500 mt-0.5">Click a day to view appointments or manage schedule</p>
             </div>
           </div>
-        </div>
+          <div className="flex gap-3 text-[11px]">
+            <div className="flex items-center gap-1.5">
+              <div className="w-2.5 h-2.5 bg-emerald-50 rounded border border-emerald-300"></div>
+              <span className="text-slate-500">Open</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <div className="w-2.5 h-2.5 bg-red-50 rounded border border-red-300"></div>
+              <span className="text-slate-500">Closed</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <div className="w-2.5 h-2.5 bg-white rounded border border-slate-200"></div>
+              <span className="text-slate-500">No Schedule</span>
+            </div>
+          </div>
+        </header>
 
         <div className="p-4">
           <div className="grid grid-cols-7 gap-2 mb-2">
             {weekDays.map((day, index) => (
-              <div key={index} className="text-center font-semibold text-gray-500 text-xs py-1">{day}</div>
+              <div key={index} className="text-center font-semibold text-slate-500 text-[10px] uppercase tracking-wider py-1">{day}</div>
             ))}
           </div>
 
           <div className="grid grid-cols-7 gap-2">
             {calendarDays.map((day, index) => {
               if (day === null) {
-                return <div key={`empty-${index}`} className="bg-gray-50 rounded-lg p-2 min-h-[80px] border border-gray-100"></div>;
+                return <div key={`empty-${index}`} className="bg-slate-50/50 rounded-xl p-2 min-h-[88px] border border-slate-100"></div>;
               }
               const dayStatus = getDayStatus(day);
               const dayAppointments = getAppointmentsForDay(day);
@@ -1390,51 +1460,53 @@ function Appointments() {
                 <div
                   key={day}
                   onClick={() => !isDisabled && handleDayClick(day)}
-                  className={`${getCalendarCellStyle(dayStatus)} rounded-lg p-2 min-h-[80px] border transition-all duration-200 ${
+                  className={`${getCalendarCellStyle(dayStatus)} rounded-xl p-2 min-h-[88px] border transition-all duration-200 ${
                     isDisabled
                       ? 'cursor-not-allowed opacity-50'
-                      : 'cursor-pointer hover:shadow-md'
+                      : 'cursor-pointer hover:shadow-md hover:-translate-y-0.5'
                   }`}
                 >
-                  <div className="flex items-center justify-between mb-1">
-                    <span className={`font-semibold text-sm ${getCalendarCellTextColor(dayStatus)}`}>{day}</span>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className={`font-bold text-sm ${getCalendarCellTextColor(dayStatus)}`}>{day}</span>
                     {hasAppointments && (
-                      <span className="text-xs px-1.5 py-0.5 rounded-full bg-gray-200 text-gray-700">{dayAppointments.length}</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-white border border-slate-200 text-slate-700 font-semibold">
+                        {dayAppointments.length}
+                      </span>
                     )}
                   </div>
                   <div className="flex flex-wrap gap-0.5 mt-1">
                     {statusCounts.pending > 0 && (
-                      <div className="flex items-center gap-0.5 bg-yellow-100 rounded-full px-1.5 py-0.5">
-                        <AlertCircle size={8} className="text-yellow-600" />
-                        <span className="text-[8px] font-medium text-yellow-700">{statusCounts.pending}</span>
+                      <div className="flex items-center gap-0.5 bg-amber-100 rounded-full px-1.5 py-0.5">
+                        <AlertCircle size={8} className="text-amber-600" />
+                        <span className="text-[8px] font-bold text-amber-700">{statusCounts.pending}</span>
                       </div>
                     )}
                     {statusCounts.confirmed > 0 && (
-                      <div className="flex items-center gap-0.5 bg-green-100 rounded-full px-1.5 py-0.5">
-                        <CheckCircle size={8} className="text-green-600" />
-                        <span className="text-[8px] font-medium text-green-700">{statusCounts.confirmed}</span>
+                      <div className="flex items-center gap-0.5 bg-emerald-100 rounded-full px-1.5 py-0.5">
+                        <CheckCircle size={8} className="text-emerald-600" />
+                        <span className="text-[8px] font-bold text-emerald-700">{statusCounts.confirmed}</span>
                       </div>
                     )}
                     {statusCounts.completed > 0 && (
                       <div className="flex items-center gap-0.5 bg-blue-100 rounded-full px-1.5 py-0.5">
                         <CheckCircle size={8} className="text-blue-600" />
-                        <span className="text-[8px] font-medium text-blue-700">{statusCounts.completed}</span>
+                        <span className="text-[8px] font-bold text-blue-700">{statusCounts.completed}</span>
                       </div>
                     )}
                     {statusCounts.cancelled > 0 && (
                       <div className="flex items-center gap-0.5 bg-red-100 rounded-full px-1.5 py-0.5">
                         <XCircle size={8} className="text-red-600" />
-                        <span className="text-[8px] font-medium text-red-700">{statusCounts.cancelled}</span>
+                        <span className="text-[8px] font-bold text-red-700">{statusCounts.cancelled}</span>
                       </div>
                     )}
                   </div>
                   {hasAppointments && (
-                    <div className="space-y-0.5 mt-1">
-                      <div className="text-xs text-gray-600 truncate">
-                        {dayAppointments[0]?.customer_name?.split(' ')[0]} - {formatTime(dayAppointments[0]?.appointment_time)}
+                    <div className="space-y-0.5 mt-1.5">
+                      <div className="text-[10px] text-slate-600 truncate">
+                        {dayAppointments[0]?.customer_name?.split(' ')[0]} · {formatTime(dayAppointments[0]?.appointment_time)}
                       </div>
                       {dayAppointments.length > 1 && (
-                        <div className="text-xs text-gray-400">+{dayAppointments.length - 1} more</div>
+                        <div className="text-[10px] text-slate-400">+{dayAppointments.length - 1} more</div>
                       )}
                     </div>
                   )}
@@ -1443,7 +1515,7 @@ function Appointments() {
             })}
           </div>
         </div>
-      </div>
+      </section>
 
       {/* Requests panel */}
       <AppointmentRequestsPanel
@@ -1457,46 +1529,60 @@ function Appointments() {
         formatTime={formatTime}
       />
 
-      {/* ✅ Day Options Modal — shows options based on schedule state */}
+      {/* Day Options Modal */}
       {showModal && selectedDay && (() => {
         const hasSchedule = !!selectedDateSchedule?.schedule;
 
         return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-            <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
-              <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-5 py-3 flex items-center justify-between">
-                <h2 className="text-lg font-bold text-white">{formatFullDate(selectedDateSchedule?.date)}</h2>
-                <button onClick={() => { setShowModal(false); setSelectedDay(null); }} className="text-white hover:bg-white/20 rounded-lg p-1">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+              <div className="relative bg-gradient-to-r from-pink-500 to-fuchsia-600 px-5 py-4 flex items-center justify-between overflow-hidden">
+                <div className="absolute -right-6 -top-6 w-24 h-24 rounded-full bg-white/10" />
+                <div className="relative">
+                  <h2 className="text-lg font-bold text-white">{formatFullDate(selectedDateSchedule?.date)}</h2>
+                  <p className="text-[11px] text-pink-100 mt-0.5">Choose an action for this day</p>
+                </div>
+                <button onClick={() => { setShowModal(false); setSelectedDay(null); }} className="relative text-white hover:bg-white/20 rounded-lg p-1.5 transition-colors">
                   <X size={20} />
                 </button>
               </div>
               <div className="p-5 space-y-3">
-                {/* View Appointments — always shown */}
-                <button onClick={handleViewAppointments} className="w-full flex items-center gap-3 px-4 py-3 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition-colors">
-                  <Eye size={18} />
-                  <div className="text-left">
-                    <p className="font-semibold">View Appointments</p>
-                    <p className="text-xs text-gray-500">See all appointments for this day</p>
+                <button
+                  onClick={handleViewAppointments}
+                  className="w-full flex items-center gap-3 px-4 py-3 bg-blue-50 text-blue-700 rounded-xl hover:bg-blue-100 transition-colors border border-blue-100"
+                >
+                  <div className="w-9 h-9 rounded-lg bg-white flex items-center justify-center">
+                    <Eye size={18} className="text-blue-600" />
                   </div>
+                  <div className="text-left flex-1">
+                    <p className="font-semibold text-sm">View Appointments</p>
+                    <p className="text-[11px] text-slate-500 mt-0.5">See all appointments for this day</p>
+                  </div>
+                  <ChevronRight size={16} className="text-blue-400" />
                 </button>
 
-                {/* Edit Schedule & Staff — only when there's NO schedule yet */}
                 {!hasSchedule && (
-                  <button onClick={handleEditSchedule} className="w-full flex items-center gap-3 px-4 py-3 bg-purple-50 text-purple-700 rounded-lg hover:bg-purple-100 transition-colors">
-                    <Settings size={18} />
-                    <div className="text-left">
-                      <p className="font-semibold">Edit Schedule & Staff</p>
-                      <p className="text-xs text-gray-500">Set hours and assign staff in one step</p>
+                  <button
+                    onClick={handleEditSchedule}
+                    className="w-full flex items-center gap-3 px-4 py-3 bg-purple-50 text-purple-700 rounded-xl hover:bg-purple-100 transition-colors border border-purple-100"
+                  >
+                    <div className="w-9 h-9 rounded-lg bg-white flex items-center justify-center">
+                      <Settings size={18} className="text-purple-600" />
                     </div>
+                    <div className="text-left flex-1">
+                      <p className="font-semibold text-sm">Edit Schedule & Staff</p>
+                      <p className="text-[11px] text-slate-500 mt-0.5">Set hours and assign staff</p>
+                    </div>
+                    <ChevronRight size={16} className="text-purple-400" />
                   </button>
                 )}
               </div>
               {selectedDateSchedule?.assignedStaff?.length > 0 && (
-                <div className="border-t border-gray-100 px-5 py-3">
-                  <p className="text-xs font-semibold text-gray-600 mb-2">Assigned Staff:</p>
+                <div className="border-t border-slate-100 px-5 py-4">
+                  <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-2">Assigned Staff:</p>
                   <div className="flex flex-wrap gap-2">
                     {selectedDateSchedule.assignedStaff.map((assignment) => (
-                      <span key={assignment.id} className="inline-flex items-center gap-1 px-2 py-1 bg-gray-100 text-gray-700 rounded-md text-xs">
+                      <span key={assignment.id} className="inline-flex items-center gap-1 px-2 py-1 bg-slate-100 text-slate-700 rounded-md text-xs">
                         <User size={12} />
                         {assignment.user?.first_name} {assignment.user?.last_name}
                       </span>
@@ -1511,74 +1597,95 @@ function Appointments() {
 
       {/* Schedule Modal */}
       {showScheduleModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden max-h-[90vh]">
-            <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-5 py-3 flex items-center justify-between sticky top-0 z-10">
-              <div>
-                <h2 className="text-lg font-bold text-white">Schedule & Staff</h2>
-                <p className="text-pink-100 text-xs mt-0.5">{formatFullDate(scheduleFormData.business_date)}</p>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden max-h-[90vh]">
+            <div className="relative bg-gradient-to-r from-pink-500 to-fuchsia-600 px-6 py-4 flex items-center justify-between overflow-hidden sticky top-0 z-10">
+              <div className="absolute -right-6 -top-6 w-24 h-24 rounded-full bg-white/10" />
+              <div className="relative flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center">
+                  <Settings size={18} className="text-white" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-white">Schedule & Staff</h2>
+                  <p className="text-[11px] text-pink-100">{formatFullDate(scheduleFormData.business_date)}</p>
+                </div>
               </div>
-              <button onClick={() => { setShowScheduleModal(false); resetScheduleForm(); }} className="text-white hover:bg-white/20 rounded-lg p-1">
+              <button onClick={() => { setShowScheduleModal(false); resetScheduleForm(); }} className="relative text-white hover:bg-white/20 rounded-lg p-1.5 transition-colors">
                 <X size={20} />
               </button>
             </div>
-            <form onSubmit={handleSaveSchedule} className="overflow-y-auto" style={{ maxHeight: 'calc(90vh - 60px)' }}>
+            <form onSubmit={handleSaveSchedule} className="overflow-y-auto scrollbar-hide" style={{ maxHeight: 'calc(90vh - 76px)' }}>
               <div className="p-5 space-y-4">
                 <div>
-                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Business Hours</h3>
+                  <h3 className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">Business Hours</h3>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-gray-700 text-xs font-semibold mb-1">Open Time *</label>
-                      <input type="time" value={scheduleFormData.open_time}
+                      <label className="block text-slate-700 text-xs font-semibold mb-1.5">Open Time <span className="text-pink-500">*</span></label>
+                      <input
+                        type="time"
+                        value={scheduleFormData.open_time}
                         onChange={(e) => setScheduleFormData(prev => ({ ...prev, open_time: e.target.value }))}
-                        className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500" required />
+                        className="w-full px-3.5 py-2.5 text-sm bg-slate-50/60 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-pink-500 focus:bg-white focus:border-transparent transition-all"
+                        required
+                      />
                     </div>
                     <div>
-                      <label className="block text-gray-700 text-xs font-semibold mb-1">Close Time *</label>
-                      <input type="time" value={scheduleFormData.close_time}
+                      <label className="block text-slate-700 text-xs font-semibold mb-1.5">Close Time <span className="text-pink-500">*</span></label>
+                      <input
+                        type="time"
+                        value={scheduleFormData.close_time}
                         onChange={(e) => setScheduleFormData(prev => ({ ...prev, close_time: e.target.value }))}
-                        className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500" required />
+                        className="w-full px-3.5 py-2.5 text-sm bg-slate-50/60 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-pink-500 focus:bg-white focus:border-transparent transition-all"
+                        required
+                      />
                     </div>
                   </div>
                   <label className="flex items-center gap-2 cursor-pointer mt-3">
-                    <input type="checkbox" checked={scheduleFormData.is_open}
+                    <input
+                      type="checkbox"
+                      checked={scheduleFormData.is_open}
                       onChange={(e) => setScheduleFormData(prev => ({ ...prev, is_open: e.target.checked }))}
-                      className="w-3.5 h-3.5 text-pink-500 border-gray-300 rounded focus:ring-pink-500" />
-                    <span className="text-gray-700 text-sm font-semibold">Salon open on this day</span>
+                      className="w-4 h-4 text-pink-500 border-slate-300 rounded focus:ring-pink-500"
+                    />
+                    <span className="text-slate-700 text-sm font-semibold">Salon open on this day</span>
                   </label>
                 </div>
-                <div className="border-t border-gray-100 pt-4">
+                <div className="border-t border-slate-100 pt-4">
                   <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Staff ({selectedStaffIds.length} selected)</h3>
+                    <h3 className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Staff ({selectedStaffIds.length} selected)</h3>
                     <div className="flex gap-2">
                       <button type="button" onClick={selectAllStaff} className="text-[10px] font-semibold text-pink-600 hover:text-pink-700">Select All</button>
-                      <span className="text-gray-300">|</span>
-                      <button type="button" onClick={clearAllStaff} className="text-[10px] font-semibold text-gray-500 hover:text-gray-700">Clear</button>
+                      <span className="text-slate-300">|</span>
+                      <button type="button" onClick={clearAllStaff} className="text-[10px] font-semibold text-slate-500 hover:text-slate-700">Clear</button>
                     </div>
                   </div>
                   {staffList.length === 0 ? (
-                    <div className="bg-gray-50 rounded-lg p-4 text-center">
-                      <UsersIcon size={24} className="text-gray-300 mx-auto mb-1" />
-                      <p className="text-xs text-gray-500">No staff members available</p>
+                    <div className="bg-slate-50 rounded-xl p-4 text-center">
+                      <UsersIcon size={24} className="text-slate-300 mx-auto mb-1" />
+                      <p className="text-xs text-slate-500">No staff members available</p>
                     </div>
                   ) : (
-                    <div className="space-y-1.5 max-h-64 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+                    <div className="space-y-1.5 max-h-64 overflow-y-auto scrollbar-hide">
                       {staffList.map((staff) => {
                         const isSelected = selectedStaffIds.includes(staff.id);
                         return (
-                          <button type="button" key={staff.id} onClick={() => toggleStaffSelection(staff.id)}
-                            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg border-2 transition-all text-left ${
-                              isSelected ? 'border-pink-500 bg-pink-50' : 'border-gray-200 bg-white hover:border-pink-200'
-                            }`}>
+                          <button
+                            type="button"
+                            key={staff.id}
+                            onClick={() => toggleStaffSelection(staff.id)}
+                            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border-2 transition-all text-left ${
+                              isSelected ? 'border-pink-500 bg-pink-50 shadow-sm' : 'border-slate-200 bg-white hover:border-pink-200'
+                            }`}
+                          >
                             <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 ${
-                              isSelected ? 'bg-pink-500 border-pink-500' : 'border-gray-300'
+                              isSelected ? 'bg-pink-500 border-pink-500' : 'border-slate-300'
                             }`}>
                               {isSelected && <CheckCircle size={14} className="text-white" />}
                             </div>
                             <div className="flex-1 min-w-0">
-                              <p className={`text-sm font-semibold truncate ${isSelected ? 'text-pink-700' : 'text-gray-800'}`}>{staff.name}</p>
+                              <p className={`text-sm font-semibold truncate ${isSelected ? 'text-pink-700' : 'text-slate-800'}`}>{staff.name}</p>
                               {staff.specialties && (
-                                <p className="text-[10px] text-gray-500 truncate">
+                                <p className="text-[10px] text-slate-500 truncate">
                                   {Array.isArray(staff.specialties) ? staff.specialties.join(', ') : staff.specialties}
                                 </p>
                               )}
@@ -1590,17 +1697,23 @@ function Appointments() {
                   )}
                 </div>
               </div>
-              <div className="border-t border-gray-100 px-5 py-3 flex gap-2 sticky bottom-0 bg-white">
-                <button type="button" onClick={() => { setShowScheduleModal(false); resetScheduleForm(); }}
-                  className="flex-1 px-3 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium">
+              <div className="border-t border-slate-100 px-5 py-3 flex gap-2 sticky bottom-0 bg-white">
+                <button
+                  type="button"
+                  onClick={() => { setShowScheduleModal(false); resetScheduleForm(); }}
+                  className="flex-1 px-3 py-2 border border-slate-200 text-slate-700 rounded-xl hover:bg-slate-50 transition-colors text-sm font-semibold"
+                >
                   Cancel
                 </button>
-                <button type="submit" disabled={isSavingSchedule}
-                  className="flex-1 px-3 py-2 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 text-sm font-medium disabled:opacity-50 flex items-center justify-center gap-1.5">
+                <button
+                  type="submit"
+                  disabled={isSavingSchedule}
+                  className="flex-1 px-3 py-2 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-xl shadow-md shadow-pink-500/25 hover:shadow-lg transition-all text-sm font-semibold disabled:opacity-50 flex items-center justify-center gap-1.5"
+                >
                   {isSavingSchedule ? (
-                    <><div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></div>Saving...</>
+                    <><div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>Saving...</>
                   ) : (
-                    <><Save size={14} />Save Schedule & Staff</>
+                    <><Save size={14} />Save Schedule</>
                   )}
                 </button>
               </div>
@@ -1644,12 +1757,12 @@ function Appointments() {
 
       {/* Empty State */}
       {filteredAppointments.length === 0 && !isLoading && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 text-center">
-          <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
-            <Calendar size={28} className="text-gray-400" />
+        <div className="bg-white rounded-2xl border border-slate-200/70 shadow-sm p-10 text-center">
+          <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-3">
+            <Calendar size={28} className="text-slate-300" />
           </div>
-          <h3 className="text-base font-semibold text-gray-800 mb-1">No appointments found</h3>
-          <p className="text-gray-500 text-sm">Try adjusting your search or filter criteria</p>
+          <h3 className="text-base font-semibold text-slate-800 mb-1">No appointments found</h3>
+          <p className="text-slate-500 text-sm">Try adjusting your search or filter criteria</p>
         </div>
       )}
     </div>

@@ -25,4 +25,5 @@ class StaffSpecialtiesController extends Controller
             'message' => 'Staff Specialty Added Successfully'
         ], 200);
     }
+
 }

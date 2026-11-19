@@ -12,6 +12,7 @@ class WalkIn extends Model
 {
     protected $table = 'walk_ins';
     protected $fillable = [
+        'customer_id',
         'customer_name',
         'service_id',
         'stylist_id',
@@ -33,4 +34,11 @@ class WalkIn extends Model
     {
         return $this->hasMany(WalkInTransaction::class, 'walkin_id', 'id');
     }
+
+    public function customer()
+    {
+        return $this->belongsTo(User::class, 'customer_id');
+    }
+
+
 }

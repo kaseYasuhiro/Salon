@@ -1,16 +1,21 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { View, Text, TouchableOpacity, ScrollView, Alert, Modal, ActivityIndicator, Image, TextInput } from "react-native";
 import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import { useAuth } from "@/contexts/auth-context";
 import api from '@/api/axios';
 
-interface ReceiptData {
-  bookingId: string;
+interface ReceiptAppointment {
+  groupLabel: string;
   serviceName: string;
   date: string;
   time: string;
   stylistName: string;
+}
+
+interface ReceiptData {
+  bookingId: string;
+  appointments: ReceiptAppointment[];
   totalAmount: number;
   paymentType: string;
   paymentMethod: string;
@@ -114,6 +119,8 @@ interface StaffFeedback {
   id: number;
   staff_id: number;
   rating: number;
+  comment?: string;
+  created_at?: string;
 }
 
 interface Appointment {
@@ -133,28 +140,175 @@ interface Appointment {
   price: string;
 }
 
+/**
+ * Selected services are split into "groups" by specialty.
+ * Each group becomes its own appointment: its own stylist and its own date/time.
+ */
+interface ServiceGroup {
+  key: string;
+  label: string;
+  services: Service[];
+}
+
+interface GroupSchedule {
+  date: Date; // UTC-midnight date (same format the calendar produces)
+  time: string; // 'HH:mm'
+}
+
 interface CustomerBookingProps {
   onBookingSuccess?: () => void;
 }
 
+type BookingStep = 'services' | 'hair_options' | 'stylist' | 'datetime' | 'payment';
+
+const DEFAULT_GROUP_KEY = 'stylist';
+
+// ── Pure helpers (no component state) ──
+const toDateStr = (date: Date): string =>
+  `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
+
+// Calendar dates are UTC-midnight; rebuild as a local date so formatting never shifts the day.
+const toLocalDate = (date: Date): Date =>
+  new Date(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+
+const formatDateLong = (date: Date): string =>
+  toLocalDate(date).toLocaleDateString('en-US', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
+
+const formatTime12 = (time: string): string => {
+  const [h, m] = (time || '00:00').split(':').map(Number);
+  const suffix = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 || 12;
+  return `${h12}:${String(m || 0).padStart(2, '0')} ${suffix}`;
+};
+
+const timeToMinutes = (time: string): number => {
+  const [h, m] = (time || '00:00').split(':').map(Number);
+  return (h || 0) * 60 + (m || 0);
+};
+
+const minutesToTime = (minutes: number): string => {
+  const h = Math.floor(minutes / 60) % 24;
+  const m = minutes % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+};
+
+// ── Stylist double-booking rules ──
+// How a stylist's existing appointments block a new booking with that same stylist:
+//   'same_services' – blocks the time only if the other appointment includes one of the SAME services
+//   'any'           – blocks the time for ANY overlapping appointment with that stylist
+type StylistConflictMode = 'same_services' | 'any';
+const STYLIST_CONFLICT_MODE: StylistConflictMode = 'same_services';
+
+// If an appointment has no duration on record, assume one time slot
+const SLOT_FALLBACK_MINUTES = 30;
+
+interface BusyBlock {
+  start: number; // minutes from midnight
+  end: number; // start + total duration of ALL services in that appointment
+  serviceIds: number[];
+}
+
+// Groups /all-appointments rows (one row per service) into one busy block per appointment,
+// indexed by "staffId|YYYY-MM-DD". Cancelled appointments don't block anything.
+const buildBusyIndex = (appointments: Appointment[]): Map<string, BusyBlock[]> => {
+  const perAppointment = new Map<
+    string,
+    { indexKey: string; start: number; duration: number; serviceIds: number[] }
+  >();
+
+  appointments.forEach((app) => {
+    if (app.assigned_employee_id == null) return;
+    if ((app.status || '').toString().toLowerCase() === 'cancelled') return;
+    const dateStr = (app.appointment_date || '').slice(0, 10);
+    if (!dateStr) return;
+
+    const indexKey = `${Number(app.assigned_employee_id)}|${dateStr}`;
+    const apptKey = `${indexKey}|${app.appointment_id ?? app.id}`;
+    const duration = Number(app.duration_minutes) || 0;
+
+    const existing = perAppointment.get(apptKey);
+    if (existing) {
+      existing.duration += duration;
+      existing.serviceIds.push(app.service_id);
+    } else {
+      perAppointment.set(apptKey, {
+        indexKey,
+        start: timeToMinutes(app.appointment_time),
+        duration,
+        serviceIds: [app.service_id],
+      });
+    }
+  });
+
+  const index = new Map<string, BusyBlock[]>();
+  perAppointment.forEach((a) => {
+    const block: BusyBlock = {
+      start: a.start,
+      end: a.start + (a.duration > 0 ? a.duration : SLOT_FALLBACK_MINUTES),
+      serviceIds: a.serviceIds,
+    };
+    const list = index.get(a.indexKey);
+    if (list) list.push(block);
+    else index.set(a.indexKey, [block]);
+  });
+  index.forEach((list) => list.sort((x, y) => x.start - y.start));
+  return index;
+};
+
+// The stylist's busy blocks on a day that matter for the services being booked
+const getRelevantBusyBlocks = (
+  index: Map<string, BusyBlock[]>,
+  staffId: number,
+  dateStr: string,
+  serviceIds: number[]
+): BusyBlock[] => {
+  const blocks = index.get(`${staffId}|${dateStr}`) || [];
+  if (STYLIST_CONFLICT_MODE === 'same_services') return blocks;
+  return blocks.filter((b) => b.serviceIds.some((id) => serviceIds.includes(id)));
+};
+
+// First existing appointment that overlaps [startMin, startMin + durationMin)
+const findStylistConflict = (
+  index: Map<string, BusyBlock[]>,
+  staffId: number,
+  dateStr: string,
+  startMin: number,
+  durationMin: number,
+  serviceIds: number[]
+): BusyBlock | null => {
+  const endMin = startMin + durationMin;
+  return (
+    getRelevantBusyBlocks(index, staffId, dateStr, serviceIds).find(
+      (b) => startMin < b.end && b.start < endMin
+    ) || null
+  );
+};
+
 export default function CustomerBooking({ onBookingSuccess }: CustomerBookingProps) {
-  const [selectedStaffId, setSelectedStaffId] = useState<number | null>(null);
   const [selectedServiceIds, setSelectedServiceIds] = useState<number[]>([]);
-  const [selectedDate, setSelectedDate] = useState(new Date());
-  const [selectedTime, setSelectedTime] = useState(new Date());
+  // Per-group (per-specialty) stylist and schedule, keyed by group key
+  const [groupStaff, setGroupStaff] = useState<Record<string, number>>({});
+  const [groupSchedule, setGroupSchedule] = useState<Record<string, GroupSchedule>>({});
+  const [activeGroupKey, setActiveGroupKey] = useState<string | null>(null);
+
   const [showTimePickerModal, setShowTimePickerModal] = useState(false);
   const [selectedDateForModal, setSelectedDateForModal] = useState<Date | null>(null);
-  const [bookingStep, setBookingStep] = useState<'stylist' | 'services' | 'hair_options' | 'datetime' | 'payment'>('stylist');
-  // ✅ Default to GCash
+  const [bookingStep, setBookingStep] = useState<BookingStep>('services');
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string | null>('gcash');
-  // ✅ NEW: payment type (downpayment vs full)
   const [selectedPaymentType, setSelectedPaymentType] = useState<'downpayment' | 'full'>('downpayment');
   const [paymentProof, setPaymentProof] = useState<any>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [showReceipt, setShowReceipt] = useState(false);
   const [receiptData, setReceiptData] = useState<ReceiptData | null>(null);
-  const [bookingResponse, setBookingResponse] = useState<any>(null);
+
+  // Tracks which groups were already submitted, so a retry after a partial failure doesn't double-book
+  const submittedGroupsRef = useRef<Record<string, any>>({});
 
   const [selectedHairLength, setSelectedHairLength] = useState<string>('');
   const [selectedHairThickness, setSelectedHairThickness] = useState<string>('');
@@ -162,6 +316,9 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
 
   const [showHairColorModal, setShowHairColorModal] = useState(false);
   const [hairColorSearch, setHairColorSearch] = useState('');
+
+  // Stylist "ratings & details" popup (which stylist, and which service group it was opened from)
+  const [detailsTarget, setDetailsTarget] = useState<{ staffId: number; groupKey: string } | null>(null);
 
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [services, setServices] = useState<Service[]>([]);
@@ -178,6 +335,9 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
   const [isLoadingQr, setIsLoadingQr] = useState(false);
 
   const { user } = useAuth();
+
+  // Every stylist's existing appointments, grouped for fast lookups while rendering the calendar
+  const busyIndex = useMemo(() => buildBusyIndex(allAppointments), [allAppointments]);
 
   const BASE_URL = (process.env.EXPO_PUBLIC_API_URL ?? '').replace(/\/api\/?$/, '');
   const getImageUrl = (imagePath: string | null | undefined) => {
@@ -279,7 +439,10 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
         staffFeedbacksData = response.data.map((item: any) => ({
           id: item.id || 0,
           staff_id: item.staff_id || 0,
-          rating: parseFloat(item.rating) || 0
+          rating: parseFloat(item.rating) || 0,
+          // The comment field name depends on your backend; the common ones are tried here
+          comment: (item.comment ?? item.feedback ?? item.review ?? item.message ?? '').toString(),
+          created_at: item.created_at || ''
         }));
       }
       setStaffFeedbacks(staffFeedbacksData);
@@ -379,34 +542,31 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
   };
 
   const completeBooking = async (formData: FormData) => {
-    try {
-      const response = await api.post("/booking/complete", formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      });
-      return response.data;
-    } catch (error) {
-      throw error;
-    }
+    const response = await api.post("/booking/complete", formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data;
   };
 
   useEffect(() => {
     setIsLoading(true);
     Promise.all([
       fetchStaff(),
-      fetchServices(),
+      // price adjustments are merged into the services list, so they must run after services have loaded
+      fetchServices().then(() => fetchServicePriceAdjustments()),
       fetchServiceSpecialties(),
       fetchBusinessSchedules(),
       fetchStaffAssignments(),
       fetchStaffFeedbacks(),
       fetchAllAppointments(),
       fetchHairColors(),
-      fetchServicePriceAdjustments(),
       fetchQrCode(),
     ]).finally(() => setIsLoading(false));
   }, []);
 
+  // ── Schedule helpers ──
   const getScheduleForDate = (dateStr: string): BusinessSchedule | null => {
     return businessSchedules.find(schedule => schedule.business_date === dateStr) || null;
   };
@@ -418,39 +578,25 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
   };
 
   const isStaffAvailableOnDate = (staffId: number, date: Date): boolean => {
-    const dateStr = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
-    const assignedStaff = getStaffAssignedToDate(dateStr);
+    const assignedStaff = getStaffAssignedToDate(toDateStr(date));
     return assignedStaff.some(assignment => assignment.staff_id === staffId);
   };
 
-  const isDateBookable = (date: Date): boolean => {
-    const dateStr = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
-    const schedule = getScheduleForDate(dateStr);
-    if (!schedule) return false;
-    if (schedule.is_open !== 1) return false;
-
-    const slots = generateTimeSlots(schedule.open_time, schedule.close_time);
-
-    const anyFree = slots.some((t) => {
-      if (isPastSlotOnToday(date, t)) return false;
-      if (selectedServicesIncludeBarber() && isTimeSlotTakenByBarber(date, t)) return false;
-      return true;
-    });
-
-    if (!anyFree) return false;
-    return true;
-  };
-
   const getScheduleStatus = (date: Date): { status: 'open' | 'closed' | 'no_schedule'; schedule: BusinessSchedule | null } => {
-    const dateStr = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
-    const schedule = getScheduleForDate(dateStr);
+    const schedule = getScheduleForDate(toDateStr(date));
     if (!schedule) return { status: 'no_schedule', schedule: null };
     if (schedule.is_open === 1) return { status: 'open', schedule };
     return { status: 'closed', schedule };
   };
 
+  // ── Specialty / service helpers ──
+  // ✅ A service is bookable only when it's active AND has at least one specialty assigned.
   const getActiveServices = () => {
-    return services.filter(service => service.service_status === 'active');
+    return services.filter((service) => {
+      if (service.service_status !== 'active') return false;
+      // A service with no specialty can't be routed to a stylist — hide it
+      return getServiceSpecialties(service.id).length > 0;
+    });
   };
 
   const getActiveStaff = (): StaffMember[] => {
@@ -473,57 +619,107 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     return SPECIALTY_ALIASES[normalized] || normalized;
   };
 
-  const getServicesForStaff = () => {
-    if (!selectedStaffId) return [];
-    const selectedStaff = staff.find(s => s.id === selectedStaffId);
-
-    if (!selectedStaff || !isStaffActive(selectedStaff)) return [];
-
-    const staffSpecialtyKeys = (selectedStaff.staff_specialties || [])
-      .filter(s => s.is_active === 1)
-      .map(s => resolveSpecialtyKey(s.specialties?.specialty_name))
-      .filter(Boolean);
-
-    const isStylist = staffSpecialtyKeys.includes('stylist');
-    const isBarber = staffSpecialtyKeys.includes('barber');
-
-    const activeServices = getActiveServices();
-
-    return activeServices.filter(service => {
-      const serviceKeys = getServiceSpecialties(service.id)
-        .map((ss: any) => resolveSpecialtyKey(ss?.specialties?.specialty_name))
-        .filter(Boolean);
-
-      if (serviceKeys.some(key => staffSpecialtyKeys.includes(key))) {
-        return true;
-      }
-
-      if (isStylist && !serviceKeys.includes('barber')) {
-        return true;
-      }
-
-      if (isBarber && serviceKeys.includes('barber')) {
-        return true;
-      }
-
-      return false;
-    });
-  };
-
   const getServiceSpecialties = (serviceId: number) => {
     return serviceSpecialties.filter(item => item.service_id === serviceId);
   };
 
-  const isBarberService = (serviceId: number): boolean => {
-    const specialties = getServiceSpecialties(serviceId);
-    return specialties.some((ss: any) => {
-      const name = (ss?.specialties?.specialty_name || '').trim().toLowerCase();
-      return name === 'barber';
+  /**
+   * A service belongs to ONE group, based on its first listed specialty.
+   * Returns null when the service has no specialty — such services are not bookable
+   * because we can't determine which staff can perform them.
+   */
+  const getServiceGroupInfo = (
+    serviceId: number
+  ): { key: string; label: string } | null => {
+    const names: string[] = getServiceSpecialties(serviceId)
+      .map((ss: any) => ss?.specialties?.specialty_name)
+      .filter(Boolean);
+
+    const first = names[0];
+    if (!first) return null;
+
+    const key = resolveSpecialtyKey(first);
+    return { key, label: key === 'stylist' ? 'Stylist' : first.trim() };
+  };
+
+  // Active staff who can perform a group's specialty
+  const getEligibleStaffForGroup = (groupKey: string): StaffMember[] => {
+    return getActiveStaff().filter((member) => {
+      const keys = (member.staff_specialties || [])
+        .filter(s => s.is_active === 1)
+        .map(s => resolveSpecialtyKey(s.specialties?.specialty_name))
+        .filter(Boolean);
+
+      if (keys.includes(groupKey)) return true;
+      // Legacy rule: stylists may also take any non-barber service.
+      // Delete this line if you want strict specialty matching only.
+      if (keys.includes('stylist') && groupKey !== 'barber') return true;
+      return false;
     });
   };
 
-  const selectedServicesIncludeBarber = (): boolean => {
-    return selectedServiceIds.some((id) => isBarberService(id));
+  // Only show services that are active, have a specialty, and can be handled by at least one active stylist
+  const getBookableServices = (): Service[] => {
+    return getActiveServices().filter((service) => {
+      const info = getServiceGroupInfo(service.id);
+      if (!info) return false;
+      return getEligibleStaffForGroup(info.key).length > 0;
+    });
+  };
+
+  const getServiceSections = (): ServiceGroup[] => {
+    const map = new Map<string, ServiceGroup>();
+    getBookableServices().forEach((service) => {
+      const info = getServiceGroupInfo(service.id);
+      if (!info) return;
+      const { key, label } = info;
+      if (!map.has(key)) map.set(key, { key, label, services: [] });
+      map.get(key)!.services.push(service);
+    });
+    return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label));
+  };
+
+  const getSelectedServices = (): Service[] =>
+    services.filter((s) => selectedServiceIds.includes(s.id));
+
+  const getSelectedGroups = (): ServiceGroup[] => {
+    const map = new Map<string, ServiceGroup>();
+    getSelectedServices().forEach((service) => {
+      const info = getServiceGroupInfo(service.id);
+      if (!info) return;
+      const { key, label } = info;
+      if (!map.has(key)) map.set(key, { key, label, services: [] });
+      map.get(key)!.services.push(service);
+    });
+    return Array.from(map.values());
+  };
+
+  /**
+   * Why a service can't be added right now (null = it can).
+   * Rule: within one specialty, every selected service must be multitaskable.
+   * A service from a different specialty is always allowed (it becomes its own appointment).
+   */
+  const getServiceBlockReason = (service: Service): string | null => {
+    if (selectedServiceIds.includes(service.id)) return null;
+
+    const info = getServiceGroupInfo(service.id);
+    if (!info) return 'This service has no specialty assigned';
+
+    const { key, label } = info;
+    const sameGroup = getSelectedServices().filter((s) => {
+      const i = getServiceGroupInfo(s.id);
+      return i?.key === key;
+    });
+    if (sameGroup.length === 0) return null;
+
+    if (service.is_multitaskable !== 1) {
+      return `Can't be combined with other ${label} services`;
+    }
+    const blocker = sameGroup.find((s) => s.is_multitaskable !== 1);
+    if (blocker) {
+      return `${blocker.service_name} can't be combined with other ${label} services`;
+    }
+    return null;
   };
 
   const doesServiceRequireHairColor = (serviceId: number): boolean => {
@@ -534,6 +730,12 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
   const getPriceAdjustmentsForService = (serviceId: number): PriceAdjustment[] => {
     const service = services.find((s: Service) => s.id === serviceId);
     return service?.service_price_adjustments || [];
+  };
+
+  const needsHairOptions = (): boolean => {
+    const requiresHairColor = selectedServiceIds.some((id) => doesServiceRequireHairColor(id));
+    const hasPriceAdjustments = selectedServiceIds.some((id) => getPriceAdjustmentsForService(id).length > 0);
+    return requiresHairColor || hasPriceAdjustments;
   };
 
   const calculatePriceWithAdjustments = (serviceId: number, hairLength: string, hairThickness: string): number => {
@@ -549,50 +751,35 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     return service.price + additionalPrice;
   };
 
-  const getTotalPriceWithAdjustments = (): number => {
-    const servicesForStaff = getServicesForStaff();
-    const selectedServices = servicesForStaff.filter((s: Service) => selectedServiceIds.includes(s.id));
+  const getGroupTotal = (group: ServiceGroup): number =>
+    group.services.reduce(
+      (sum, s) => sum + calculatePriceWithAdjustments(s.id, selectedHairLength, selectedHairThickness),
+      0
+    );
 
-    let total = 0;
-    for (const service of selectedServices) {
-      const price = calculatePriceWithAdjustments(service.id, selectedHairLength, selectedHairThickness);
-      total += price;
-    }
-    return total;
-  };
+  const getGroupDuration = (group: ServiceGroup): number =>
+    group.services.reduce((sum, s) => sum + s.duration_minutes, 0);
 
-  const areServicesMultitaskable = () => {
-    if (selectedServiceIds.length === 0) return false;
-    if (selectedServiceIds.length === 1) return true;
+  const getTotalPriceWithAdjustments = (): number =>
+    getSelectedServices().reduce(
+      (sum, s) => sum + calculatePriceWithAdjustments(s.id, selectedHairLength, selectedHairThickness),
+      0
+    );
 
-    const servicesForStaff = getServicesForStaff();
-    const selectedServices = servicesForStaff.filter(s => selectedServiceIds.includes(s.id));
-    return selectedServices.every(s => s.is_multitaskable === 1);
-  };
+  const getServicePrice = () =>
+    getSelectedServices().reduce((sum, s) => sum + s.price, 0);
 
-  const getServicePrice = () => {
-    const servicesForStaff = getServicesForStaff();
-    const selectedServices = servicesForStaff.filter(s => selectedServiceIds.includes(s.id));
-    return selectedServices.reduce((sum, s) => sum + s.price, 0);
-  };
+  const getTotalDuration = () =>
+    getSelectedServices().reduce((sum, s) => sum + s.duration_minutes, 0);
 
-  const getTotalDuration = () => {
-    const servicesForStaff = getServicesForStaff();
-    const selectedServices = servicesForStaff.filter(s => selectedServiceIds.includes(s.id));
-    return selectedServices.reduce((sum, s) => sum + s.duration_minutes, 0);
-  };
+  const getServiceNames = () =>
+    getSelectedServices().map(s => s.service_name).join(' + ');
 
-  // ✅ UPDATED: amount now depends on selectedPaymentType
-  const getAmount = () => {
-    const totalPrice = getTotalPriceWithAdjustments();
-    return selectedPaymentType === 'full' ? totalPrice : totalPrice / 2;
-  };
-
-  // ✅ UPDATED: label reflects payment type
   const getPaymentTypeLabel = () => {
     return selectedPaymentType === 'full' ? 'Full Payment' : 'Downpayment (50%)';
   };
 
+  // ── Calendar helpers ──
   const getDaysInMonth = (date: Date) => {
     const year = date.getFullYear();
     const month = date.getMonth();
@@ -652,11 +839,6 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     return slots;
   };
 
-  const timeToMinutes = (time: string): number => {
-    const [h, m] = (time || '00:00').split(':').map(Number);
-    return (h || 0) * 60 + (m || 0);
-  };
-
   const isPastSlotOnToday = (date: Date, slotTime: string): boolean => {
     if (!isToday(date)) return false;
 
@@ -667,26 +849,8 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     return slotStart <= nowMinutes;
   };
 
-  const getAppointmentsForTimeRange = (date: Date, time: string, durationMinutes: number): Appointment[] => {
-    const dateStr = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
-    const [hours, minutes] = time.split(':').map(Number);
-    const startMinutes = hours * 60 + minutes;
-    const endMinutes = startMinutes + durationMinutes;
-
-    return allAppointments.filter(app => {
-      if (app.status === 'cancelled') return false;
-      if (app.appointment_date !== dateStr) return false;
-
-      const [appHours, appMinutes] = app.appointment_time.split(':').map(Number);
-      const appStartMinutes = appHours * 60 + appMinutes;
-      const appEndMinutes = appStartMinutes + app.duration_minutes;
-
-      return (appStartMinutes < endMinutes && appEndMinutes > startMinutes);
-    });
-  };
-
   const isTimeSlotTakenByBarber = (date: Date, time: string): boolean => {
-    const dateStr = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
+    const dateStr = toDateStr(date);
 
     return allAppointments.some((app) => {
       if (app.status === 'cancelled') return false;
@@ -703,6 +867,68 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
 
     const { open_time, close_time } = scheduleStatus.schedule;
     return generateTimeSlots(open_time, close_time);
+  };
+
+  // The stylist's existing appointment that would overlap this time (see STYLIST_CONFLICT_MODE)
+  const getStylistConflict = (
+    staffId: number | undefined,
+    date: Date,
+    time: string,
+    group: ServiceGroup | null | undefined
+  ): BusyBlock | null => {
+    if (!staffId || !group) return null;
+    return findStylistConflict(
+      busyIndex,
+      staffId,
+      toDateStr(date),
+      timeToMinutes(time),
+      getGroupDuration(group),
+      group.services.map((s) => s.id)
+    );
+  };
+
+  // The customer can't be in two places at once: block times that overlap another group's chosen time.
+  const hasConflictWithOtherGroups = (date: Date, time: string, groupKey: string): boolean => {
+    const allGroups = getSelectedGroups();
+    const myGroup = allGroups.find((g) => g.key === groupKey);
+    if (!myGroup) return false;
+
+    const start = timeToMinutes(time);
+    const end = start + getGroupDuration(myGroup);
+    const dateStr = toDateStr(date);
+
+    return Object.entries(groupSchedule).some(([key, sched]) => {
+      if (key === groupKey) return false;
+      const other = allGroups.find((g) => g.key === key);
+      if (!other) return false;
+      if (toDateStr(sched.date) !== dateStr) return false;
+
+      const otherStart = timeToMinutes(sched.time);
+      const otherEnd = otherStart + getGroupDuration(other);
+      return start < otherEnd && otherStart < end;
+    });
+  };
+
+  // Barber appointments allow 1 booking per slot; every group must also avoid overlapping other groups
+  const isSlotBlockedForGroup = (date: Date, time: string, groupKey: string): boolean => {
+    if (groupKey === 'barber' && isTimeSlotTakenByBarber(date, time)) return true;
+    // The chosen stylist already has an overlapping appointment
+    const group = getSelectedGroups().find((g) => g.key === groupKey);
+    if (getStylistConflict(groupStaff[groupKey], date, time, group)) return true;
+    return hasConflictWithOtherGroups(date, time, groupKey);
+  };
+
+  const isDateBookable = (date: Date, groupKey: string): boolean => {
+    const schedule = getScheduleForDate(toDateStr(date));
+    if (!schedule) return false;
+    if (schedule.is_open !== 1) return false;
+
+    const slots = generateTimeSlots(schedule.open_time, schedule.close_time);
+    return slots.some((t) => {
+      if (isPastSlotOnToday(date, t)) return false;
+      if (isSlotBlockedForGroup(date, t, groupKey)) return false;
+      return true;
+    });
   };
 
   const pickImageFromGallery = async () => {
@@ -725,306 +951,7 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     }
   };
 
-  const handleStaffSelect = (staffId: number) => {
-    const target = staff.find((s) => s.id === staffId);
-    if (!target || !isStaffActive(target)) {
-      Alert.alert(
-        "Staff Unavailable",
-        "This stylist is currently unavailable. Please select another stylist."
-      );
-      return;
-    }
-
-    setSelectedStaffId(staffId);
-    setSelectedServiceIds([]);
-    setSelectedHairLength('');
-    setSelectedHairThickness('');
-    setSelectedHairColor(null);
-    setBookingStep('services');
-  };
-
-  const handleServiceSelect = (serviceId: number) => {
-    if (selectedServiceIds.includes(serviceId)) {
-      setSelectedServiceIds(selectedServiceIds.filter(id => id !== serviceId));
-      return;
-    }
-
-    if (selectedServiceIds.length >= 2) {
-      Alert.alert("Maximum Services", "You can select up to 2 services only.");
-      return;
-    }
-
-    const servicesForStaff = getServicesForStaff();
-    const newService = servicesForStaff.find(s => s.id === serviceId);
-    const existingServices = servicesForStaff.filter(s => selectedServiceIds.includes(s.id));
-
-    if (selectedServiceIds.length === 1) {
-      const existingService = existingServices[0];
-      if (newService?.is_multitaskable !== 1 && existingService?.is_multitaskable !== 1) {
-        Alert.alert("Not Multitaskable", "Both services must be multitaskable to select multiple services.");
-        return;
-      }
-      if (newService?.is_multitaskable !== 1) {
-        Alert.alert("Not Multitaskable", "This service cannot be combined with another service.");
-        return;
-      }
-      if (existingService?.is_multitaskable !== 1) {
-        Alert.alert("Not Multitaskable", "The selected service cannot be combined with another service.");
-        return;
-      }
-    }
-
-    setSelectedServiceIds([...selectedServiceIds, serviceId]);
-  };
-
-  const handleContinueToHairOptions = () => {
-    if (selectedServiceIds.length === 0) {
-      Alert.alert("Selection Required", "Please select at least one service.");
-      return;
-    }
-
-    const requiresHairColor = selectedServiceIds.some((id: number) => doesServiceRequireHairColor(id));
-    const hasPriceAdjustments = selectedServiceIds.some((id: number) => {
-      const adjustments = getPriceAdjustmentsForService(id);
-      return adjustments.length > 0;
-    });
-
-    if (!requiresHairColor && !hasPriceAdjustments) {
-      setBookingStep('datetime');
-      return;
-    }
-
-    setBookingStep('hair_options');
-  };
-
-  const handleContinueToDateTime = () => {
-    const hasPriceAdjustments = selectedServiceIds.some((id: number) => {
-      const adjustments = getPriceAdjustmentsForService(id);
-      return adjustments.length > 0;
-    });
-
-    if (hasPriceAdjustments && (!selectedHairLength || !selectedHairThickness)) {
-      Alert.alert("Selection Required", "Please select your hair length and thickness for price adjustments.");
-      return;
-    }
-
-    const requiresHairColor = selectedServiceIds.some((id: number) => doesServiceRequireHairColor(id));
-    if (requiresHairColor && !selectedHairColor) {
-      Alert.alert("Selection Required", "Please select a hair color for your service.");
-      return;
-    }
-
-    setBookingStep('datetime');
-  };
-
-  const handleDateSelect = (date: Date) => {
-    if (isPastDate(date)) {
-      Alert.alert("Invalid Date", "Cannot select past dates. Please choose today or a future date.");
-      return;
-    }
-
-    if (!isDateBookable(date)) {
-      const scheduleStatus = getScheduleStatus(date);
-      if (scheduleStatus.status === 'no_schedule') {
-        Alert.alert("No Schedule", "This date has no business schedule set. Please select another date.");
-      } else if (scheduleStatus.status === 'closed') {
-        Alert.alert("Salon Closed", "The salon is closed on this date. Please select another date.");
-      } else {
-        Alert.alert("No Available Slots", "No available time slots for this date. Please select another date.");
-      }
-      return;
-    }
-
-    if (!isStaffAvailableOnDate(selectedStaffId!, date)) {
-      Alert.alert("Staff Not Available", "The selected stylist is not available on this date. Please select another date.");
-      return;
-    }
-
-    setSelectedDateForModal(date);
-    setShowTimePickerModal(true);
-  };
-
-  const handleTimeSelect = (time: string) => {
-    if (selectedDateForModal && isPastSlotOnToday(selectedDateForModal, time)) {
-      Alert.alert(
-        "Time Has Passed",
-        "This time slot has already passed. Please choose a later time."
-      );
-      return;
-    }
-
-    const [hours, minutes] = time.split(':');
-    const newDateTime = new Date(selectedDateForModal!);
-    newDateTime.setHours(parseInt(hours), parseInt(minutes), 0);
-    setSelectedDate(newDateTime);
-    setSelectedTime(newDateTime);
-    setShowTimePickerModal(false);
-    setSelectedDateForModal(null);
-
-    setBookingStep('payment');
-  };
-
-  const handleConfirmBooking = async () => {
-    if (!selectedPaymentMethod) {
-      Alert.alert("Selection Required", "Please select a payment method.");
-      return;
-    }
-
-    if (!selectedStaffId) {
-      Alert.alert("Selection Required", "Please select a stylist first.");
-      return;
-    }
-
-    const targetStaff = staff.find((s) => s.id === selectedStaffId);
-    if (!targetStaff || !isStaffActive(targetStaff)) {
-      Alert.alert(
-        "Staff Unavailable",
-        "The selected stylist is no longer available. Please choose another stylist."
-      );
-      setBookingStep('stylist');
-      setSelectedStaffId(null);
-      setSelectedServiceIds([]);
-      return;
-    }
-
-    if (!paymentProof) {
-      Alert.alert("Upload Required", "Please upload your GCash payment receipt as proof of payment.");
-      return;
-    }
-
-    const appointmentDate = `${selectedDate.getUTCFullYear()}-${String(selectedDate.getUTCMonth() + 1).padStart(2, '0')}-${String(selectedDate.getUTCDate()).padStart(2, '0')}`;
-    const formattedTime = selectedTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
-
-    if (isPastSlotOnToday(selectedDate, formattedTime)) {
-      Alert.alert(
-        "Time Has Passed",
-        "The selected time slot has already passed. Please choose a later time."
-      );
-      setBookingStep('datetime');
-      return;
-    }
-
-    setIsProcessing(true);
-
-    try {
-      const totalAmount = getTotalPriceWithAdjustments();
-      // ✅ amount depends on selected payment type
-      const amountToPay = selectedPaymentType === 'full' ? totalAmount : totalAmount / 2;
-
-      const formData = new FormData();
-      formData.append('appointment_date', appointmentDate);
-      formData.append('appointment_time', formattedTime);
-      formData.append('status', 'pending');
-
-      selectedServiceIds.forEach((id) => {
-        formData.append('service_ids[]', id.toString());
-      });
-
-      formData.append('assigned_employee_id', selectedStaffId.toString());
-      formData.append('service_status', 'pending');
-
-      formData.append('total_amount', totalAmount.toString());
-      // ✅ send correct payment type
-      formData.append('payment_type', selectedPaymentType === 'full' ? 'full' : 'downpayment');
-      formData.append('payment_method', selectedPaymentMethod || 'gcash');
-      formData.append('customer_id', user?.id?.toString() || '0');
-
-      if (selectedHairLength) formData.append('hair_length', selectedHairLength);
-      if (selectedHairThickness) formData.append('hair_thickness', selectedHairThickness);
-      if (selectedHairColor) {
-        const color = masterHairColors.find((c: HairColor) => c.id === selectedHairColor);
-        if (color) formData.append('preferred_color', color.color_name);
-      }
-
-      if (paymentProof) {
-        formData.append('payment_proof', {
-          uri: paymentProof.uri,
-          name: paymentProof.name,
-          type: paymentProof.type,
-        } as any);
-      }
-
-      const result = await completeBooking(formData);
-
-      const paymentMethodLabel = 'GCash';
-      const staffName = getStaffName(selectedStaffId);
-      const receiptNumber = generateReceiptNumber();
-      const serviceNames = getServiceNames();
-
-      const receipt: ReceiptData = {
-        bookingId: result.appointment_id?.toString() || receiptNumber,
-        serviceName: serviceNames,
-        date: selectedDate.toLocaleDateString('en-US', {
-          weekday: 'long',
-          year: 'numeric',
-          month: 'long',
-          day: 'numeric'
-        }),
-        time: formattedTime,
-        stylistName: staffName,
-        totalAmount: totalAmount,
-        paymentType: getPaymentTypeLabel(),
-        paymentMethod: paymentMethodLabel,
-        amountPaid: amountToPay,
-        // ✅ remaining balance is 0 when full payment
-        remainingBalance: totalAmount - amountToPay,
-        status: 'Pending Confirmation',
-        bookingDate: new Date().toLocaleDateString('en-US', {
-          weekday: 'long',
-          year: 'numeric',
-          month: 'long',
-          day: 'numeric',
-          hour: '2-digit',
-          minute: '2-digit'
-        }),
-        paymentProof: paymentProof?.uri
-      };
-
-      setReceiptData(receipt);
-      setShowReceipt(true);
-
-    } catch (error: any) {
-      if (error.response?.data?.errors) {
-        const errorMessages = Object.values(error.response.data.errors).flat().join('\n');
-        Alert.alert("Validation Error", errorMessages);
-      } else {
-        const errorMessage = error.response?.data?.message || error.message || "Failed to complete booking. Please try again.";
-        Alert.alert("Error", errorMessage);
-      }
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  const handleCloseReceipt = () => {
-    setShowReceipt(false);
-    setBookingStep('stylist');
-    setSelectedStaffId(null);
-    setSelectedServiceIds([]);
-    // ✅ reset to default GCash
-    setSelectedPaymentMethod('gcash');
-    // ✅ reset payment type
-    setSelectedPaymentType('downpayment');
-    setPaymentProof(null);
-    setSelectedHairLength('');
-    setSelectedHairThickness('');
-    setSelectedHairColor(null);
-    if (onBookingSuccess) onBookingSuccess();
-  };
-
-  const handleBackToStylist = () => {
-    setBookingStep('stylist');
-    setSelectedServiceIds([]);
-    setSelectedHairLength('');
-    setSelectedHairThickness('');
-    setSelectedHairColor(null);
-  };
-
-  const handleBackToServices = () => setBookingStep('services');
-  const handleBackToHairOptions = () => setBookingStep('hair_options');
-  const handleBackToDateTime = () => setBookingStep('datetime');
-
-  const getStaffName = (staffId: number | null) => {
+  const getStaffName = (staffId: number | null | undefined) => {
     if (!staffId) return '';
     const staffMember = staff.find(s => s.id === staffId);
     return staffMember ? `${staffMember.first_name} ${staffMember.last_name}` : '';
@@ -1040,12 +967,6 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
       .map(s => s.specialties?.specialty_name || '')
       .filter(Boolean)
       .join(', ');
-  };
-
-  const getServiceNames = () => {
-    const servicesForStaff = getServicesForStaff();
-    const selectedServices = servicesForStaff.filter(s => selectedServiceIds.includes(s.id));
-    return selectedServices.map(s => s.service_name).join(' + ');
   };
 
   const getSelectedHairColorObject = (): HairColor | null => {
@@ -1079,6 +1000,93 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     }
   };
 
+  // ── Stylist card details ──
+  // A day counts as "available" when the salon is open, the stylist is assigned,
+  // and at least one time slot is still free.
+  const hasOpenSlot = (date: Date, groupKey: string, staffId?: number): boolean => {
+    const schedule = getScheduleForDate(toDateStr(date));
+    if (!schedule || schedule.is_open !== 1) return false;
+
+    const group = staffId ? getSelectedGroups().find((g) => g.key === groupKey) : null;
+
+    return generateTimeSlots(schedule.open_time, schedule.close_time).some((t) => {
+      if (isPastSlotOnToday(date, t)) return false;
+      if (groupKey === 'barber' && isTimeSlotTakenByBarber(date, t)) return false;
+      if (staffId && getStylistConflict(staffId, date, t, group)) return false;
+      return true;
+    });
+  };
+
+  const getNextAvailableDate = (staffId: number, groupKey: string, daysAhead = 60): Date | null => {
+    const now = new Date();
+    for (let i = 0; i < daysAhead; i++) {
+      const date = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate() + i));
+      // Cheap check first so we only look at slots on days the stylist actually works
+      if (!isStaffAvailableOnDate(staffId, date)) continue;
+      if (hasOpenSlot(date, groupKey, staffId)) return date;
+    }
+    return null;
+  };
+
+  const getNextAvailableInfo = (staffId: number, groupKey: string): { text: string; isToday: boolean } => {
+    const date = getNextAvailableDate(staffId, groupKey);
+    if (!date) return { text: 'No upcoming availability', isToday: false };
+    if (isToday(date)) return { text: 'Available today', isToday: true };
+    const label = toLocalDate(date).toLocaleDateString('en-US', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+    });
+    return { text: `Next available: ${label}`, isToday: false };
+  };
+
+  // Unique completed appointments handled by this stylist (/all-appointments has one row per service)
+  const getCompletedAppointmentsCount = (staffId: number): number => {
+    const ids = new Set<number>();
+    allAppointments.forEach((app) => {
+      if (Number(app.assigned_employee_id) === staffId && app.status === 'completed') {
+        ids.add(app.appointment_id ?? app.id);
+      }
+    });
+    return ids.size;
+  };
+
+  const formatCompletedLabel = (count: number): string => {
+    if (count === 0) return 'No completed appointments yet';
+    if (count >= 10) return `${Math.floor(count / 10) * 10}+ appointments completed`;
+    return `${count} appointment${count === 1 ? '' : 's'} completed`;
+  };
+
+  const getRatingBreakdown = (staffId: number) => {
+    const reviews = staffFeedbacks.filter((f) => f.staff_id === staffId && f.rating > 0);
+    const total = reviews.length;
+    const counts: Record<number, number> = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
+    reviews.forEach((r) => {
+      const star = Math.min(5, Math.max(1, Math.round(r.rating)));
+      counts[star] += 1;
+    });
+    return {
+      total,
+      rows: [5, 4, 3, 2, 1].map((star) => ({
+        star,
+        count: counts[star],
+        percent: total > 0 ? Math.round((counts[star] / total) * 100) : 0,
+      })),
+    };
+  };
+
+  // Newest written reviews (only ones that actually have a comment)
+  const getRecentReviews = (staffId: number, limit = 5): StaffFeedback[] => {
+    return staffFeedbacks
+      .filter((f) => f.staff_id === staffId && !!f.comment && f.comment.trim().length > 0)
+      .sort((a, b) => {
+        const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
+        return bTime - aTime;
+      })
+      .slice(0, limit);
+  };
+
   const renderStars = (rating: number) => {
     const validRating = typeof rating === 'number' && !isNaN(rating) ? rating : 0;
     const fullStars = Math.floor(validRating);
@@ -1106,6 +1114,435 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
       (color.color_code || '').toLowerCase().includes(term)
     );
   });
+
+  // ── Derived booking state ──
+  const groups = getSelectedGroups();
+  const activeGroup: ServiceGroup | null =
+    groups.find((g) => g.key === activeGroupKey) ?? groups[0] ?? null;
+  const allGroupsHaveStaff = groups.length > 0 && groups.every((g) => !!groupStaff[g.key]);
+  const allGroupsScheduled = groups.length > 0 && groups.every((g) => !!groupSchedule[g.key]);
+
+  // ── Handlers ──
+  const handleServiceSelect = (serviceId: number) => {
+    // Any change to the selection invalidates chosen times (durations / conflicts change)
+    const resetSchedules = () => setGroupSchedule({});
+
+    if (selectedServiceIds.includes(serviceId)) {
+      setSelectedServiceIds(selectedServiceIds.filter(id => id !== serviceId));
+      resetSchedules();
+      return;
+    }
+
+    const service = services.find(s => s.id === serviceId);
+    if (!service) return;
+
+    const reason = getServiceBlockReason(service);
+    if (reason) {
+      Alert.alert(
+        "Can't Combine Services",
+        `${reason}.\n\nYou can pick a service from a different specialty instead — it will be booked as a separate appointment with its own time.`
+      );
+      return;
+    }
+
+    setSelectedServiceIds([...selectedServiceIds, serviceId]);
+    resetSchedules();
+  };
+
+  const handleContinueToHairOptions = () => {
+    if (selectedServiceIds.length === 0) {
+      Alert.alert("Selection Required", "Please select at least one service.");
+      return;
+    }
+
+    setBookingStep(needsHairOptions() ? 'hair_options' : 'stylist');
+  };
+
+  const handleContinueToStylist = () => {
+    const hasPriceAdjustments = selectedServiceIds.some((id: number) => getPriceAdjustmentsForService(id).length > 0);
+
+    if (hasPriceAdjustments && (!selectedHairLength || !selectedHairThickness)) {
+      Alert.alert("Selection Required", "Please select your hair length and thickness for price adjustments.");
+      return;
+    }
+
+    const requiresHairColor = selectedServiceIds.some((id: number) => doesServiceRequireHairColor(id));
+    if (requiresHairColor && !selectedHairColor) {
+      Alert.alert("Selection Required", "Please select a hair color for your service.");
+      return;
+    }
+
+    setBookingStep('stylist');
+  };
+
+  const handleStaffSelectForGroup = (groupKey: string, staffId: number) => {
+    const target = staff.find((s) => s.id === staffId);
+    if (!target || !isStaffActive(target)) {
+      Alert.alert(
+        "Staff Unavailable",
+        "This stylist is currently unavailable. Please select another stylist."
+      );
+      return;
+    }
+
+    setGroupStaff((prev) => ({ ...prev, [groupKey]: staffId }));
+    // Availability depends on the stylist, so clear this group's time
+    setGroupSchedule((prev) => {
+      const next = { ...prev };
+      delete next[groupKey];
+      return next;
+    });
+  };
+
+  const handleContinueToDateTime = () => {
+    for (const group of groups) {
+      const staffId = groupStaff[group.key];
+      if (!staffId) {
+        Alert.alert("Selection Required", `Please select a stylist for ${group.label}.`);
+        return;
+      }
+      const target = staff.find((s) => s.id === staffId);
+      if (!target || !isStaffActive(target)) {
+        Alert.alert("Staff Unavailable", `The stylist for ${group.label} is no longer available. Please choose another.`);
+        setGroupStaff((prev) => {
+          const next = { ...prev };
+          delete next[group.key];
+          return next;
+        });
+        return;
+      }
+    }
+
+    const firstPending = groups.find((g) => !groupSchedule[g.key]) ?? groups[0];
+    setActiveGroupKey(firstPending?.key ?? null);
+    // Make sure the calendar reflects the latest bookings
+    fetchAllAppointments();
+    setBookingStep('datetime');
+  };
+
+  const handleDateSelect = (date: Date) => {
+    if (!activeGroup) return;
+    const staffId = groupStaff[activeGroup.key];
+
+    if (isPastDate(date)) {
+      Alert.alert("Invalid Date", "Cannot select past dates. Please choose today or a future date.");
+      return;
+    }
+
+    if (!isDateBookable(date, activeGroup.key)) {
+      const scheduleStatus = getScheduleStatus(date);
+      if (scheduleStatus.status === 'no_schedule') {
+        Alert.alert("No Schedule", "This date has no business schedule set. Please select another date.");
+      } else if (scheduleStatus.status === 'closed') {
+        Alert.alert("Salon Closed", "The salon is closed on this date. Please select another date.");
+      } else {
+        Alert.alert("No Available Slots", "No available time slots for this date. Please select another date.");
+      }
+      return;
+    }
+
+    if (!staffId || !isStaffAvailableOnDate(staffId, date)) {
+      Alert.alert("Staff Not Available", "The selected stylist is not available on this date. Please select another date.");
+      return;
+    }
+
+    setSelectedDateForModal(date);
+    setShowTimePickerModal(true);
+  };
+
+  const handleTimeSelect = (time: string) => {
+    if (!selectedDateForModal || !activeGroup) return;
+
+    if (isPastSlotOnToday(selectedDateForModal, time)) {
+      Alert.alert(
+        "Time Has Passed",
+        "This time slot has already passed. Please choose a later time."
+      );
+      return;
+    }
+
+    const stylistConflict = getStylistConflict(
+      groupStaff[activeGroup.key],
+      selectedDateForModal,
+      time,
+      activeGroup
+    );
+    if (stylistConflict) {
+      Alert.alert(
+        "Stylist Not Available",
+        `${getStaffName(groupStaff[activeGroup.key])} already has an appointment until ${formatTime12(
+          minutesToTime(stylistConflict.end)
+        )}. You can book right after that time.`
+      );
+      return;
+    }
+
+    if (hasConflictWithOtherGroups(selectedDateForModal, time, activeGroup.key)) {
+      Alert.alert(
+        "Schedule Conflict",
+        "This time overlaps with another appointment you're booking. Please choose a different time."
+      );
+      return;
+    }
+
+    const nextSchedule: Record<string, GroupSchedule> = {
+      ...groupSchedule,
+      [activeGroup.key]: { date: selectedDateForModal, time },
+    };
+    setGroupSchedule(nextSchedule);
+    setShowTimePickerModal(false);
+    setSelectedDateForModal(null);
+
+    // Move on to the next group that still needs a time; otherwise go to payment
+    const nextPending = groups.find((g) => !nextSchedule[g.key]);
+    if (nextPending) {
+      setActiveGroupKey(nextPending.key);
+    } else {
+      setBookingStep('payment');
+    }
+  };
+
+  const handleConfirmBooking = async () => {
+    if (!selectedPaymentMethod) {
+      Alert.alert("Selection Required", "Please select a payment method.");
+      return;
+    }
+
+    if (groups.length === 0) {
+      Alert.alert("Selection Required", "Please select at least one service.");
+      setBookingStep('services');
+      return;
+    }
+
+    // Re-validate every group before sending anything
+    for (const group of groups) {
+      const staffId = groupStaff[group.key];
+      const targetStaff = staffId ? staff.find((s) => s.id === staffId) : null;
+      if (!staffId || !targetStaff || !isStaffActive(targetStaff)) {
+        Alert.alert(
+          "Staff Unavailable",
+          `The stylist for ${group.label} is no longer available. Please choose another stylist.`
+        );
+        setGroupStaff((prev) => {
+          const next = { ...prev };
+          delete next[group.key];
+          return next;
+        });
+        setBookingStep('stylist');
+        return;
+      }
+
+      const sched = groupSchedule[group.key];
+      if (!sched) {
+        Alert.alert("Selection Required", `Please choose a date and time for ${group.label}.`);
+        setActiveGroupKey(group.key);
+        setBookingStep('datetime');
+        return;
+      }
+
+      if (isPastSlotOnToday(sched.date, sched.time)) {
+        Alert.alert(
+          "Time Has Passed",
+          `The selected time for ${group.label} has already passed. Please choose a later time.`
+        );
+        setGroupSchedule((prev) => {
+          const next = { ...prev };
+          delete next[group.key];
+          return next;
+        });
+        setActiveGroupKey(group.key);
+        setBookingStep('datetime');
+        return;
+      }
+    }
+
+    if (!paymentProof) {
+      Alert.alert("Upload Required", "Please upload your GCash payment receipt as proof of payment.");
+      return;
+    }
+
+    setIsProcessing(true);
+    const results = submittedGroupsRef.current;
+
+    try {
+      // Re-check each stylist's schedule with fresh data, in case someone booked while this customer was checking out
+      const freshAppointments = await fetchAllAppointments();
+      const freshIndex = buildBusyIndex(freshAppointments);
+      for (const group of groups) {
+        if (results[group.key]) continue; // already booked on a previous attempt (would conflict with itself)
+
+        const sched = groupSchedule[group.key];
+        const staffId = groupStaff[group.key];
+        const conflict = findStylistConflict(
+          freshIndex,
+          staffId,
+          toDateStr(sched.date),
+          timeToMinutes(sched.time),
+          getGroupDuration(group),
+          group.services.map((s) => s.id)
+        );
+
+        if (conflict) {
+          Alert.alert(
+            "Time No Longer Available",
+            `${getStaffName(staffId)} was just booked for this time (until ${formatTime12(
+              minutesToTime(conflict.end)
+            )}). Please choose a different time for ${group.label}.`
+          );
+          setGroupSchedule((prev) => {
+            const next = { ...prev };
+            delete next[group.key];
+            return next;
+          });
+          setActiveGroupKey(group.key);
+          setBookingStep('datetime');
+          return;
+        }
+      }
+
+      const totalAmount = getTotalPriceWithAdjustments();
+      const amountToPay = selectedPaymentType === 'full' ? totalAmount : totalAmount / 2;
+
+      // One booking request per group (each group = its own stylist + time).
+      // Each request carries that group's share of the total and the same payment proof.
+      for (const group of groups) {
+        if (results[group.key]) continue; // already booked on a previous attempt
+
+        const sched = groupSchedule[group.key];
+        const staffId = groupStaff[group.key];
+        const groupTotal = getGroupTotal(group);
+
+        const formData = new FormData();
+        formData.append('appointment_date', toDateStr(sched.date));
+        formData.append('appointment_time', sched.time);
+        formData.append('status', 'pending');
+
+        group.services.forEach((service) => {
+          formData.append('service_ids[]', service.id.toString());
+        });
+
+        formData.append('assigned_employee_id', staffId.toString());
+        formData.append('service_status', 'pending');
+
+        formData.append('total_amount', groupTotal.toString());
+        formData.append('payment_type', selectedPaymentType === 'full' ? 'full' : 'downpayment');
+        formData.append('payment_method', selectedPaymentMethod || 'gcash');
+        formData.append('customer_id', user?.id?.toString() || '0');
+
+        if (selectedHairLength) formData.append('hair_length', selectedHairLength);
+        if (selectedHairThickness) formData.append('hair_thickness', selectedHairThickness);
+        if (selectedHairColor) {
+          const color = masterHairColors.find((c: HairColor) => c.id === selectedHairColor);
+          if (color) formData.append('preferred_color', color.color_name);
+        }
+
+        formData.append('payment_proof', {
+          uri: paymentProof.uri,
+          name: paymentProof.name,
+          type: paymentProof.type,
+        } as any);
+
+        results[group.key] = await completeBooking(formData);
+      }
+
+      const receiptNumber = generateReceiptNumber();
+      const appointmentIds = groups
+        .map((g) => results[g.key]?.appointment_id)
+        .filter((id) => id !== undefined && id !== null);
+
+      const receipt: ReceiptData = {
+        bookingId: appointmentIds.length > 0 ? appointmentIds.join(', ') : receiptNumber,
+        appointments: groups.map((group) => ({
+          groupLabel: group.label,
+          serviceName: group.services.map((s) => s.service_name).join(' + '),
+          date: formatDateLong(groupSchedule[group.key].date),
+          time: formatTime12(groupSchedule[group.key].time),
+          stylistName: getStaffName(groupStaff[group.key]),
+        })),
+        totalAmount: totalAmount,
+        paymentType: getPaymentTypeLabel(),
+        paymentMethod: 'GCash',
+        amountPaid: amountToPay,
+        remainingBalance: totalAmount - amountToPay,
+        status: 'Pending Confirmation',
+        bookingDate: new Date().toLocaleDateString('en-US', {
+          weekday: 'long',
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit'
+        }),
+        paymentProof: paymentProof?.uri
+      };
+
+      setReceiptData(receipt);
+      setShowReceipt(true);
+
+    } catch (error: any) {
+      const bookedCount = groups.filter((g) => results[g.key]).length;
+      const partialNote =
+        bookedCount > 0
+          ? `\n\n${bookedCount} of ${groups.length} appointment(s) were already booked. Tap "Confirm Booking" again to retry the remaining one(s).`
+          : '';
+
+      if (error.response?.data?.errors) {
+        const errorMessages = Object.values(error.response.data.errors).flat().join('\n');
+        Alert.alert("Validation Error", `${errorMessages}${partialNote}`);
+      } else {
+        const errorMessage = error.response?.data?.message || error.message || "Failed to complete booking. Please try again.";
+        Alert.alert("Error", `${errorMessage}${partialNote}`);
+      }
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleCloseReceipt = () => {
+    setShowReceipt(false);
+    setBookingStep('services');
+    setSelectedServiceIds([]);
+    setGroupStaff({});
+    setGroupSchedule({});
+    setActiveGroupKey(null);
+    setSelectedPaymentMethod('gcash');
+    setSelectedPaymentType('downpayment');
+    setPaymentProof(null);
+    setSelectedHairLength('');
+    setSelectedHairThickness('');
+    setSelectedHairColor(null);
+    submittedGroupsRef.current = {};
+    if (onBookingSuccess) onBookingSuccess();
+  };
+
+  const handleBack = () => {
+    switch (bookingStep) {
+      case 'payment':
+        setBookingStep('datetime');
+        break;
+      case 'datetime':
+        setBookingStep('stylist');
+        break;
+      case 'stylist':
+        setBookingStep(needsHairOptions() ? 'hair_options' : 'services');
+        break;
+      case 'hair_options':
+        setBookingStep('services');
+        break;
+      default:
+        break;
+    }
+  };
+
+  const getBackLabel = () => {
+    switch (bookingStep) {
+      case 'payment': return 'Back to Date & Time';
+      case 'datetime': return 'Back to Stylists';
+      case 'stylist': return needsHairOptions() ? 'Back to Hair Options' : 'Back to Services';
+      case 'hair_options': return 'Back to Services';
+      default: return '';
+    }
+  };
 
   // ── Hair Color Picker Modal ──
   const HairColorPickerModal = () => {
@@ -1250,27 +1687,56 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     );
   };
 
-  // ── Time Picker Modal ──
+  // ── Time Picker Modal (for the active group) ──
   const TimePickerModal = () => {
-    const rawTimeSlots = selectedDateForModal ? getTimeSlotsForDate(selectedDateForModal) : [];
-    const isBarber = selectedServicesIncludeBarber();
+    const rawTimeSlots = selectedDateForModal && activeGroup ? getTimeSlotsForDate(selectedDateForModal) : [];
+    const isBarberGroup = activeGroup?.key === 'barber';
+    const groupDuration = activeGroup ? getGroupDuration(activeGroup) : 0;
+    const activeSched = activeGroup ? groupSchedule[activeGroup.key] : undefined;
+
+    const modalStylistId = activeGroup ? groupStaff[activeGroup.key] : undefined;
+    const modalStylistName = getStaffName(modalStylistId);
+
+    // The stylist's existing appointments on this day (with when each one ends)
+    const stylistBusyBlocks =
+      modalStylistId && activeGroup && selectedDateForModal
+        ? getRelevantBusyBlocks(
+            busyIndex,
+            modalStylistId,
+            toDateStr(selectedDateForModal),
+            activeGroup.services.map((s) => s.id)
+          )
+        : [];
 
     const slotsWithStatus = rawTimeSlots.map((time) => {
       const isPast = selectedDateForModal ? isPastSlotOnToday(selectedDateForModal, time) : false;
-      const booked = !isPast && isBarber && selectedDateForModal
-        ? isTimeSlotTakenByBarber(selectedDateForModal, time)
-        : false;
+      const isBooked =
+        !isPast && isBarberGroup && selectedDateForModal
+          ? isTimeSlotTakenByBarber(selectedDateForModal, time)
+          : false;
+      const isStylistBusy =
+        !isPast && !isBooked && selectedDateForModal
+          ? !!getStylistConflict(modalStylistId, selectedDateForModal, time, activeGroup)
+          : false;
+      const isConflict =
+        !isPast && !isBooked && !isStylistBusy && selectedDateForModal && activeGroup
+          ? hasConflictWithOtherGroups(selectedDateForModal, time, activeGroup.key)
+          : false;
       return {
         time,
         isPast,
-        isBooked: booked,
-        isBlocked: isPast || booked,
+        isBooked,
+        isStylistBusy,
+        isConflict,
+        isBlocked: isPast || isBooked || isStylistBusy || isConflict,
       };
     });
 
     const availableCount = slotsWithStatus.filter((s) => !s.isBlocked).length;
     const bookedCount = slotsWithStatus.filter((s) => s.isBooked).length;
+    const stylistBusyCount = slotsWithStatus.filter((s) => s.isStylistBusy).length;
     const pastCount = slotsWithStatus.filter((s) => s.isPast).length;
+    const conflictCount = slotsWithStatus.filter((s) => s.isConflict).length;
     const allBlocked = rawTimeSlots.length > 0 && availableCount === 0;
 
     return (
@@ -1288,12 +1754,17 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
             <View className="flex-row justify-between items-center mb-4">
               <View className="flex-1">
                 <Text className="text-lg font-semibold text-gray-800">
-                  Select Time for {selectedDateForModal?.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                  Select Time for {selectedDateForModal ? toLocalDate(selectedDateForModal).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : ''}
                 </Text>
+                {activeGroup && (
+                  <Text className="text-xs text-pink-500 mt-0.5">
+                    {activeGroup.label}: {activeGroup.services.map(s => s.service_name).join(' + ')}
+                  </Text>
+                )}
                 <Text className="text-xs text-gray-400">
-                  Duration: {getTotalDuration()} minutes
+                  Duration: {groupDuration} minutes
                 </Text>
-                {isBarber && (
+                {isBarberGroup && (
                   <Text className="text-[11px] text-pink-500 mt-1">
                     Barber services allow 1 booking per time slot
                   </Text>
@@ -1303,6 +1774,26 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                 <Ionicons name="close" size={24} color="#9ca3af" />
               </TouchableOpacity>
             </View>
+
+            {stylistBusyBlocks.length > 0 && (
+              <View className="mb-3 p-3 bg-orange-50 rounded-xl border border-orange-200">
+                <Text className="text-orange-700 text-xs font-semibold mb-1">
+                  {modalStylistName || 'This stylist'}{' '}
+                  {STYLIST_CONFLICT_MODE === 'same_services'
+                    ? 'already has an appointment for the same service on this day:'
+                    : 'already has appointments on this day:'}
+                </Text>
+                {stylistBusyBlocks.map((block, i) => (
+                  <Text key={i} className="text-orange-700 text-xs">
+                    • {formatTime12(minutesToTime(block.start))} – {formatTime12(minutesToTime(block.end))}
+                    {' '}({block.end - block.start} mins)
+                  </Text>
+                ))}
+                <Text className="text-orange-600 text-[11px] mt-1">
+                  You can book right after an appointment ends — pick a time at or after its end time.
+                </Text>
+              </View>
+            )}
 
             {rawTimeSlots.length > 0 && (
               <View className="flex-row items-center flex-wrap gap-4 mb-3 pb-3 border-b border-gray-100">
@@ -1316,10 +1807,22 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                     <Text className="text-xs text-gray-600">Past ({pastCount})</Text>
                   </View>
                 )}
-                {isBarber && bookedCount > 0 && (
+                {isBarberGroup && bookedCount > 0 && (
                   <View className="flex-row items-center gap-1">
                     <View className="w-3 h-3 rounded-full bg-gray-400" />
                     <Text className="text-xs text-gray-600">Booked ({bookedCount})</Text>
+                  </View>
+                )}
+                {stylistBusyCount > 0 && (
+                  <View className="flex-row items-center gap-1">
+                    <View className="w-3 h-3 rounded-full bg-red-300" />
+                    <Text className="text-xs text-gray-600">Stylist busy ({stylistBusyCount})</Text>
+                  </View>
+                )}
+                {conflictCount > 0 && (
+                  <View className="flex-row items-center gap-1">
+                    <View className="w-3 h-3 rounded-full bg-orange-300" />
+                    <Text className="text-xs text-gray-600">Overlaps ({conflictCount})</Text>
                   </View>
                 )}
               </View>
@@ -1335,8 +1838,13 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
             ) : (
               <ScrollView showsVerticalScrollIndicator={false} className="max-h-96">
                 <View className="flex-row flex-wrap justify-between">
-                  {slotsWithStatus.map(({ time, isBlocked, isBooked, isPast }) => {
-                    const isSelected = !isBlocked && selectedTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }) === time;
+                  {slotsWithStatus.map(({ time, isBlocked, isBooked, isStylistBusy, isPast, isConflict }) => {
+                    const isSelected =
+                      !isBlocked &&
+                      !!activeSched &&
+                      !!selectedDateForModal &&
+                      toDateStr(activeSched.date) === toDateStr(selectedDateForModal) &&
+                      activeSched.time === time;
 
                     return (
                       <TouchableOpacity
@@ -1368,7 +1876,7 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                                 : 'text-gray-700'
                           }
                         >
-                          {time}
+                          {formatTime12(time)}
                         </Text>
 
                         {isPast && !isSelected && (
@@ -1388,6 +1896,24 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                             </Text>
                           </View>
                         )}
+
+                        {isStylistBusy && !isSelected && (
+                          <View className="flex-row items-center mt-0.5">
+                            <Ionicons name="person-remove-outline" size={10} color="#ef4444" />
+                            <Text className="text-[9px] text-red-400 ml-0.5 font-semibold">
+                              Stylist busy
+                            </Text>
+                          </View>
+                        )}
+
+                        {isConflict && !isSelected && (
+                          <View className="flex-row items-center mt-0.5">
+                            <Ionicons name="swap-horizontal" size={10} color="#fb923c" />
+                            <Text className="text-[9px] text-orange-400 ml-0.5 font-semibold">
+                              Overlaps
+                            </Text>
+                          </View>
+                        )}
                       </TouchableOpacity>
                     );
                   })}
@@ -1400,7 +1926,7 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                 <View className="flex-row items-start gap-2">
                   <Ionicons name="information-circle-outline" size={16} color="#eab308" />
                   <Text className="text-yellow-700 text-xs flex-1">
-                    No valid time slots for this date. Slots may be in the past or already booked. Please pick another date.
+                    No valid time slots for this date. Slots may be in the past, already taken with this stylist, or overlapping your other appointment. Please pick another date.
                   </Text>
                 </View>
               </View>
@@ -1451,7 +1977,6 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                   <Text className="text-gray-500 text-xs mt-1">Thank you for booking with us!</Text>
                 </View>
 
-                {/* ✅ No-refund warning inside receipt */}
                 <View className="bg-red-50 rounded-xl p-3 mb-4 border border-red-200">
                   <View className="flex-row items-start gap-2">
                     <Ionicons name="warning-outline" size={16} color="#ef4444" />
@@ -1463,25 +1988,39 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                 </View>
 
                 <View className="border-b border-gray-200 pb-3 mb-3">
-                  <Text className="text-gray-500 text-xs font-semibold uppercase tracking-wider mb-2">Booking Details</Text>
-                  <View className="space-y-2">
-                    <View className="flex-row justify-between">
-                      <Text className="text-gray-600 text-sm">Service(s)</Text>
-                      <Text className="text-gray-800 font-semibold text-sm">{receiptData.serviceName}</Text>
+                  <Text className="text-gray-500 text-xs font-semibold uppercase tracking-wider mb-2">
+                    {receiptData.appointments.length > 1 ? 'Appointments' : 'Booking Details'}
+                  </Text>
+                  {receiptData.appointments.map((appt, index) => (
+                    <View
+                      key={`${appt.groupLabel}-${index}`}
+                      className={index > 0 ? 'mt-3 pt-3 border-t border-dashed border-gray-200' : ''}
+                    >
+                      {receiptData.appointments.length > 1 && (
+                        <Text className="text-pink-500 text-xs font-semibold mb-1">
+                          Appointment {index + 1} · {appt.groupLabel}
+                        </Text>
+                      )}
+                      <View className="space-y-2">
+                        <View className="flex-row justify-between">
+                          <Text className="text-gray-600 text-sm">Service(s)</Text>
+                          <Text className="text-gray-800 font-semibold text-sm flex-1 text-right ml-3">{appt.serviceName}</Text>
+                        </View>
+                        <View className="flex-row justify-between">
+                          <Text className="text-gray-600 text-sm">Date</Text>
+                          <Text className="text-gray-800 text-sm">{appt.date}</Text>
+                        </View>
+                        <View className="flex-row justify-between">
+                          <Text className="text-gray-600 text-sm">Time</Text>
+                          <Text className="text-gray-800 text-sm">{appt.time}</Text>
+                        </View>
+                        <View className="flex-row justify-between">
+                          <Text className="text-gray-600 text-sm">Stylist</Text>
+                          <Text className="text-gray-800 text-sm">{appt.stylistName}</Text>
+                        </View>
+                      </View>
                     </View>
-                    <View className="flex-row justify-between">
-                      <Text className="text-gray-600 text-sm">Date</Text>
-                      <Text className="text-gray-800 text-sm">{receiptData.date}</Text>
-                    </View>
-                    <View className="flex-row justify-between">
-                      <Text className="text-gray-600 text-sm">Time</Text>
-                      <Text className="text-gray-800 text-sm">{receiptData.time}</Text>
-                    </View>
-                    <View className="flex-row justify-between">
-                      <Text className="text-gray-600 text-sm">Stylist</Text>
-                      <Text className="text-gray-800 text-sm">{receiptData.stylistName}</Text>
-                    </View>
-                  </View>
+                  ))}
                 </View>
 
                 <View className="border-b border-gray-200 pb-3 mb-3">
@@ -1561,257 +2100,349 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     );
   };
 
+  // ── Stylist ratings & details popup ──
+  const StaffDetailsModal = () => {
+    const target = detailsTarget;
+    const member = target ? staff.find((s) => s.id === target.staffId) : null;
+    const targetGroup = target ? groups.find((g) => g.key === target.groupKey) ?? null : null;
+    const closeDetails = () => setDetailsTarget(null);
+
+    const { average, count } = member ? getStaffRating(member.id) : { average: 0, count: 0 };
+    const breakdown = member ? getRatingBreakdown(member.id) : { total: 0, rows: [] as { star: number; count: number; percent: number }[] };
+    const reviews = member ? getRecentReviews(member.id) : [];
+    const nextAvail = member && targetGroup ? getNextAvailableInfo(member.id, targetGroup.key) : null;
+    const completedCount = member ? getCompletedAppointmentsCount(member.id) : 0;
+    const profileImage = member
+      ? getImageUrl(member.profile_image || member.user?.profile_image)
+      : null;
+    const isChosen = !!member && !!targetGroup && groupStaff[targetGroup.key] === member.id;
+
+    return (
+      <Modal
+        transparent={true}
+        animationType="slide"
+        visible={!!member}
+        onRequestClose={closeDetails}
+      >
+        <View className="flex-1 justify-end bg-black/50">
+          <View className="bg-white rounded-t-3xl" style={{ maxHeight: '88%' }}>
+            {/* Header */}
+            <View className="px-6 pt-5 pb-3 border-b border-gray-100 flex-row items-center">
+              {profileImage ? (
+                <Image source={{ uri: profileImage }} className="w-14 h-14 rounded-full" resizeMode="cover" />
+              ) : (
+                <View
+                  className="w-14 h-14 rounded-full items-center justify-center"
+                  style={{ backgroundColor: '#ec4899' }}
+                >
+                  <Text className="text-white font-bold text-xl">
+                    {member?.first_name?.charAt(0)}{member?.last_name?.charAt(0)}
+                  </Text>
+                </View>
+              )}
+              <View className="ml-3 flex-1">
+                <Text className="text-lg font-bold text-gray-800" numberOfLines={1}>
+                  {member?.first_name} {member?.last_name}
+                </Text>
+                <Text className="text-gray-500 text-xs" numberOfLines={2}>
+                  {member ? getStaffSpecialties(member.id) : ''}
+                </Text>
+              </View>
+              <TouchableOpacity onPress={closeDetails} className="p-1">
+                <Ionicons name="close" size={24} color="#9ca3af" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 16, paddingBottom: 16 }}
+              style={{ maxHeight: 520 }}
+            >
+              {/* Quick facts */}
+              <View className="bg-gray-50 rounded-xl p-3 mb-4">
+                {nextAvail && (
+                  <View className="flex-row items-center">
+                    <Ionicons
+                      name="calendar-outline"
+                      size={16}
+                      color={nextAvail.isToday ? '#16a34a' : '#6b7280'}
+                    />
+                    <Text
+                      className={`text-sm ml-2 ${nextAvail.isToday ? 'text-green-600 font-semibold' : 'text-gray-700'}`}
+                    >
+                      {nextAvail.text}
+                    </Text>
+                  </View>
+                )}
+                <View className={`flex-row items-center ${nextAvail ? 'mt-2' : ''}`}>
+                  <Ionicons name="checkmark-done-outline" size={16} color="#6b7280" />
+                  <Text className="text-gray-700 text-sm ml-2">{formatCompletedLabel(completedCount)}</Text>
+                </View>
+              </View>
+
+              {/* Rating summary */}
+              <Text className="text-gray-800 font-bold text-base mb-2">Ratings</Text>
+              {breakdown.total === 0 ? (
+                <View className="bg-gray-50 rounded-xl p-4 items-center mb-4">
+                  <Ionicons name="star-outline" size={28} color="#d1d5db" />
+                  <Text className="text-gray-500 text-sm mt-1">No ratings yet</Text>
+                </View>
+              ) : (
+                <View className="flex-row items-center mb-4">
+                  <View className="items-center mr-5">
+                    <Text className="text-4xl font-bold text-gray-800">{average.toFixed(1)}</Text>
+                    <View className="flex-row mt-1">{renderStars(average)}</View>
+                    <Text className="text-gray-500 text-xs mt-1">
+                      {count} {count === 1 ? 'review' : 'reviews'}
+                    </Text>
+                  </View>
+
+                  <View className="flex-1">
+                    {breakdown.rows.map((row) => (
+                      <View key={row.star} className="flex-row items-center mb-1">
+                        <Text className="text-gray-600 text-xs w-6">{row.star}★</Text>
+                        <View className="flex-1 h-2 bg-gray-200 rounded-full mx-2 overflow-hidden">
+                          <View
+                            style={{
+                              width: `${row.percent}%`,
+                              height: '100%',
+                              backgroundColor: '#fbbf24',
+                            }}
+                          />
+                        </View>
+                        <Text className="text-gray-500 text-xs w-9 text-right">{row.percent}%</Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              )}
+
+              {/* Recent written reviews */}
+              <Text className="text-gray-800 font-bold text-base mb-2">Recent Reviews</Text>
+              {reviews.length === 0 ? (
+                <View className="bg-gray-50 rounded-xl p-4 items-center mb-2">
+                  <Ionicons name="chatbubble-ellipses-outline" size={28} color="#d1d5db" />
+                  <Text className="text-gray-500 text-sm mt-1">No written reviews yet</Text>
+                </View>
+              ) : (
+                reviews.map((review) => {
+                  const reviewDate = review.created_at ? new Date(review.created_at) : null;
+                  const hasValidDate = !!reviewDate && !isNaN(reviewDate.getTime());
+                  return (
+                    <View key={review.id} className="bg-gray-50 rounded-xl p-3 mb-2">
+                      <View className="flex-row items-center justify-between mb-1">
+                        <View className="flex-row">{renderStars(review.rating)}</View>
+                        {hasValidDate && (
+                          <Text className="text-gray-400 text-[10px]">
+                            {reviewDate!.toLocaleDateString('en-US', {
+                              month: 'short',
+                              day: 'numeric',
+                              year: 'numeric',
+                            })}
+                          </Text>
+                        )}
+                      </View>
+                      <Text className="text-gray-700 text-sm">{review.comment}</Text>
+                    </View>
+                  );
+                })
+              )}
+            </ScrollView>
+
+            {/* Footer */}
+            <View className="px-6 py-4 border-t border-gray-100">
+              {member && targetGroup ? (
+                <TouchableOpacity
+                  onPress={() => {
+                    handleStaffSelectForGroup(targetGroup.key, member.id);
+                    closeDetails();
+                  }}
+                  className="py-3 rounded-xl bg-pink-500"
+                >
+                  <Text className="text-white text-center font-semibold">
+                    {isChosen ? 'Selected ✓' : `Select ${member.first_name}`}
+                  </Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity onPress={closeDetails} className="py-3 rounded-xl bg-pink-500">
+                  <Text className="text-white text-center font-semibold">Close</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+        </View>
+      </Modal>
+    );
+  };
+
   const renderContent = () => {
     const totalPrice = getTotalPriceWithAdjustments();
     const totalDuration = getTotalDuration();
-    // ✅ dynamic amount based on payment type
     const paymentAmount = selectedPaymentType === 'full' ? totalPrice : totalPrice / 2;
-    const servicesForStaff = getServicesForStaff();
-    const selectedStaff = selectedStaffId ? staff.find(s => s.id === selectedStaffId) : null;
     const selectedColorObj = getSelectedHairColorObject();
+    const serviceSections = getServiceSections();
+    const activeSched = activeGroup ? groupSchedule[activeGroup.key] : undefined;
+    const activeStaffId = activeGroup ? groupStaff[activeGroup.key] : undefined;
+    const hasMultipleGroups = groups.length > 1;
 
-    const activeStaff = getActiveStaff();
+    const stepSubtitle = (() => {
+      switch (bookingStep) {
+        case 'services':
+          return 'Choose one or more services';
+        case 'hair_options':
+          return 'Select hair details for your service';
+        case 'stylist':
+          return hasMultipleGroups
+            ? 'Choose a stylist for each specialty'
+            : 'Choose your preferred stylist';
+        case 'datetime':
+          return hasMultipleGroups
+            ? 'Set a separate date & time for each appointment'
+            : `Selected: ${getServiceNames()}`;
+        default:
+          return 'Complete your booking with GCash payment';
+      }
+    })();
 
     return (
       <View className="flex-1">
         <ScrollView showsVerticalScrollIndicator={false} className="flex-1">
           <View className="px-5 pt-6">
-            {(bookingStep === 'services' || bookingStep === 'hair_options' || bookingStep === 'datetime' || bookingStep === 'payment') && (
+            {bookingStep !== 'services' && (
               <TouchableOpacity
                 className="flex-row items-center mb-4"
-                onPress={
-                  bookingStep === 'payment' ? handleBackToDateTime :
-                  bookingStep === 'datetime' ? handleBackToHairOptions :
-                  bookingStep === 'hair_options' ? handleBackToServices :
-                  handleBackToStylist
-                }
+                onPress={handleBack}
                 disabled={isProcessing}
               >
                 <Ionicons name="arrow-back" size={24} color="#ec4899" />
-                <Text className="text-pink-500 font-semibold ml-2">
-                  {bookingStep === 'payment' ? 'Back to Date & Time' :
-                   bookingStep === 'datetime' ? 'Back to Hair Options' :
-                   bookingStep === 'hair_options' ? 'Back to Services' :
-                   'Back to Stylists'}
-                </Text>
+                <Text className="text-pink-500 font-semibold ml-2">{getBackLabel()}</Text>
               </TouchableOpacity>
             )}
 
             <Text className="text-3xl font-bold text-gray-800 mb-2">
-              {bookingStep === 'stylist' ? 'Select Stylist' :
-               bookingStep === 'services' ? 'Select Services' :
+              {bookingStep === 'services' ? 'Select Services' :
                bookingStep === 'hair_options' ? 'Hair Options' :
+               bookingStep === 'stylist' ? (hasMultipleGroups ? 'Select Stylists' : 'Select Stylist') :
                bookingStep === 'datetime' ? 'Select Date & Time' :
                'Payment & Confirmation'}
             </Text>
-            <Text className="text-gray-500 mb-6">
-              {bookingStep === 'stylist' ? 'Choose your preferred stylist' :
-               bookingStep === 'services' ? `Selected: ${selectedStaff?.first_name} ${selectedStaff?.last_name}` :
-               bookingStep === 'hair_options' ? 'Select hair details for your service' :
-               bookingStep === 'datetime' ? `Selected: ${selectedStaff?.first_name} ${selectedStaff?.last_name} - ${getServiceNames()}` :
-               'Complete your booking with GCash payment'}
-            </Text>
+            <Text className="text-gray-500 mb-6">{stepSubtitle}</Text>
 
-            {/* Step 1: Stylist Selection */}
-            {bookingStep === 'stylist' && (
-              <>
+            {/* Step 1: Service Selection */}
+            {bookingStep === 'services' && (
+              <View className="bg-white rounded-2xl p-5 shadow-sm" style={{ elevation: 2 }}>
+                <Text className="text-gray-500 text-sm mb-4">
+                  Combine multitaskable services of the same specialty. You can also add a service from a
+                  different specialty — it will be booked as a separate appointment with its own time.
+                </Text>
+
                 {isLoading ? (
                   <View className="py-10 items-center">
                     <ActivityIndicator size="large" color="#ec4899" />
-                    <Text className="text-center text-gray-500 mt-2">Loading stylists...</Text>
+                    <Text className="text-center text-gray-500 mt-2">Loading services...</Text>
                   </View>
-                ) : activeStaff.length === 0 ? (
-                  <View className="bg-white rounded-2xl p-8 items-center" style={{ elevation: 2 }}>
-                    <Ionicons name="people-outline" size={50} color="#d1d5db" />
-                    <Text className="text-gray-500 text-center mt-3">No stylists available</Text>
+                ) : serviceSections.length === 0 ? (
+                  <View className="py-8 items-center">
+                    <Ionicons name="alert-circle-outline" size={48} color="#d1d5db" />
+                    <Text className="text-gray-500 text-center mt-3">
+                      No services are available right now
+                    </Text>
                   </View>
                 ) : (
-                  <ScrollView showsVerticalScrollIndicator={false} className="mb-4">
-                    <View className="flex-row flex-wrap justify-between">
-                      {activeStaff.map((staffMember) => {
-                        const ratingData = getStaffRating(staffMember.id);
-                        const { average, count } = ratingData;
-                        const specialties = getStaffSpecialties(staffMember.id);
-                        const profileImage = getImageUrl(
-                          staffMember.profile_image || staffMember.user?.profile_image
-                        );
+                  serviceSections.map((section) => (
+                    <View key={section.key} className="mb-2">
+                      <Text className="text-gray-500 text-xs font-semibold uppercase tracking-wider mb-2">
+                        {section.label}
+                      </Text>
+
+                      {section.services.map((service) => {
+                        const isSelected = selectedServiceIds.includes(service.id);
+                        const isMultitaskable = service.is_multitaskable === 1;
+                        const requiresHairColor = service.reqHairColor === 1;
+                        const hasPriceAdjustments = service.service_price_adjustments && service.service_price_adjustments.length > 0;
+                        const blockReason = getServiceBlockReason(service);
 
                         return (
                           <TouchableOpacity
-                            key={staffMember.id}
-                            className="w-[48%] mb-4"
-                            onPress={() => handleStaffSelect(staffMember.id)}
-                            activeOpacity={0.85}
+                            key={service.id}
+                            className={`rounded-2xl p-4 mb-3 border-2 ${
+                              isSelected ? 'border-pink-500 bg-pink-50' : 'border-gray-200 bg-white'
+                            } ${blockReason ? 'opacity-50' : ''}`}
+                            onPress={() => handleServiceSelect(service.id)}
+                            activeOpacity={0.7}
                             disabled={isProcessing}
                           >
-                            <View className="bg-white rounded-2xl shadow-lg overflow-hidden" style={{ elevation: 4 }}>
-                              <View className="relative">
-                                {profileImage ? (
-                                  <Image
-                                    source={{ uri: profileImage }}
-                                    className="w-full h-48"
-                                    resizeMode="cover"
-                                  />
-                                ) : (
-                                  <View
-                                    className="w-full h-48 items-center justify-center"
-                                    style={{ backgroundColor: '#ec4899' }}
-                                  >
-                                    <Text className="text-white font-bold text-5xl">
-                                      {staffMember.first_name?.charAt(0)}{staffMember.last_name?.charAt(0)}
-                                    </Text>
-                                  </View>
-                                )}
-
-                                {average > 0 && (
-                                  <View className="absolute top-3 right-3 bg-black/70 backdrop-blur-sm rounded-full px-3 py-1.5 flex-row items-center">
-                                    <Ionicons name="star" size={14} color="#fbbf24" />
-                                    <Text className="text-white font-bold text-xs ml-1">
-                                      {typeof average === 'number' && !isNaN(average) ? average.toFixed(1) : '0.0'}
-                                    </Text>
-                                    <Text className="text-white/70 text-xs ml-1">({count})</Text>
-                                  </View>
-                                )}
-
-                                <View className="absolute bottom-3 left-3 bg-green-500 rounded-full px-3 py-1">
-                                  <Text className="text-white text-xs font-semibold">Available</Text>
-                                </View>
+                            <View className="flex-row items-start">
+                              <View className={`w-6 h-6 rounded-full border-2 mr-3 mt-1 items-center justify-center ${
+                                isSelected ? 'bg-pink-500 border-pink-500' : 'border-gray-300'
+                              }`}>
+                                {isSelected && <Ionicons name="checkmark" size={14} color="white" />}
                               </View>
 
-                              <View className="p-3">
-                                <Text className="text-base font-bold text-gray-800" numberOfLines={1}>
-                                  {staffMember.first_name} {staffMember.last_name}
+                              <View className="flex-1">
+                                <Text className="text-lg font-semibold text-gray-800">{service.service_name}</Text>
+                                <Text className="text-gray-500 text-sm mt-1" numberOfLines={1}>
+                                  {service.description}
                                 </Text>
-                                <Text className="text-gray-500 text-xs mt-1" numberOfLines={2}>{specialties}</Text>
-
-                                <View className="flex-row items-center mt-2">
-                                  <View className="flex-row">
-                                    {average > 0 ? renderStars(average) : (
-                                      <Text className="text-gray-400 text-xs">No ratings yet</Text>
-                                    )}
-                                  </View>
+                                <View className="flex-row items-center mt-2 flex-wrap gap-1">
+                                  <Ionicons name="time-outline" size={14} color="#9ca3af" />
+                                  <Text className="text-gray-500 text-xs mr-2">{service.duration_minutes} mins</Text>
+                                  {isMultitaskable && (
+                                    <View className="bg-green-100 px-2 py-0.5 rounded-full">
+                                      <Text className="text-green-600 text-xs">Multitaskable</Text>
+                                    </View>
+                                  )}
+                                  {!isMultitaskable && (
+                                    <View className="bg-red-100 px-2 py-0.5 rounded-full">
+                                      <Text className="text-red-600 text-xs">Single Only</Text>
+                                    </View>
+                                  )}
+                                  {requiresHairColor && (
+                                    <View className="bg-purple-100 px-2 py-0.5 rounded-full">
+                                      <Text className="text-purple-600 text-xs">Hair Color</Text>
+                                    </View>
+                                  )}
+                                  {hasPriceAdjustments && (
+                                    <View className="bg-blue-100 px-2 py-0.5 rounded-full">
+                                      <Text className="text-blue-600 text-xs">Price Varies</Text>
+                                    </View>
+                                  )}
                                 </View>
-
-                                <View className="mt-3 pt-3 border-t border-gray-100">
-                                  <View className="bg-pink-500 rounded-full py-2 items-center">
-                                    <Text className="text-white font-semibold text-sm">Select Stylist</Text>
-                                  </View>
-                                </View>
+                                {blockReason && (
+                                  <Text className="text-red-500 text-[11px] mt-1">{blockReason}</Text>
+                                )}
                               </View>
+                              <Text className="text-pink-500 font-bold text-lg">₱{service.price.toLocaleString()}</Text>
                             </View>
                           </TouchableOpacity>
                         );
                       })}
                     </View>
-                  </ScrollView>
-                )}
-              </>
-            )}
-
-            {/* Step 2: Service Selection */}
-            {bookingStep === 'services' && (
-              <View className="bg-white rounded-2xl p-5 shadow-sm" style={{ elevation: 2 }}>
-                <View className="bg-pink-50 rounded-xl p-4 mb-6">
-                  <Text className="text-gray-500 text-sm">Selected Stylist</Text>
-                  <Text className="text-lg font-bold text-gray-800">
-                    {selectedStaff?.first_name} {selectedStaff?.last_name}
-                  </Text>
-                  <Text className="text-gray-500 text-sm mt-1">{getStaffSpecialties(selectedStaffId)}</Text>
-                  <View className="flex-row items-center mt-2">
-                    <View className="flex-row">
-                      {(() => {
-                        const { average, count } = getStaffRating(selectedStaffId!);
-                        return average > 0 ? (
-                          <>
-                            {renderStars(average)}
-                            <Text className="text-gray-500 text-xs ml-1">
-                              ({average.toFixed(1)} · {count} {count === 1 ? 'review' : 'reviews'})
-                            </Text>
-                          </>
-                        ) : (
-                          <Text className="text-gray-400 text-xs">No ratings yet</Text>
-                        );
-                      })()}
-                    </View>
-                  </View>
-                </View>
-
-                <Text className="text-lg font-semibold text-gray-800 mb-2">Select Services</Text>
-                <Text className="text-gray-500 text-sm mb-4">
-                  Select up to 2 services (must be multitaskable)
-                </Text>
-
-                {servicesForStaff.length === 0 ? (
-                  <View className="py-8 items-center">
-                    <Ionicons name="alert-circle-outline" size={48} color="#d1d5db" />
-                    <Text className="text-gray-500 text-center mt-3">
-                      No services available for this stylist's specialty
-                    </Text>
-                  </View>
-                ) : (
-                  servicesForStaff.map((service) => {
-                    const isSelected = selectedServiceIds.includes(service.id);
-                    const isMultitaskable = service.is_multitaskable === 1;
-                    const requiresHairColor = service.reqHairColor === 1;
-                    const hasPriceAdjustments = service.service_price_adjustments && service.service_price_adjustments.length > 0;
-
-                    return (
-                      <TouchableOpacity
-                        key={service.id}
-                        className={`rounded-2xl p-4 mb-3 border-2 ${
-                          isSelected ? 'border-pink-500 bg-pink-50' : 'border-gray-200 bg-white'
-                        }`}
-                        onPress={() => handleServiceSelect(service.id)}
-                        activeOpacity={0.7}
-                        disabled={isProcessing}
-                      >
-                        <View className="flex-row items-start">
-                          <View className={`w-6 h-6 rounded-full border-2 mr-3 mt-1 items-center justify-center ${
-                            isSelected ? 'bg-pink-500 border-pink-500' : 'border-gray-300'
-                          }`}>
-                            {isSelected && <Ionicons name="checkmark" size={14} color="white" />}
-                          </View>
-
-                          <View className="flex-1">
-                            <Text className="text-lg font-semibold text-gray-800">{service.service_name}</Text>
-                            <Text className="text-gray-500 text-sm mt-1" numberOfLines={1}>
-                              {service.description}
-                            </Text>
-                            <View className="flex-row items-center mt-2 flex-wrap gap-1">
-                              <Ionicons name="time-outline" size={14} color="#9ca3af" />
-                              <Text className="text-gray-500 text-xs mr-2">{service.duration_minutes} mins</Text>
-                              {isMultitaskable && (
-                                <View className="bg-green-100 px-2 py-0.5 rounded-full">
-                                  <Text className="text-green-600 text-xs">Multitaskable</Text>
-                                </View>
-                              )}
-                              {!isMultitaskable && (
-                                <View className="bg-red-100 px-2 py-0.5 rounded-full">
-                                  <Text className="text-red-600 text-xs">Single Only</Text>
-                                </View>
-                              )}
-                              {requiresHairColor && (
-                                <View className="bg-purple-100 px-2 py-0.5 rounded-full">
-                                  <Text className="text-purple-600 text-xs">Hair Color</Text>
-                                </View>
-                              )}
-                              {hasPriceAdjustments && (
-                                <View className="bg-blue-100 px-2 py-0.5 rounded-full">
-                                  <Text className="text-blue-600 text-xs">Price Varies</Text>
-                                </View>
-                              )}
-                            </View>
-                          </View>
-                          <Text className="text-pink-500 font-bold text-lg">₱{service.price.toLocaleString()}</Text>
-                        </View>
-                      </TouchableOpacity>
-                    );
-                  })
+                  ))
                 )}
 
                 {selectedServiceIds.length > 0 && (
-                  <View className="mt-4 p-3 bg-gray-50 rounded-xl">
-                    <Text className="text-gray-600 text-sm">Selected: {getServiceNames()}</Text>
+                  <View className="mt-2 p-3 bg-gray-50 rounded-xl">
+                    {groups.map((group, index) => (
+                      <View key={group.key} className="mb-2">
+                        <Text className="text-gray-500 text-[11px] uppercase font-semibold">
+                          {group.label}{hasMultipleGroups ? ` · Appointment ${index + 1}` : ''}
+                        </Text>
+                        <Text className="text-gray-700 text-sm">
+                          {group.services.map(s => s.service_name).join(' + ')}
+                        </Text>
+                      </View>
+                    ))}
+
+                    {hasMultipleGroups && (
+                      <View className="bg-blue-50 rounded-lg p-2 mb-2">
+                        <Text className="text-blue-700 text-xs">
+                          Your services are split into {groups.length} appointments. You'll choose a stylist and a
+                          separate time for each.
+                        </Text>
+                      </View>
+                    )}
+
                     <View className="flex-row justify-between mt-1">
                       <Text className="text-gray-600 text-sm">Total Duration: {totalDuration} mins</Text>
                       <Text className="text-pink-500 font-bold text-lg">₱{totalPrice.toLocaleString()}</Text>
@@ -1823,40 +2454,27 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                     <Text className="text-gray-400 text-[10px] mt-1">
                       Final price may change based on hair length & thickness adjustments.
                     </Text>
-                    {selectedServiceIds.length === 2 && !areServicesMultitaskable() && (
-                      <Text className="text-red-500 text-xs mt-1">
-                        ⚠️ Warning: Selected services may not be multitaskable
-                      </Text>
-                    )}
-                    {selectedServiceIds.length === 2 && areServicesMultitaskable() && (
-                      <Text className="text-green-500 text-xs mt-1">
-                        ✅ Both services are multitaskable
-                      </Text>
-                    )}
                   </View>
                 )}
 
                 <TouchableOpacity
-                  className="bg-pink-500 py-4 rounded-xl mt-6"
+                  className={`py-4 rounded-xl mt-6 ${selectedServiceIds.length === 0 ? 'bg-gray-400' : 'bg-pink-500'}`}
                   onPress={handleContinueToHairOptions}
                   disabled={selectedServiceIds.length === 0 || isProcessing}
                 >
                   <Text className="text-white text-center font-semibold text-lg">
-                    Continue to Hair Options
+                    {needsHairOptions() ? 'Continue to Hair Options' : 'Continue to Stylist'}
                   </Text>
                 </TouchableOpacity>
               </View>
             )}
 
-            {/* Step 3: Hair Options */}
+            {/* Step 2: Hair Options */}
             {bookingStep === 'hair_options' && (
               <View className="bg-white rounded-2xl p-5 shadow-sm" style={{ elevation: 2 }}>
                 <View className="bg-pink-50 rounded-xl p-4 mb-6">
                   <Text className="text-gray-500 text-sm">Selected Services</Text>
                   <Text className="text-lg font-bold text-gray-800">{getServiceNames()}</Text>
-                  <View className="flex-row justify-between mt-1">
-                    <Text className="text-gray-500 text-sm">Stylist: {getStaffName(selectedStaffId)}</Text>
-                  </View>
                   <View className="flex-row justify-between mt-1">
                     <Text className="text-gray-500 text-sm">{selectedServiceIds.length} service(s)</Text>
                     <Text className="text-pink-500 font-bold">Base: ₱{getServicePrice().toLocaleString()}</Text>
@@ -2015,8 +2633,198 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
 
                 <TouchableOpacity
                   className="bg-pink-500 py-4 rounded-xl mt-4"
-                  onPress={handleContinueToDateTime}
+                  onPress={handleContinueToStylist}
                   disabled={isProcessing}
+                >
+                  <Text className="text-white text-center font-semibold text-lg">
+                    Continue to Stylist
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Step 3: Stylist Selection (one stylist per specialty group) */}
+            {bookingStep === 'stylist' && (
+              <View>
+                {groups.map((group, index) => {
+                  const eligible = getEligibleStaffForGroup(group.key);
+                  const chosenId = groupStaff[group.key];
+                  // Which stylists could also handle the OTHER specialties the customer selected
+                  const otherCoverage = groups
+                    .filter((g) => g.key !== group.key)
+                    .map((g) => ({
+                      group: g,
+                      ids: new Set(getEligibleStaffForGroup(g.key).map((m) => m.id)),
+                    }));
+
+                  return (
+                    <View key={group.key} className="bg-white rounded-2xl p-5 mb-4" style={{ elevation: 2 }}>
+                      <View className="bg-pink-50 rounded-xl p-3 mb-4">
+                        <Text className="text-gray-500 text-xs uppercase font-semibold">
+                          {hasMultipleGroups ? `Appointment ${index + 1} · ` : ''}{group.label}
+                        </Text>
+                        <Text className="text-base font-bold text-gray-800">
+                          {group.services.map(s => s.service_name).join(' + ')}
+                        </Text>
+                        <Text className="text-gray-500 text-xs mt-1">
+                          {getGroupDuration(group)} mins · ₱{getGroupTotal(group).toLocaleString()}
+                        </Text>
+                      </View>
+
+                      {eligible.length === 0 ? (
+                        <View className="py-6 items-center">
+                          <Ionicons name="people-outline" size={40} color="#d1d5db" />
+                          <Text className="text-gray-500 text-center mt-2">
+                            No stylists available for {group.label}
+                          </Text>
+                        </View>
+                      ) : (
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                          {eligible.map((staffMember) => {
+                            const { average, count } = getStaffRating(staffMember.id);
+                            const specialties = getStaffSpecialties(staffMember.id);
+                            const profileImage = getImageUrl(
+                              staffMember.profile_image || staffMember.user?.profile_image
+                            );
+                            const isChosen = chosenId === staffMember.id;
+                            const nextAvail = getNextAvailableInfo(staffMember.id, group.key);
+                            const completedCount = getCompletedAppointmentsCount(staffMember.id);
+                            const alsoCovers = otherCoverage
+                              .filter((o) => o.ids.has(staffMember.id))
+                              .reduce<string[]>(
+                                (acc, o) => acc.concat(o.group.services.map((s) => s.service_name)),
+                                []
+                              );
+
+                            return (
+                              <TouchableOpacity
+                                key={staffMember.id}
+                                style={{ width: 200, marginRight: 12 }}
+                                onPress={() => handleStaffSelectForGroup(group.key, staffMember.id)}
+                                activeOpacity={0.85}
+                                disabled={isProcessing}
+                              >
+                                <View
+                                  className={`bg-white rounded-2xl overflow-hidden border-2 ${
+                                    isChosen ? 'border-pink-500' : 'border-gray-100'
+                                  }`}
+                                  style={{ elevation: 3 }}
+                                >
+                                  <View className="relative">
+                                    {profileImage ? (
+                                      <Image
+                                        source={{ uri: profileImage }}
+                                        className="w-full h-36"
+                                        resizeMode="cover"
+                                      />
+                                    ) : (
+                                      <View
+                                        className="w-full h-36 items-center justify-center"
+                                        style={{ backgroundColor: '#ec4899' }}
+                                      >
+                                        <Text className="text-white font-bold text-4xl">
+                                          {staffMember.first_name?.charAt(0)}{staffMember.last_name?.charAt(0)}
+                                        </Text>
+                                      </View>
+                                    )}
+
+                                    {average > 0 && (
+                                      <View className="absolute top-2 right-2 bg-black/70 rounded-full px-2 py-1 flex-row items-center">
+                                        <Ionicons name="star" size={12} color="#fbbf24" />
+                                        <Text className="text-white font-bold text-xs ml-1">{average.toFixed(1)}</Text>
+                                        <Text className="text-white/70 text-xs ml-1">({count})</Text>
+                                      </View>
+                                    )}
+
+                                    {nextAvail.isToday && (
+                                      <View className="absolute bottom-2 left-2 bg-green-500 rounded-full px-2 py-0.5">
+                                        <Text className="text-white text-[10px] font-semibold">Available today</Text>
+                                      </View>
+                                    )}
+                                  </View>
+
+                                  <View className="p-3">
+                                    <Text className="text-sm font-bold text-gray-800" numberOfLines={1}>
+                                      {staffMember.first_name} {staffMember.last_name}
+                                    </Text>
+                                    <Text className="text-gray-500 text-xs mt-1" numberOfLines={2}>{specialties}</Text>
+
+                                    <View className="flex-row items-center mt-2">
+                                      {average > 0 ? renderStars(average) : (
+                                        <Text className="text-gray-400 text-xs">No ratings yet</Text>
+                                      )}
+                                    </View>
+
+                                    {/* Next availability + experience */}
+                                    <View className="mt-2">
+                                      <View className="flex-row items-center">
+                                        <Ionicons
+                                          name="calendar-outline"
+                                          size={12}
+                                          color={nextAvail.isToday ? '#16a34a' : '#6b7280'}
+                                        />
+                                        <Text
+                                          className={`text-[11px] ml-1 flex-1 ${
+                                            nextAvail.isToday ? 'text-green-600 font-semibold' : 'text-gray-600'
+                                          }`}
+                                          numberOfLines={1}
+                                        >
+                                          {nextAvail.text}
+                                        </Text>
+                                      </View>
+                                      <View className="flex-row items-center mt-1">
+                                        <Ionicons name="checkmark-done-outline" size={12} color="#6b7280" />
+                                        <Text className="text-gray-600 text-[11px] ml-1 flex-1" numberOfLines={1}>
+                                          {formatCompletedLabel(completedCount)}
+                                        </Text>
+                                      </View>
+                                    </View>
+
+                                    {/* Which of the customer's services this stylist covers */}
+                                    <View className="mt-2 bg-green-50 rounded-lg p-2">
+                                      <Text className="text-green-700 text-[10px] font-semibold">
+                                        ✓ Can do your services
+                                      </Text>
+                                      <Text className="text-gray-600 text-[10px] mt-0.5" numberOfLines={2}>
+                                        {group.services.map((s) => s.service_name).join(', ')}
+                                      </Text>
+                                      {alsoCovers.length > 0 && (
+                                        <Text className="text-blue-600 text-[10px] mt-1" numberOfLines={2}>
+                                          Also qualified for: {alsoCovers.join(', ')}
+                                        </Text>
+                                      )}
+                                    </View>
+
+                                    <TouchableOpacity
+                                      onPress={() => setDetailsTarget({ staffId: staffMember.id, groupKey: group.key })}
+                                      className="mt-2"
+                                      hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                                    >
+                                      <Text className="text-pink-600 text-xs font-semibold">
+                                        Ratings & reviews ›
+                                      </Text>
+                                    </TouchableOpacity>
+
+                                    <View className={`mt-3 rounded-full py-2 items-center ${isChosen ? 'bg-pink-500' : 'bg-pink-100'}`}>
+                                      <Text className={`font-semibold text-xs ${isChosen ? 'text-white' : 'text-pink-600'}`}>
+                                        {isChosen ? 'Selected ✓' : 'Select Stylist'}
+                                      </Text>
+                                    </View>
+                                  </View>
+                                </View>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </ScrollView>
+                      )}
+                    </View>
+                  );
+                })}
+
+                <TouchableOpacity
+                  className={`py-4 rounded-xl mb-6 ${allGroupsHaveStaff ? 'bg-pink-500' : 'bg-gray-400'}`}
+                  onPress={handleContinueToDateTime}
+                  disabled={!allGroupsHaveStaff || isProcessing}
                 >
                   <Text className="text-white text-center font-semibold text-lg">
                     Continue to Date & Time
@@ -2025,16 +2833,57 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
               </View>
             )}
 
-            {/* Step 4: Calendar + Time Selection */}
-            {bookingStep === 'datetime' && (
+            {/* Step 4: Calendar + Time Selection (one time per group) */}
+            {bookingStep === 'datetime' && activeGroup && (
               <View className="bg-white rounded-2xl p-5 shadow-sm" style={{ elevation: 2 }}>
+                {hasMultipleGroups && (
+                  <View className="mb-4">
+                    <Text className="text-gray-500 text-xs mb-2">
+                      Each appointment needs its own date & time. Tap a tab to set it.
+                    </Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                      {groups.map((group, index) => {
+                        const sched = groupSchedule[group.key];
+                        const isActive = activeGroup.key === group.key;
+                        return (
+                          <TouchableOpacity
+                            key={group.key}
+                            onPress={() => setActiveGroupKey(group.key)}
+                            className={`mr-2 px-4 py-2 rounded-xl border-2 ${
+                              isActive ? 'border-pink-500 bg-pink-50' : 'border-gray-200 bg-white'
+                            }`}
+                          >
+                            <View className="flex-row items-center">
+                              {sched && <Ionicons name="checkmark-circle" size={14} color="#10b981" />}
+                              <Text className={`text-sm font-semibold ${sched ? 'ml-1' : ''} ${isActive ? 'text-pink-600' : 'text-gray-700'}`}>
+                                {index + 1}. {group.label}
+                              </Text>
+                            </View>
+                            <Text className="text-[10px] text-gray-500 mt-0.5">
+                              {sched
+                                ? `${toLocalDate(sched.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} · ${formatTime12(sched.time)}`
+                                : 'Not set'}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+                  </View>
+                )}
+
                 <View className="bg-pink-50 rounded-xl p-4 mb-6">
-                  <Text className="text-gray-500 text-sm">Booking Summary</Text>
-                  <Text className="text-lg font-bold text-gray-800">{getServiceNames()}</Text>
-                  <Text className="text-gray-500 text-sm mt-1">Stylist: {getStaffName(selectedStaffId)}</Text>
+                  <Text className="text-gray-500 text-sm">
+                    {hasMultipleGroups ? `Setting time for ${activeGroup.label}` : 'Booking Summary'}
+                  </Text>
+                  <Text className="text-lg font-bold text-gray-800">
+                    {activeGroup.services.map(s => s.service_name).join(' + ')}
+                  </Text>
+                  <Text className="text-gray-500 text-sm mt-1">Stylist: {getStaffName(activeStaffId)}</Text>
                   <View className="flex-row justify-between mt-2">
-                    <Text className="text-gray-500 text-sm">{selectedServiceIds.length} service(s) • {totalDuration} mins</Text>
-                    <Text className="text-pink-500 font-bold">₱{totalPrice.toLocaleString()}</Text>
+                    <Text className="text-gray-500 text-sm">
+                      {activeGroup.services.length} service(s) • {getGroupDuration(activeGroup)} mins
+                    </Text>
+                    <Text className="text-pink-500 font-bold">₱{getGroupTotal(activeGroup).toLocaleString()}</Text>
                   </View>
                   {selectedHairLength && selectedHairThickness && (
                     <Text className="text-gray-500 text-xs mt-1">
@@ -2083,15 +2932,12 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                   {getDaysInMonth(currentMonth).map((date, index) => {
                     if (!date) return <View key={`empty-${index}`} className="w-[14.28%] aspect-square p-1" />;
 
-                    const dateUTC = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-                    const todayUTC = new Date(Date.UTC(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()));
-                    const isSelected = selectedDate &&
-                      dateUTC.getTime() === new Date(Date.UTC(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate())).getTime();
-                    const isTodayDate = dateUTC.getTime() === todayUTC.getTime();
-                    const isPast = dateUTC < todayUTC;
+                    const isSelected = !!activeSched && toDateStr(activeSched.date) === toDateStr(date);
+                    const isTodayDate = isToday(date);
+                    const isPast = isPastDate(date);
                     const scheduleStatus = getScheduleStatus(date);
-                    const isStaffAvailable = selectedStaffId ? isStaffAvailableOnDate(selectedStaffId, date) : false;
-                    const isBookable = isDateBookable(date) && isStaffAvailable;
+                    const isStaffAvailable = activeStaffId ? isStaffAvailableOnDate(activeStaffId, date) : false;
+                    const isBookable = !isPast && isDateBookable(date, activeGroup.key) && isStaffAvailable;
 
                     let cellBgColor = 'bg-gray-50';
                     let indicatorColor = null;
@@ -2120,7 +2966,7 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                         onPress={() => !isPast && handleDateSelect(date)}
                         disabled={isPast || !isBookable}
                       >
-                        <View className={`flex-1 items-center justify-center rounded-full ${cellBgColor} ${isSelected ? 'ring-2 ring-pink-500' : ''}`}>
+                        <View className={`flex-1 items-center justify-center rounded-full ${cellBgColor} ${isSelected ? 'border-2 border-pink-500' : ''}`}>
                           <Text className={`text-sm ${
                             isSelected ? 'text-pink-600 font-bold' :
                             isTodayDate ? 'text-pink-600 font-semibold' :
@@ -2134,38 +2980,33 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                           {indicatorColor && !isSelected && (
                             <View className={`w-1.5 h-1.5 rounded-full ${indicatorColor} mt-0.5`} />
                           )}
-                          {!isPast && !isBookable && isStaffAvailable && (
-                            <View className="w-1.5 h-1.5 rounded-full bg-gray-400 mt-0.5" />
-                          )}
                         </View>
                       </TouchableOpacity>
                     );
                   })}
                 </View>
 
-                {selectedDate && (
+                {activeSched && (
                   <View className="mt-6 p-4 bg-gray-50 rounded-xl">
-                    <Text className="text-gray-600 text-sm">Selected Date</Text>
-                    <Text className="text-lg font-bold text-gray-800">
-                      {selectedDate.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                    <Text className="text-gray-600 text-sm">
+                      {hasMultipleGroups ? `${activeGroup.label} · Selected Date` : 'Selected Date'}
                     </Text>
-                    {selectedTime && (
-                      <View className="flex-row items-center mt-2">
-                        <Ionicons name="time-outline" size={16} color="#ec4899" />
-                        <Text className="text-pink-600 font-semibold ml-1">
-                          {selectedTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
-                        </Text>
-                        <Text className="text-gray-400 text-xs ml-2">({totalDuration} min duration)</Text>
-                      </View>
-                    )}
+                    <Text className="text-lg font-bold text-gray-800">
+                      {formatDateLong(activeSched.date)}
+                    </Text>
+                    <View className="flex-row items-center mt-2">
+                      <Ionicons name="time-outline" size={16} color="#ec4899" />
+                      <Text className="text-pink-600 font-semibold ml-1">{formatTime12(activeSched.time)}</Text>
+                      <Text className="text-gray-400 text-xs ml-2">({getGroupDuration(activeGroup)} min duration)</Text>
+                    </View>
                   </View>
                 )}
 
-                {selectedDate && (
+                {activeSched && (
                   <TouchableOpacity
                     className="flex-row items-center justify-center py-3 mt-3 border border-pink-500 rounded-xl"
                     onPress={() => {
-                      setSelectedDateForModal(selectedDate);
+                      setSelectedDateForModal(activeSched.date);
                       setShowTimePickerModal(true);
                     }}
                   >
@@ -2175,14 +3016,22 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                 )}
 
                 <TouchableOpacity
-                  className="bg-pink-500 py-4 rounded-xl mt-4"
+                  className={`py-4 rounded-xl mt-4 ${allGroupsScheduled ? 'bg-pink-500' : 'bg-gray-400'}`}
                   onPress={() => setBookingStep('payment')}
-                  disabled={!selectedDate || isProcessing}
+                  disabled={!allGroupsScheduled || isProcessing}
                 >
                   <Text className="text-white text-center font-semibold text-lg">
                     Continue to Payment
                   </Text>
                 </TouchableOpacity>
+
+                {!allGroupsScheduled && (
+                  <Text className="text-gray-400 text-xs text-center mt-2">
+                    {hasMultipleGroups
+                      ? `Still need a time for: ${groups.filter(g => !groupSchedule[g.key]).map(g => g.label).join(', ')}`
+                      : 'Pick a date and time to continue'}
+                  </Text>
+                )}
               </View>
             )}
 
@@ -2191,18 +3040,42 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
               <View className="bg-white rounded-2xl p-5 shadow-sm" style={{ elevation: 2 }}>
                 <View className="bg-pink-50 rounded-xl p-4 mb-4">
                   <Text className="text-gray-500 text-sm">Booking Summary</Text>
-                  <Text className="text-lg font-bold text-gray-800">{getServiceNames()}</Text>
-                  <View className="flex-row justify-between mt-1">
-                    <Text className="text-gray-500 text-sm">Date: {selectedDate.toLocaleDateString()}</Text>
-                  </View>
-                  <View className="flex-row justify-between mt-1">
-                    <Text className="text-gray-500 text-sm">Time: {selectedTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</Text>
-                  </View>
-                  <View className="flex-row justify-between mt-1">
-                    <Text className="text-gray-500 text-sm">Stylist: {getStaffName(selectedStaffId)}</Text>
-                  </View>
+
+                  {groups.map((group, index) => {
+                    const sched = groupSchedule[group.key];
+                    return (
+                      <View
+                        key={group.key}
+                        className={index > 0 ? 'mt-3 pt-3 border-t border-pink-200' : 'mt-1'}
+                      >
+                        {hasMultipleGroups && (
+                          <Text className="text-pink-500 text-[11px] font-semibold uppercase">
+                            Appointment {index + 1} · {group.label}
+                          </Text>
+                        )}
+                        <Text className="text-lg font-bold text-gray-800">
+                          {group.services.map(s => s.service_name).join(' + ')}
+                        </Text>
+                        {sched && (
+                          <>
+                            <Text className="text-gray-500 text-sm mt-1">
+                              Date: {toLocalDate(sched.date).toLocaleDateString()}
+                            </Text>
+                            <Text className="text-gray-500 text-sm mt-1">Time: {formatTime12(sched.time)}</Text>
+                          </>
+                        )}
+                        <Text className="text-gray-500 text-sm mt-1">Stylist: {getStaffName(groupStaff[group.key])}</Text>
+                        {hasMultipleGroups && (
+                          <Text className="text-gray-500 text-sm mt-1">
+                            Subtotal: ₱{getGroupTotal(group).toLocaleString()}
+                          </Text>
+                        )}
+                      </View>
+                    );
+                  })}
+
                   {selectedHairLength && selectedHairThickness && (
-                    <View className="flex-row justify-between mt-1">
+                    <View className="flex-row justify-between mt-3">
                       <Text className="text-gray-500 text-sm">Hair Details:</Text>
                       <Text className="text-gray-700 text-sm">
                         {selectedHairLength} / {selectedHairThickness}
@@ -2210,13 +3083,12 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                       </Text>
                     </View>
                   )}
-                  <View className="flex-row justify-between mt-1 pt-1 border-t border-pink-200">
+                  <View className="flex-row justify-between mt-2 pt-2 border-t border-pink-200">
                     <Text className="text-gray-600 font-semibold">Total Amount:</Text>
                     <Text className="text-pink-500 font-bold">₱{totalPrice.toLocaleString()}</Text>
                   </View>
                 </View>
 
-                {/* ✅ NEW: Payment type selector */}
                 <Text className="text-gray-700 font-semibold text-sm mb-2">Payment Option</Text>
                 <View className="flex-row gap-2 mb-4">
                   <TouchableOpacity
@@ -2289,6 +3161,11 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                       <Text className="text-green-600 font-semibold text-sm">₱0 (Paid in Full)</Text>
                     </View>
                   )}
+                  {hasMultipleGroups && (
+                    <Text className="text-gray-400 text-[10px] mt-2">
+                      One payment covers all {groups.length} appointments.
+                    </Text>
+                  )}
                 </View>
 
                 <View className="items-center mb-4">
@@ -2340,7 +3217,6 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                   </View>
                 </View>
 
-                {/* ✅ Payment method now pre-selected and shown as active */}
                 <Text className="text-gray-700 font-semibold text-sm mb-2">Payment Method</Text>
                 <TouchableOpacity
                   className={`flex-row items-center justify-between p-3 rounded-xl mb-4 border-2 ${
@@ -2402,7 +3278,6 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                   </View>
                 </View>
 
-                {/* ✅ NEW: No-refund / no-show warning */}
                 <View className="bg-red-50 rounded-xl p-3 mb-4 border border-red-200">
                   <View className="flex-row items-start gap-2">
                     <Ionicons name="warning-outline" size={16} color="#ef4444" />
@@ -2433,9 +3308,12 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
           </View>
         </ScrollView>
 
-        <TimePickerModal />
-        <HairColorPickerModal />
-        <ReceiptModal />
+        {/* Called as functions (not <Component />) so they aren't remounted on every render,
+            which keeps the hair color search input from losing focus while typing. */}
+        {TimePickerModal()}
+        {HairColorPickerModal()}
+        {ReceiptModal()}
+        {StaffDetailsModal()}
       </View>
     );
   };

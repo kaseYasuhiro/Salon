@@ -10,10 +10,23 @@ import {
   Modal,
   TextInput,
   Image,
+  ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "@/contexts/auth-context";
 import api from "@/api/axios";
+
+// ─────────────────────────────────────────────────────────────
+// Image URL helper (used for the e-wallet QR code)
+// ─────────────────────────────────────────────────────────────
+const API_BASE_URL = (process.env.EXPO_PUBLIC_API_URL ?? "").replace(/\/api\/?$/, "");
+
+const getImageUrl = (imagePath: string | null | undefined) => {
+  if (!imagePath) return null;
+  if (imagePath.startsWith("http")) return imagePath;
+  if (imagePath.startsWith("/storage/")) return `${API_BASE_URL}${imagePath}`;
+  return `${API_BASE_URL}/storage/${imagePath}`;
+};
 
 // ─────────────────────────────────────────────────────────────
 // Price adjustments helpers
@@ -156,6 +169,8 @@ interface Appointment {
 
 interface WalkIn {
   id: number;
+  // ✅ Account link (null for guest walk-ins). Preserved through updates.
+  customer_id?: number | null;
   customer_name: string;
   service_id: number;
   stylist_id: number;
@@ -258,7 +273,8 @@ export default function StaffAppointments({
 }: StaffAppointmentsProps) {
   const [showUpdatePage, setShowUpdatePage] = useState(false);
 
-  const [showWalkInUpdateModal, setShowWalkInUpdateModal] = useState(false);
+  // ✅ Walk-in update is now a separate page (was a modal)
+  const [showWalkInUpdatePage, setShowWalkInUpdatePage] = useState(false);
   const [showPaymentProofModal, setShowPaymentProofModal] = useState(false);
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
   const [selectedWalkIn, setSelectedWalkIn] = useState<WalkIn | null>(null);
@@ -271,13 +287,20 @@ export default function StaffAppointments({
   const [isUpdating, setIsUpdating] = useState(false);
   const [isUpdatingWalkIn, setIsUpdatingWalkIn] = useState(false);
 
+  // ✅ Status is no longer edited manually — updating a walk-in always completes it
   const [walkInUpdateData, setWalkInUpdateData] = useState({
     customer_name: "",
     amount_paid: 0,
-    is_finished: 0,
   });
 
   const [walkInProductUsages, setWalkInProductUsages] = useState<ProductUsage[]>([]);
+
+  // ✅ E-wallet QR code (same endpoint the customer booking screen uses)
+  const [showQrModal, setShowQrModal] = useState(false);
+  const [qrImageUrl, setQrImageUrl] = useState<string | null>(null);
+  const [gcashNumber, setGcashNumber] = useState<string | null>(null);
+  const [isLoadingQr, setIsLoadingQr] = useState(false);
+  const [hasLoadedQr, setHasLoadedQr] = useState(false);
 
   const [staffAppointments, setStaffAppointments] = useState<Appointment[]>([]);
   const [staff, setStaff] = useState<any[]>([]);
@@ -326,6 +349,33 @@ export default function StaffAppointments({
       }
     } catch (error) {
       // silently ignore
+    }
+  };
+
+  // ✅ Fetch the e-wallet QR code + GCash number
+  const fetchQrCode = async () => {
+    setIsLoadingQr(true);
+    try {
+      const response = await api.get("/qr-code");
+      const data = response.data;
+      setQrImageUrl(getImageUrl(data?.qr_image || data?.qr_image_path) || null);
+      setGcashNumber(data?.gcash_number || null);
+      return data;
+    } catch (error) {
+      setQrImageUrl(null);
+      setGcashNumber(null);
+      return null;
+    } finally {
+      setIsLoadingQr(false);
+      setHasLoadedQr(true);
+    }
+  };
+
+  const handleShowQrCode = () => {
+    setShowQrModal(true);
+    // Load lazily the first time (and retry if the last attempt returned nothing)
+    if (!hasLoadedQr || !qrImageUrl) {
+      fetchQrCode();
     }
   };
 
@@ -529,6 +579,8 @@ export default function StaffAppointments({
       if (Array.isArray(response.data)) {
         walkInsData = response.data.map((item: any) => ({
           id: item.id,
+          // ✅ Read the account link if the backend returns it
+          customer_id: item.customer_id ?? null,
           customer_name: item.customer_name,
           service_id: item.service_id,
           stylist_id: item.stylist_id,
@@ -550,9 +602,11 @@ export default function StaffAppointments({
     }
   };
 
+  // ✅ Preserve customer_id when updating — otherwise it would be nulled out on completion
   const updateWalkIn = async (id: number, data: any) => {
     try {
       const response = await api.post(`/walk-in/update/${id}`, {
+        customer_id: data.customer_id ?? null,
         customer_name: data.customer_name,
         service_id: data.service_id,
         stylist_id: data.stylist_id,
@@ -739,13 +793,92 @@ export default function StaffAppointments({
     }
   };
 
+  // Local (device-timezone) YYYY-MM-DD — used for bucketing and "is today" checks
+  const getLocalDateStr = (date: Date): string =>
+    `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
+      date.getDate()
+    ).padStart(2, "0")}`;
+
+  // The display date of an item, normalized to local time.
+  // Walk-ins are stamped in UTC on the server, so convert first.
+  const getItemDateStr = (item: DisplayItem): string => {
+    if (item.is_walk_in && item.walk_in_data?.created_at) {
+      const d = new Date(item.walk_in_data.created_at);
+      if (!isNaN(d.getTime())) return getLocalDateStr(d);
+    }
+    return (item.appointment_date || item.created_at || "").slice(0, 10);
+  };
+
+  // ✅ Restriction: only items scheduled/created TODAY can be updated
+  const isItemToday = (item: DisplayItem): boolean => {
+    const today = getLocalDateStr(new Date());
+    return getItemDateStr(item) === today;
+  };
+
+  // A real point in time for sorting: when a walk-in was created, or when an appointment is scheduled
+  const getItemTimestamp = (item: DisplayItem): number => {
+    if (item.is_walk_in && item.walk_in_data?.created_at) {
+      const t = new Date(item.walk_in_data.created_at).getTime();
+      if (!isNaN(t)) return t;
+    }
+    const [y, m, d] = (item.appointment_date || "").slice(0, 10).split("-").map(Number);
+    if (!y || !m || !d) return 0;
+    const [hh, mm] = (item.appointment_time || "").split(":").map(Number);
+    return new Date(y, m - 1, d, hh || 0, mm || 0).getTime();
+  };
+
+  // true: the latest entry is always at the top of its list
+  // false: the soonest entry is at the top instead
+  const LATEST_FIRST = true;
+
+  // Past appointments/walk-ins are dropped; only today and later are kept
+  const getGroupedByDate = (items: DisplayItem[]) => {
+    const today = getLocalDateStr(new Date());
+
+    const buckets = {
+      today: { appointments: [] as DisplayItem[], walkIns: [] as DisplayItem[] },
+      upcoming: { appointments: [] as DisplayItem[], walkIns: [] as DisplayItem[] },
+    };
+
+    items.forEach((item) => {
+      const dateToCheck = getItemDateStr(item);
+      if (!dateToCheck || dateToCheck < today) return; // past (or undated) → not shown
+
+      const bucket = dateToCheck === today ? "today" : "upcoming";
+      const target = item.is_walk_in
+        ? buckets[bucket].walkIns
+        : buckets[bucket].appointments;
+      target.push(item);
+    });
+
+    const sortItems = (a: DisplayItem, b: DisplayItem) =>
+      LATEST_FIRST
+        ? getItemTimestamp(b) - getItemTimestamp(a)
+        : getItemTimestamp(a) - getItemTimestamp(b);
+
+    buckets.today.appointments.sort(sortItems);
+    buckets.today.walkIns.sort(sortItems);
+    buckets.upcoming.appointments.sort(sortItems);
+    buckets.upcoming.walkIns.sort(sortItems);
+
+    return buckets;
+  };
+
   const handleOpenUpdateModal = async (item: DisplayItem) => {
+    // ✅ Guard: only today's appointments/walk-ins can be updated
+    if (!isItemToday(item)) {
+      Alert.alert(
+        "Cannot Update",
+        "You can only update appointments and walk-ins scheduled for today."
+      );
+      return;
+    }
+
     if (item.is_walk_in && item.walk_in_data) {
       setSelectedWalkIn(item.walk_in_data);
       setWalkInUpdateData({
         customer_name: item.customer_name,
         amount_paid: item.walk_in_data.amount_paid || 0,
-        is_finished: item.walk_in_data.is_finished,
       });
 
       if (item.walk_in_data.service_id) {
@@ -766,7 +899,8 @@ export default function StaffAppointments({
         setWalkInProductUsages([]);
       }
 
-      setShowWalkInUpdateModal(true);
+      // ✅ Open the full-page walk-in manager instead of a modal
+      setShowWalkInUpdatePage(true);
       return;
     }
 
@@ -826,6 +960,13 @@ export default function StaffAppointments({
         );
       }
     }
+  };
+
+  const closeWalkInUpdatePage = () => {
+    setShowWalkInUpdatePage(false);
+    setShowQrModal(false);
+    setSelectedWalkIn(null);
+    setWalkInProductUsages([]);
   };
 
   // ─────────────────────────────────────────────
@@ -935,11 +1076,21 @@ export default function StaffAppointments({
     }
   };
 
+  // ✅ Updating a walk-in now always marks it as completed (is_finished = 1)
   const handleWalkInUpdate = async () => {
     if (!selectedWalkIn) return;
 
     if (!walkInUpdateData.customer_name.trim()) {
       Alert.alert("Validation Error", "Please enter the customer's name");
+      return;
+    }
+
+    // ✅ Updating completes the walk-in, so an amount must be recorded first
+    if (!walkInUpdateData.amount_paid || walkInUpdateData.amount_paid <= 0) {
+      Alert.alert(
+        "Amount Paid Required",
+        "Please enter the amount paid by the customer before completing this walk-in."
+      );
       return;
     }
 
@@ -960,11 +1111,13 @@ export default function StaffAppointments({
     setIsUpdatingWalkIn(true);
     try {
       const updateData = {
+        // ✅ Preserve the customer link so it doesn't get nulled on completion
+        customer_id: selectedWalkIn.customer_id ?? null,
         customer_name: walkInUpdateData.customer_name.trim(),
         service_id: selectedWalkIn.service_id,
         stylist_id: selectedWalkIn.stylist_id,
         amount_paid: walkInUpdateData.amount_paid,
-        is_finished: walkInUpdateData.is_finished,
+        is_finished: 1,
       };
 
       await updateWalkIn(selectedWalkIn.id, updateData);
@@ -983,10 +1136,8 @@ export default function StaffAppointments({
         }
       }
 
-      Alert.alert("Success", "Walk-in customer updated successfully!");
-      setShowWalkInUpdateModal(false);
-      setSelectedWalkIn(null);
-      setWalkInProductUsages([]);
+      Alert.alert("Success", "Walk-in completed successfully!");
+      closeWalkInUpdatePage();
       await Promise.all([
         fetchStaffAppointments(),
         fetchWalkIns(),
@@ -1086,54 +1237,6 @@ export default function StaffAppointments({
     });
 
     return [...appointmentItems, ...walkInItems];
-  };
-
-  const getGroupedByDate = (items: DisplayItem[]) => {
-    const today = getUTCDateString(new Date());
-
-    const sortAsc = (a: DisplayItem, b: DisplayItem) => {
-      const aKey = `${a.appointment_date || ""} ${a.appointment_time || ""}`;
-      const bKey = `${b.appointment_date || ""} ${b.appointment_time || ""}`;
-      return aKey.localeCompare(bKey);
-    };
-    const sortDesc = (a: DisplayItem, b: DisplayItem) => {
-      const aKey = `${a.appointment_date || ""} ${a.appointment_time || ""}`;
-      const bKey = `${b.appointment_date || ""} ${b.appointment_time || ""}`;
-      return bKey.localeCompare(aKey);
-    };
-
-    const buckets = {
-      today: { appointments: [] as DisplayItem[], walkIns: [] as DisplayItem[] },
-      upcoming: { appointments: [] as DisplayItem[], walkIns: [] as DisplayItem[] },
-      past: { appointments: [] as DisplayItem[], walkIns: [] as DisplayItem[] },
-    };
-
-    items.forEach((item) => {
-      const dateToCheck =
-        item.appointment_date ||
-        item.walk_in_data?.created_at?.split("T")[0] ||
-        item.created_at?.split("T")[0];
-
-      let bucket: "today" | "upcoming" | "past";
-      if (!dateToCheck) bucket = "past";
-      else if (dateToCheck === today) bucket = "today";
-      else if (dateToCheck > today) bucket = "upcoming";
-      else bucket = "past";
-
-      const target = item.is_walk_in
-        ? buckets[bucket].walkIns
-        : buckets[bucket].appointments;
-      target.push(item);
-    });
-
-    buckets.today.appointments.sort(sortAsc);
-    buckets.today.walkIns.sort(sortAsc);
-    buckets.upcoming.appointments.sort(sortAsc);
-    buckets.upcoming.walkIns.sort(sortAsc);
-    buckets.past.appointments.sort(sortDesc);
-    buckets.past.walkIns.sort(sortDesc);
-
-    return buckets;
   };
 
   // ─────────────────────────────────────────────
@@ -1257,6 +1360,7 @@ export default function StaffAppointments({
     const isWalkIn = item.is_walk_in;
     const isMultipleServices = item.services && item.services.length > 1;
     const svcs = item.services || [];
+    const itemIsToday = isItemToday(item);
 
     const stylistName =
       isWalkIn && item.walk_in_data?.user
@@ -1310,6 +1414,15 @@ export default function StaffAppointments({
                     <View className="ml-2 bg-pink-100 px-2 py-0.5 rounded-full">
                       <Text className="text-pink-600 text-xs font-semibold">
                         {svcs.length} services
+                      </Text>
+                    </View>
+                  )}
+                  {/* ✅ Small badge so staff knows the walk-in is linked to an account */}
+                  {isWalkIn && item.walk_in_data?.customer_id && (
+                    <View className="ml-2 bg-blue-100 px-2 py-0.5 rounded-full flex-row items-center">
+                      <Ionicons name="person-circle-outline" size={10} color="#2563eb" />
+                      <Text className="text-blue-700 text-[10px] font-semibold ml-0.5">
+                        Account
                       </Text>
                     </View>
                   )}
@@ -1378,6 +1491,19 @@ export default function StaffAppointments({
                 </Text>
               </View>
             )}
+
+            {!isCompleted && !isNoShow && !itemIsToday && (
+              <View className="flex-row items-center mt-1">
+                <Ionicons
+                  name="information-circle-outline"
+                  size={12}
+                  color="#f59e0b"
+                />
+                <Text className="text-amber-600 text-xs ml-1">
+                  Updating is only available on the scheduled day
+                </Text>
+              </View>
+            )}
           </View>
 
           <View className={`px-3 py-1.5 rounded-full ${statusBadge.bg}`}>
@@ -1406,12 +1532,21 @@ export default function StaffAppointments({
             )}
 
             {!isCompleted && !isNoShow && (
-              <TouchableOpacity
-                className="bg-blue-600 px-5 py-2 rounded-xl"
-                onPress={() => handleOpenUpdateModal(item)}
-              >
-                <Text className="text-white font-semibold text-sm">Update</Text>
-              </TouchableOpacity>
+              itemIsToday ? (
+                <TouchableOpacity
+                  className="bg-blue-600 px-5 py-2 rounded-xl"
+                  onPress={() => handleOpenUpdateModal(item)}
+                >
+                  <Text className="text-white font-semibold text-sm">Update</Text>
+                </TouchableOpacity>
+              ) : (
+                <View className="bg-gray-200 px-3 py-2 rounded-xl flex-row items-center gap-1">
+                  <Ionicons name="lock-closed-outline" size={14} color="#6b7280" />
+                  <Text className="text-gray-500 font-semibold text-xs">
+                    Only today
+                  </Text>
+                </View>
+              )
             )}
           </View>
         </View>
@@ -1781,6 +1916,86 @@ export default function StaffAppointments({
     );
   };
 
+  // ✅ E-wallet QR code modal (shown from the walk-in page)
+  const QrCodeModal = () => {
+    const amountDue = parseFloat(selectedWalkIn?.services?.price?.toString() || "0") || 0;
+
+    return (
+      <Modal
+        transparent={true}
+        animationType="fade"
+        visible={showQrModal}
+        onRequestClose={() => setShowQrModal(false)}
+      >
+        <View className="flex-1 justify-center items-center bg-black/50 p-4">
+          <View className="bg-white rounded-2xl overflow-hidden w-full max-w-sm">
+            <View className="bg-pink-500 px-6 py-4 flex-row justify-between items-center">
+              <Text className="text-white text-xl font-bold">Pay with E-Wallet</Text>
+              <TouchableOpacity onPress={() => setShowQrModal(false)}>
+                <Ionicons name="close" size={24} color="white" />
+              </TouchableOpacity>
+            </View>
+
+            <View className="p-6 items-center">
+              <Text className="text-gray-700 font-semibold text-base mb-3">
+                Scan to Pay with GCash
+              </Text>
+
+              {isLoadingQr ? (
+                <View className="bg-white rounded-xl p-3 border-2 border-green-200 w-56 h-56 items-center justify-center">
+                  <ActivityIndicator size="large" color="#16a34a" />
+                </View>
+              ) : qrImageUrl ? (
+                <View className="bg-white rounded-xl p-3 border-2 border-green-200">
+                  <Image
+                    source={{ uri: qrImageUrl }}
+                    className="w-56 h-56"
+                    resizeMode="contain"
+                  />
+                </View>
+              ) : (
+                <View className="bg-gray-100 rounded-xl p-6 w-56 h-56 items-center justify-center border-2 border-dashed border-gray-300">
+                  <Ionicons name="qr-code-outline" size={48} color="#9ca3af" />
+                  <Text className="text-gray-400 text-xs text-center mt-2">
+                    QR code not available
+                  </Text>
+                  <TouchableOpacity onPress={fetchQrCode} className="mt-3">
+                    <Text className="text-green-700 text-xs font-semibold">Tap to retry</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {amountDue > 0 && (
+                <Text className="text-gray-500 text-sm mt-3 text-center">
+                  Amount due:{" "}
+                  <Text className="font-bold text-green-700">
+                    ₱{amountDue.toLocaleString()}
+                  </Text>
+                </Text>
+              )}
+
+              {gcashNumber ? (
+                <View className="mt-3 bg-blue-50 rounded-xl px-4 py-2 border border-blue-200">
+                  <Text className="text-[10px] text-gray-500 text-center">GCash Number</Text>
+                  <Text className="text-sm font-bold text-gray-800 tracking-wide text-center">
+                    {gcashNumber}
+                  </Text>
+                </View>
+              ) : null}
+
+              <TouchableOpacity
+                onPress={() => setShowQrModal(false)}
+                className="w-full py-3 bg-pink-500 rounded-xl mt-5"
+              >
+                <Text className="text-white text-center font-semibold">Close</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    );
+  };
+
   // ─────────────────────────────────────────────
   // Derived data
   // ─────────────────────────────────────────────
@@ -1791,7 +2006,6 @@ export default function StaffAppointments({
     grouped.today.appointments.length + grouped.today.walkIns.length;
   const upcomingCount =
     grouped.upcoming.appointments.length + grouped.upcoming.walkIns.length;
-  const pastCount = grouped.past.appointments.length + grouped.past.walkIns.length;
 
   const todayStaff = getTodayStaff();
 
@@ -2100,10 +2314,322 @@ export default function StaffAppointments({
     );
   };
 
+  // ─────────────────────────────────────────────
+  // ✅ Walk-in update page (replaces the old modal)
+  // ─────────────────────────────────────────────
+  const renderWalkInUpdatePage = () => {
+    if (!selectedWalkIn) return null;
+
+    const servicePrice = parseFloat(selectedWalkIn.services?.price?.toString() || "0") || 0;
+    const stylistName = selectedWalkIn.user
+      ? `${selectedWalkIn.user.first_name || ""} ${selectedWalkIn.user.last_name || ""}`.trim()
+      : "Unknown Stylist";
+
+    return (
+      <View className="flex-1 bg-gray-50">
+        <View className="bg-pink-500 px-5 pt-12 pb-4">
+          <View className="flex-row items-center justify-between">
+            <TouchableOpacity
+              onPress={closeWalkInUpdatePage}
+              disabled={isUpdatingWalkIn}
+              className="p-1"
+            >
+              <Ionicons name="arrow-back" size={24} color="white" />
+            </TouchableOpacity>
+            <Text className="text-white text-lg font-semibold">Update Walk-in</Text>
+            <View style={{ width: 32 }} />
+          </View>
+        </View>
+
+        <ScrollView
+          className="flex-1"
+          showsVerticalScrollIndicator={true}
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={{ padding: 20, paddingBottom: 40 }}
+        >
+          {/* Current details */}
+          <View className="mb-4 p-4 bg-white rounded-2xl shadow-sm">
+            <Text className="text-gray-500 text-sm">Current Walk-in Details</Text>
+            <View className="flex-row justify-between items-center mt-2">
+              <Text className="text-gray-600 text-sm">Customer:</Text>
+              <Text className="text-gray-800 font-semibold">
+                {selectedWalkIn.customer_name}
+              </Text>
+            </View>
+            {/* ✅ Show whether this walk-in is linked to a customer account */}
+            <View className="flex-row justify-between items-center mt-1">
+              <Text className="text-gray-600 text-sm">Account:</Text>
+              {selectedWalkIn.customer_id ? (
+                <View className="px-2 py-0.5 rounded-full bg-blue-100 flex-row items-center">
+                  <Ionicons name="person-circle" size={12} color="#2563eb" />
+                  <Text className="text-blue-700 text-xs font-semibold ml-1">
+                    Linked
+                  </Text>
+                </View>
+              ) : (
+                <View className="px-2 py-0.5 rounded-full bg-gray-100">
+                  <Text className="text-gray-500 text-xs font-semibold">
+                    Guest (no account)
+                  </Text>
+                </View>
+              )}
+            </View>
+            <View className="flex-row justify-between items-center mt-1">
+              <Text className="text-gray-600 text-sm">Service:</Text>
+              <Text className="text-gray-800 font-semibold">
+                {selectedWalkIn.services?.service_name || "Unknown"}
+              </Text>
+            </View>
+            <View className="flex-row justify-between items-center mt-1">
+              <Text className="text-gray-600 text-sm">Service Price:</Text>
+              <Text className="text-pink-600 font-semibold">
+                ₱{servicePrice.toLocaleString()}
+              </Text>
+            </View>
+            <View className="flex-row justify-between items-center mt-1">
+              <Text className="text-gray-600 text-sm">Stylist:</Text>
+              <Text className="text-gray-800 font-semibold">{stylistName}</Text>
+            </View>
+            <View className="flex-row justify-between items-center mt-1">
+              <Text className="text-gray-600 text-sm">Status:</Text>
+              <View
+                className={`px-2 py-0.5 rounded-full ${
+                  selectedWalkIn.is_finished === 1 ? "bg-green-100" : "bg-yellow-100"
+                }`}
+              >
+                <Text
+                  className={`text-xs font-semibold ${
+                    selectedWalkIn.is_finished === 1
+                      ? "text-green-700"
+                      : "text-yellow-700"
+                  }`}
+                >
+                  {selectedWalkIn.is_finished === 1 ? "FINISHED" : "PENDING"}
+                </Text>
+              </View>
+            </View>
+            <View className="flex-row justify-between items-center mt-1">
+              <Text className="text-gray-600 text-sm">Amount Paid:</Text>
+              <Text className="text-green-600 font-semibold">
+                ₱{selectedWalkIn.amount_paid?.toLocaleString() || "0.00"}
+              </Text>
+            </View>
+            {(selectedWalkIn.hair_length ||
+              selectedWalkIn.hair_thickness ||
+              selectedWalkIn.preferred_color) && (
+              <View className="mt-2 pt-2 border-t border-gray-200">
+                <Text className="text-gray-600 text-sm font-semibold">Hair Details</Text>
+                {selectedWalkIn.hair_length && (
+                  <View className="flex-row justify-between items-center mt-1">
+                    <Text className="text-gray-500 text-sm">Hair Length:</Text>
+                    <Text className="text-gray-700 text-sm capitalize">
+                      {selectedWalkIn.hair_length}
+                    </Text>
+                  </View>
+                )}
+                {selectedWalkIn.hair_thickness && (
+                  <View className="flex-row justify-between items-center mt-1">
+                    <Text className="text-gray-500 text-sm">Hair Thickness:</Text>
+                    <Text className="text-gray-700 text-sm capitalize">
+                      {selectedWalkIn.hair_thickness}
+                    </Text>
+                  </View>
+                )}
+                {selectedWalkIn.preferred_color && (
+                  <View className="flex-row justify-between items-center mt-1">
+                    <Text className="text-gray-500 text-sm">Preferred Color:</Text>
+                    <Text className="text-gray-700 text-sm">
+                      {selectedWalkIn.preferred_color}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            )}
+          </View>
+
+          {/* Customer name + payment */}
+          <View className="bg-white rounded-2xl shadow-sm p-4 mb-4">
+            <View className="mb-4">
+              <Text className="text-gray-700 font-semibold mb-2">Customer Name *</Text>
+              <TextInput
+                value={walkInUpdateData.customer_name}
+                onChangeText={(text) =>
+                  setWalkInUpdateData((prev) => ({
+                    ...prev,
+                    customer_name: text,
+                  }))
+                }
+                placeholder="Enter customer name"
+                className="border border-gray-300 rounded-lg px-4 py-3 text-gray-700"
+              />
+            </View>
+
+            <View>
+              <Text className="text-gray-700 font-semibold mb-2">Amount Paid *</Text>
+              <View className="flex-row items-center bg-gray-50 rounded-xl px-4 py-3 border border-gray-200">
+                <Text className="text-gray-800 font-bold text-lg mr-2">₱</Text>
+                <TextInput
+                  value={walkInUpdateData.amount_paid.toString()}
+                  onChangeText={(text) => {
+                    const num = parseFloat(text) || 0;
+                    setWalkInUpdateData((prev) => ({
+                      ...prev,
+                      amount_paid: num,
+                    }));
+                  }}
+                  keyboardType="numeric"
+                  className="flex-1 text-lg text-gray-800"
+                  placeholder="0.00"
+                />
+              </View>
+              {walkInUpdateData.amount_paid > 0 ? (
+                <Text className="text-gray-400 text-xs mt-1">
+                  Enter the amount paid by the customer
+                </Text>
+              ) : (
+                <View className="flex-row items-center gap-1 mt-1">
+                  <Ionicons name="alert-circle" size={12} color="#dc2626" />
+                  <Text className="text-red-600 text-xs flex-1">
+                    Enter the amount paid before you can complete this walk-in
+                  </Text>
+                </View>
+              )}
+
+              {/* ✅ Show the e-wallet QR code if the customer pays digitally */}
+              <TouchableOpacity
+                onPress={handleShowQrCode}
+                className="flex-row items-center justify-center gap-2 py-3 mt-3 rounded-xl border border-blue-300 bg-blue-50"
+              >
+                <Ionicons name="qr-code-outline" size={20} color="#2563eb" />
+                <Text className="text-blue-700 font-semibold">
+                  Show QR Code (E-Wallet)
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Product usage */}
+          <View className="bg-white rounded-2xl shadow-sm p-4 mb-4">
+            <Text className="text-gray-700 font-semibold mb-2">Product Usage</Text>
+            <Text className="text-gray-500 text-sm mb-3">
+              Update quantity used for each product
+            </Text>
+
+            {walkInProductUsages.length === 0 ? (
+              <View className="bg-yellow-50 rounded-xl p-4">
+                <Text className="text-yellow-600 text-sm text-center">
+                  No products configured for this service
+                </Text>
+              </View>
+            ) : (
+              walkInProductUsages.map((product, index) => {
+                const availableStock = product.current_quantity || 0;
+                const isOutOfStock = availableStock <= 0;
+
+                return (
+                  <View
+                    key={product.id}
+                    className={`rounded-xl p-3 mb-3 border ${
+                      isOutOfStock
+                        ? "bg-red-50 border-red-200"
+                        : "bg-gray-50 border-gray-100"
+                    }`}
+                  >
+                    <Text className="text-gray-800 font-semibold">
+                      {product.product_name}
+                    </Text>
+                    <Text className="text-gray-500 text-xs mb-2">
+                      Estimated Usage: {product.estimated_usage} per service
+                    </Text>
+                    <View className="flex-row items-center gap-3">
+                      <Text className="text-gray-600">Quantity Used:</Text>
+                      <TextInput
+                        value={product.quantity_change.toString()}
+                        onChangeText={(value) =>
+                          handleWalkInProductQuantityChange(index, value)
+                        }
+                        keyboardType="numeric"
+                        className={`flex-1 border rounded-lg px-3 py-2 text-center ${
+                          isOutOfStock ? "border-red-300 bg-white" : "border-gray-300"
+                        }`}
+                        placeholder="0"
+                      />
+                      <Text className="text-gray-600">units</Text>
+                    </View>
+                    {isOutOfStock ? (
+                      <View className="flex-row items-center gap-1 mt-2 bg-red-100 rounded-lg p-2">
+                        <Ionicons name="alert-circle" size={14} color="#dc2626" />
+                        <Text className="text-red-700 text-xs font-semibold flex-1">
+                          Out of stock! Available stock: 0 units
+                        </Text>
+                      </View>
+                    ) : (
+                      <Text className="text-gray-400 text-xs mt-2">
+                        Available Stock: {availableStock} units
+                      </Text>
+                    )}
+                  </View>
+                );
+              })
+            )}
+          </View>
+
+          {/* Summary */}
+          <View className="mb-4 p-4 bg-white rounded-2xl shadow-sm">
+            <Text className="text-gray-600 text-sm font-semibold mb-1">
+              Updated Summary
+            </Text>
+            <Text className="text-gray-600 text-sm">
+              Customer: {walkInUpdateData.customer_name || "Not set"}
+            </Text>
+            <Text className="text-gray-600 text-sm">
+              Amount Paid: ₱{walkInUpdateData.amount_paid.toLocaleString()}
+            </Text>
+            <Text className="text-gray-600 text-sm">Status: ✅ Will be marked as Completed</Text>
+          </View>
+
+          <View className="bg-green-50 border border-green-200 rounded-xl p-3 mb-4">
+            <View className="flex-row items-start gap-2">
+              <Ionicons name="checkmark-circle-outline" size={16} color="#16a34a" />
+              <Text className="text-green-700 text-xs flex-1">
+                Tapping "Update Walk-in" will automatically mark this walk-in as completed.
+              </Text>
+            </View>
+          </View>
+
+          <TouchableOpacity
+            onPress={handleWalkInUpdate}
+            disabled={isUpdatingWalkIn}
+            className={`py-4 rounded-xl mb-3 ${
+              walkInUpdateData.amount_paid > 0 ? "bg-green-600" : "bg-gray-400"
+            }`}
+          >
+            <Text className="text-white text-center font-semibold text-base">
+              {isUpdatingWalkIn ? "Updating..." : "Update Walk-in"}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={closeWalkInUpdatePage}
+            disabled={isUpdatingWalkIn}
+            className="py-3 rounded-xl border border-gray-300 mb-6"
+          >
+            <Text className="text-gray-600 text-center font-semibold">Cancel</Text>
+          </TouchableOpacity>
+        </ScrollView>
+
+        {/* Called as a function (not <Component />) so it isn't remounted on every render */}
+        {QrCodeModal()}
+      </View>
+    );
+  };
+
   return (
     <>
       {showUpdatePage ? (
         renderUpdatePage()
+      ) : showWalkInUpdatePage ? (
+        renderWalkInUpdatePage()
       ) : (
         <>
           <ScrollView
@@ -2124,7 +2650,7 @@ export default function StaffAppointments({
                 </Text>
               </View>
               <Text className="text-gray-500 mb-4">
-                All your assigned appointments &amp; walk-ins
+                Your upcoming appointments &amp; walk-ins
               </Text>
 
               {renderDateSection(
@@ -2145,346 +2671,16 @@ export default function StaffAppointments({
                 "text-blue-600"
               )}
 
-              {renderDateSection(
-                "Past",
-                pastCount,
-                grouped.past.appointments,
-                grouped.past.walkIns,
-                "bg-gray-200",
-                "text-gray-600"
-              )}
-
-              {allItems.length === 0 && (
+              {todayCount + upcomingCount === 0 && (
                 <View className="bg-white rounded-2xl p-12 items-center mt-4">
                   <Ionicons name="calendar-outline" size={60} color="#d1d5db" />
                   <Text className="text-gray-400 mt-4 text-center">
-                    No appointments or walk-ins yet
+                    No upcoming appointments or walk-ins
                   </Text>
                 </View>
               )}
             </View>
           </ScrollView>
-
-          <Modal
-            animationType="slide"
-            transparent={true}
-            visible={showWalkInUpdateModal}
-            onRequestClose={() => setShowWalkInUpdateModal(false)}
-          >
-            <View className="flex-1 justify-center items-center bg-black/50">
-              <View className="bg-white rounded-2xl w-full max-w-md mx-4 max-h-[90%] overflow-hidden">
-                <View className="bg-green-600 px-6 py-4 flex-row justify-between items-center">
-                  <Text className="text-xl font-bold text-white">
-                    Update Walk-in
-                  </Text>
-                  <TouchableOpacity onPress={() => setShowWalkInUpdateModal(false)}>
-                    <Ionicons name="close" size={24} color="white" />
-                  </TouchableOpacity>
-                </View>
-
-                <ScrollView
-                  className="p-6"
-                  showsVerticalScrollIndicator={true}
-                  keyboardShouldPersistTaps="handled"
-                  contentContainerStyle={{ paddingBottom: 24 }}
-                >
-                  <View className="mb-4 p-3 bg-gray-50 rounded-xl">
-                    <Text className="text-gray-500 text-sm">
-                      Current Walk-in Details
-                    </Text>
-                    <View className="flex-row justify-between items-center mt-2">
-                      <Text className="text-gray-600 text-sm">Customer:</Text>
-                      <Text className="text-gray-800 font-semibold">
-                        {selectedWalkIn?.customer_name}
-                      </Text>
-                    </View>
-                    <View className="flex-row justify-between items-center mt-1">
-                      <Text className="text-gray-600 text-sm">Service:</Text>
-                      <Text className="text-gray-800 font-semibold">
-                        {selectedWalkIn?.services?.service_name || "Unknown"}
-                      </Text>
-                    </View>
-                    <View className="flex-row justify-between items-center mt-1">
-                      <Text className="text-gray-600 text-sm">Stylist:</Text>
-                      <Text className="text-gray-800 font-semibold">
-                        {selectedWalkIn?.user?.first_name}{" "}
-                        {selectedWalkIn?.user?.last_name}
-                      </Text>
-                    </View>
-                    <View className="flex-row justify-between items-center mt-1">
-                      <Text className="text-gray-600 text-sm">Status:</Text>
-                      <View
-                        className={`px-2 py-0.5 rounded-full ${
-                          selectedWalkIn?.is_finished === 1
-                            ? "bg-green-100"
-                            : "bg-yellow-100"
-                        }`}
-                      >
-                        <Text
-                          className={`text-xs font-semibold ${
-                            selectedWalkIn?.is_finished === 1
-                              ? "text-green-700"
-                              : "text-yellow-700"
-                          }`}
-                        >
-                          {selectedWalkIn?.is_finished === 1 ? "FINISHED" : "PENDING"}
-                        </Text>
-                      </View>
-                    </View>
-                    <View className="flex-row justify-between items-center mt-1">
-                      <Text className="text-gray-600 text-sm">Amount Paid:</Text>
-                      <Text className="text-green-600 font-semibold">
-                        ₱{selectedWalkIn?.amount_paid?.toLocaleString() || "0.00"}
-                      </Text>
-                    </View>
-                    {(selectedWalkIn?.hair_length ||
-                      selectedWalkIn?.hair_thickness ||
-                      selectedWalkIn?.preferred_color) && (
-                      <View className="mt-2 pt-2 border-t border-gray-200">
-                        <Text className="text-gray-600 text-sm font-semibold">
-                          Hair Details
-                        </Text>
-                        {selectedWalkIn?.hair_length && (
-                          <View className="flex-row justify-between items-center mt-1">
-                            <Text className="text-gray-500 text-sm">Hair Length:</Text>
-                            <Text className="text-gray-700 text-sm capitalize">
-                              {selectedWalkIn.hair_length}
-                            </Text>
-                          </View>
-                        )}
-                        {selectedWalkIn?.hair_thickness && (
-                          <View className="flex-row justify-between items-center mt-1">
-                            <Text className="text-gray-500 text-sm">
-                              Hair Thickness:
-                            </Text>
-                            <Text className="text-gray-700 text-sm capitalize">
-                              {selectedWalkIn.hair_thickness}
-                            </Text>
-                          </View>
-                        )}
-                        {selectedWalkIn?.preferred_color && (
-                          <View className="flex-row justify-between items-center mt-1">
-                            <Text className="text-gray-500 text-sm">
-                              Preferred Color:
-                            </Text>
-                            <Text className="text-gray-700 text-sm">
-                              {selectedWalkIn.preferred_color}
-                            </Text>
-                          </View>
-                        )}
-                      </View>
-                    )}
-                  </View>
-
-                  <View className="mb-4">
-                    <Text className="text-gray-700 font-semibold mb-2">
-                      Customer Name *
-                    </Text>
-                    <TextInput
-                      value={walkInUpdateData.customer_name}
-                      onChangeText={(text) =>
-                        setWalkInUpdateData((prev) => ({
-                          ...prev,
-                          customer_name: text,
-                        }))
-                      }
-                      placeholder="Enter customer name"
-                      className="border border-gray-300 rounded-lg px-4 py-3 text-gray-700"
-                    />
-                  </View>
-
-                  <View className="mb-4">
-                    <Text className="text-gray-700 font-semibold mb-2">
-                      Amount Paid *
-                    </Text>
-                    <View className="flex-row items-center bg-gray-50 rounded-xl px-4 py-3 border border-gray-200">
-                      <Text className="text-gray-800 font-bold text-lg mr-2">₱</Text>
-                      <TextInput
-                        value={walkInUpdateData.amount_paid.toString()}
-                        onChangeText={(text) => {
-                          const num = parseFloat(text) || 0;
-                          setWalkInUpdateData((prev) => ({
-                            ...prev,
-                            amount_paid: num,
-                          }));
-                        }}
-                        keyboardType="numeric"
-                        className="flex-1 text-lg text-gray-800"
-                        placeholder="0.00"
-                      />
-                    </View>
-                    <Text className="text-gray-400 text-xs mt-1">
-                      Enter the amount paid by the customer
-                    </Text>
-                  </View>
-
-                  <View className="mb-4">
-                    <Text className="text-gray-700 font-semibold mb-2">Status</Text>
-                    <View className="flex-row gap-3">
-                      <TouchableOpacity
-                        onPress={() =>
-                          setWalkInUpdateData((prev) => ({
-                            ...prev,
-                            is_finished: 0,
-                          }))
-                        }
-                        className={`flex-1 py-3 rounded-xl ${
-                          walkInUpdateData.is_finished === 0
-                            ? "bg-yellow-500"
-                            : "bg-gray-200"
-                        }`}
-                      >
-                        <Text
-                          className={`text-center font-semibold ${
-                            walkInUpdateData.is_finished === 0
-                              ? "text-white"
-                              : "text-gray-700"
-                          }`}
-                        >
-                          Pending
-                        </Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        onPress={() =>
-                          setWalkInUpdateData((prev) => ({
-                            ...prev,
-                            is_finished: 1,
-                          }))
-                        }
-                        className={`flex-1 py-3 rounded-xl ${
-                          walkInUpdateData.is_finished === 1
-                            ? "bg-green-500"
-                            : "bg-gray-200"
-                        }`}
-                      >
-                        <Text
-                          className={`text-center font-semibold ${
-                            walkInUpdateData.is_finished === 1
-                              ? "text-white"
-                              : "text-gray-700"
-                          }`}
-                        >
-                          Finished
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-
-                  <View className="mb-4">
-                    <Text className="text-gray-700 font-semibold mb-2">
-                      Product Usage
-                    </Text>
-                    <Text className="text-gray-500 text-sm mb-3">
-                      Update quantity used for each product
-                    </Text>
-
-                    {walkInProductUsages.length === 0 ? (
-                      <View className="bg-yellow-50 rounded-xl p-4">
-                        <Text className="text-yellow-600 text-sm text-center">
-                          No products configured for this service
-                        </Text>
-                      </View>
-                    ) : (
-                      walkInProductUsages.map((product, index) => {
-                        const availableStock = product.current_quantity || 0;
-                        const isOutOfStock = availableStock <= 0;
-
-                        return (
-                          <View
-                            key={product.id}
-                            className={`rounded-xl p-3 mb-3 border ${
-                              isOutOfStock
-                                ? "bg-red-50 border-red-200"
-                                : "bg-gray-50 border-gray-100"
-                            }`}
-                          >
-                            <Text className="text-gray-800 font-semibold">
-                              {product.product_name}
-                            </Text>
-                            <Text className="text-gray-500 text-xs mb-2">
-                              Estimated Usage: {product.estimated_usage} per service
-                            </Text>
-                            <View className="flex-row items-center gap-3">
-                              <Text className="text-gray-600">Quantity Used:</Text>
-                              <TextInput
-                                value={product.quantity_change.toString()}
-                                onChangeText={(value) =>
-                                  handleWalkInProductQuantityChange(index, value)
-                                }
-                                keyboardType="numeric"
-                                className={`flex-1 border rounded-lg px-3 py-2 text-center ${
-                                  isOutOfStock
-                                    ? "border-red-300 bg-white"
-                                    : "border-gray-300"
-                                }`}
-                                placeholder="0"
-                              />
-                              <Text className="text-gray-600">units</Text>
-                            </View>
-                            {isOutOfStock ? (
-                              <View className="flex-row items-center gap-1 mt-2 bg-red-100 rounded-lg p-2">
-                                <Ionicons
-                                  name="alert-circle"
-                                  size={14}
-                                  color="#dc2626"
-                                />
-                                <Text className="text-red-700 text-xs font-semibold flex-1">
-                                  Out of stock! Available stock: 0 units
-                                </Text>
-                              </View>
-                            ) : (
-                              <Text className="text-gray-400 text-xs mt-2">
-                                Available Stock: {availableStock} units
-                              </Text>
-                            )}
-                          </View>
-                        );
-                      })
-                    )}
-                  </View>
-
-                  <View className="mb-4 p-3 bg-gray-50 rounded-xl">
-                    <Text className="text-gray-600 text-sm font-semibold mb-1">
-                      Updated Summary
-                    </Text>
-                    <Text className="text-gray-600 text-sm">
-                      Customer: {walkInUpdateData.customer_name || "Not set"}
-                    </Text>
-                    <Text className="text-gray-600 text-sm">
-                      Amount Paid: ₱{walkInUpdateData.amount_paid.toLocaleString()}
-                    </Text>
-                    <Text className="text-gray-600 text-sm">
-                      Status:{" "}
-                      {walkInUpdateData.is_finished === 1
-                        ? "✅ Finished"
-                        : "⏳ Pending"}
-                    </Text>
-                  </View>
-
-                  <View className="flex-row gap-3">
-                    <TouchableOpacity
-                      onPress={() => setShowWalkInUpdateModal(false)}
-                      className="flex-1 py-3 rounded-xl border border-gray-300"
-                    >
-                      <Text className="text-gray-600 text-center font-semibold">
-                        Cancel
-                      </Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      onPress={handleWalkInUpdate}
-                      disabled={isUpdatingWalkIn}
-                      className="flex-1 py-3 rounded-xl bg-green-600"
-                    >
-                      <Text className="text-white text-center font-semibold">
-                        {isUpdatingWalkIn ? "Updating..." : "Update Walk-in"}
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-                </ScrollView>
-              </View>
-            </View>
-          </Modal>
 
           <PaymentProofModal />
         </>

@@ -1,13 +1,120 @@
 import { useState, useEffect } from 'react';
-import { 
-  Users, UserPlus, Search, Edit, Trash2,
-  Mail, Phone, Star, Clock, Award,
+import {
+  Users, UserPlus, Search, Edit, Mail, Phone, Star, Award,
   Activity, Briefcase, CheckCircle, XCircle, Scissors, X, AlertCircle,
-  Plus, Tag, UserCheck, UserX, Save, DollarSign, Settings
+  Tag, UserCheck, UserX, Save, DollarSign, Settings
 } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../contexts/auth-context';
 
+// ─────────────────────────────────────────────────────────────
+// Design tokens (mirrors Dashboard.jsx)
+// ─────────────────────────────────────────────────────────────
+const STATUS_STYLES = {
+  active:       { pill: 'bg-emerald-50 text-emerald-700 border-emerald-200', dot: 'bg-emerald-500' },
+  inactive:     { pill: 'bg-red-50 text-red-700 border-red-200', dot: 'bg-red-500' },
+  authorized:   { pill: 'bg-emerald-50 text-emerald-700 border-emerald-200', dot: 'bg-emerald-500' },
+  not_authorized:{ pill: 'bg-slate-100 text-slate-600 border-slate-200', dot: 'bg-slate-400' },
+};
+
+function StatusPill({ status, label }) {
+  const style = STATUS_STYLES[status] || STATUS_STYLES.active;
+  return (
+    <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 text-[11px] font-semibold rounded-full border ${style.pill}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${style.dot}`} />
+      {label}
+    </span>
+  );
+}
+
+function Panel({ title, subtitle, icon: Icon, iconClass = 'bg-pink-50 text-pink-500', action, children, className = '', bodyClassName = 'p-5' }) {
+  return (
+    <section className={`bg-white rounded-2xl border border-slate-200/70 shadow-sm hover:shadow-[0_12px_32px_-16px_rgba(236,72,153,0.35)] transition-shadow duration-300 overflow-hidden ${className}`}>
+      <header className="px-5 py-4 border-b border-slate-100 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          {Icon && (
+            <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${iconClass}`}>
+              <Icon size={17} />
+            </div>
+          )}
+          <div className="min-w-0">
+            <h3 className="text-sm font-semibold text-slate-800 truncate">{title}</h3>
+            {subtitle && <p className="text-[11px] text-slate-500 mt-0.5 truncate">{subtitle}</p>}
+          </div>
+        </div>
+        {action}
+      </header>
+      <div className={bodyClassName}>{children}</div>
+    </section>
+  );
+}
+
+function StatCard({ label, value, sub, icon: Icon, color, badge, badgeClass }) {
+  return (
+    <div className="group relative bg-white rounded-2xl border border-slate-200/70 shadow-sm hover:shadow-[0_12px_32px_-16px_rgba(15,23,42,0.35)] hover:-translate-y-0.5 transition-all duration-300 p-5 overflow-hidden">
+      <div className={`absolute -top-8 -right-8 w-24 h-24 rounded-full opacity-[0.08] bg-gradient-to-br ${color} group-hover:scale-125 transition-transform duration-500`} />
+      <div className="relative flex items-start justify-between">
+        <div className={`w-11 h-11 rounded-xl bg-gradient-to-br ${color} flex items-center justify-center shadow-md`}>
+          <Icon size={20} className="text-white" />
+        </div>
+        {badge && (
+          <span className={`inline-flex items-center gap-0.5 text-[11px] font-semibold px-2 py-0.5 rounded-full ${badgeClass}`}>
+            {badge}
+          </span>
+        )}
+      </div>
+      <p className="relative text-xs font-medium text-slate-500 mt-4">{label}</p>
+      <p className="relative text-3xl font-bold text-slate-800 mt-0.5 tracking-tight">{value}</p>
+      {sub && <p className="relative text-[11px] text-slate-400 mt-2">{sub}</p>}
+    </div>
+  );
+}
+
+function EmptyState({ icon: Icon, title, subtitle, action }) {
+  return (
+    <div className="flex flex-col items-center justify-center text-center py-10">
+      <div className="w-14 h-14 rounded-2xl bg-slate-50 flex items-center justify-center mb-3">
+        <Icon size={26} className="text-slate-300" />
+      </div>
+      <p className="text-sm font-semibold text-slate-700">{title}</p>
+      {subtitle && <p className="text-xs text-slate-400 mt-1 max-w-xs">{subtitle}</p>}
+      {action && <div className="mt-4">{action}</div>}
+    </div>
+  );
+}
+
+function Toast({ message, type = 'success', onClose }) {
+  const accent =
+    type === 'success' ? { bar: 'bg-emerald-500', icon: 'bg-emerald-100 text-emerald-600' } :
+    type === 'warning' ? { bar: 'bg-amber-500', icon: 'bg-amber-100 text-amber-600' } :
+    type === 'info' ? { bar: 'bg-blue-500', icon: 'bg-blue-100 text-blue-600' } :
+    { bar: 'bg-red-500', icon: 'bg-red-100 text-red-600' };
+  const Icon = type === 'success' ? CheckCircle : type === 'warning' ? AlertCircle : type === 'info' ? AlertCircle : XCircle;
+
+  return (
+    <div className="fixed top-4 right-4 z-[100] animate-slide-in">
+      <div className="relative bg-white rounded-xl shadow-2xl border border-slate-100 p-3.5 pl-5 flex items-center gap-3 min-w-[300px] max-w-md overflow-hidden">
+        <span className={`absolute left-0 top-0 bottom-0 w-1.5 ${accent.bar}`} />
+        <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${accent.icon}`}>
+          <Icon size={16} />
+        </div>
+        <span className="text-sm font-medium text-slate-700 flex-1">{message}</span>
+        <button onClick={onClose} className="text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg p-1 flex-shrink-0 transition-colors">
+          <X size={16} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+const inputClass =
+  'w-full px-3.5 py-2.5 text-sm bg-slate-50/60 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-pink-500 focus:bg-white focus:border-transparent transition-all';
+
+const labelClass = 'block text-xs font-semibold text-slate-700 mb-1.5';
+
+// ─────────────────────────────────────────────────────────────
+// Main Component
+// ─────────────────────────────────────────────────────────────
 function Employees() {
   const { user: currentUser } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
@@ -29,38 +136,28 @@ function Employees() {
   const [isSavingAll, setIsSavingAll] = useState(false);
 
   const [formData, setFormData] = useState({
-    first_name: '',
-    last_name: '',
-    email: '',
-    phone_number: '',
-    password: '',
-    password_confirmation: '',
-    role: 'staff',
+    first_name: '', last_name: '', email: '', phone_number: '',
+    password: '', password_confirmation: '', role: 'staff',
   });
 
   const [employeeFormData, setEmployeeFormData] = useState({
-    employee_id: '',
-    specialty_id: '',
-    active_status: true,
-    commission_amount: '',
-    walk_in_authorized: false
+    employee_id: '', specialty_id: '', active_status: true,
+    commission_amount: '', walk_in_authorized: false,
   });
 
-  const [stats, setStats] = useState([
-    { label: 'Total Staff', value: '0', icon: Users, bgColor: 'bg-pink-50', textColor: 'text-pink-600' },
-    { label: 'Active Staff', value: '0', icon: CheckCircle, bgColor: 'bg-green-50', textColor: 'text-green-600' },
-    { label: 'Walk-in Authorized', value: '0', icon: UserCheck, bgColor: 'bg-blue-50', textColor: 'text-blue-600' },
-  ]);
+  const [stats, setStats] = useState({
+    totalStaff: 0,
+    activeStaff: 0,
+    authorizedCount: 0,
+  });
 
   const showToast = (message, type = 'success') => {
     setToast({ show: true, message, type });
-    setTimeout(() => {
-      setToast({ show: false, message: '', type: 'success' });
-    }, 3000);
+    setTimeout(() => setToast({ show: false, message: '', type: 'success' }), 3000);
   };
 
-  const API_URL = import.meta.env.VITE_API_URL || "http://192.168.100.73:8000/api";
-  const BASE_URL = API_URL.replace(/\/api\/?$/, "");
+  const API_URL = import.meta.env.VITE_API_URL || 'http://192.168.100.73:8000/api';
+  const BASE_URL = API_URL.replace(/\/api\/?$/, '');
 
   const getImageUrl = (imagePath) => {
     if (!imagePath) return null;
@@ -87,99 +184,65 @@ function Employees() {
     return true;
   };
 
-  const sortEmployeesByRecent = (employeesArray) => {
-    return [...employeesArray].sort((a, b) => {
-      if (a.created_at && b.created_at) {
-        return new Date(b.created_at) - new Date(a.created_at);
-      }
-      if (a.id && b.id) {
-        return b.id - a.id;
-      }
+  const sortEmployeesByRecent = (employeesArray) =>
+    [...employeesArray].sort((a, b) => {
+      if (a.created_at && b.created_at) return new Date(b.created_at) - new Date(a.created_at);
+      if (a.id && b.id) return b.id - a.id;
       return 0;
     });
-  };
 
   const fetchStaffFeedbacks = async () => {
     try {
       const response = await api.get('/feedbacks/staff');
-      if (Array.isArray(response.data)) {
-        setStaffFeedbacks(response.data);
-      }
-    } catch (error) {
-      // silently ignore
-    }
+      if (Array.isArray(response.data)) setStaffFeedbacks(response.data);
+    } catch {}
   };
 
   const fetchSpecialtiesList = async () => {
     try {
       const response = await api.get('/specialties');
-      if (Array.isArray(response.data)) {
-        setSpecialtiesList(response.data);
-      }
-    } catch (error) {
-      // silently ignore
-    }
+      if (Array.isArray(response.data)) setSpecialtiesList(response.data);
+    } catch {}
   };
 
   const fetchEmployeeCommissions = async () => {
     try {
       const response = await api.get('/employee/commission');
-      
       const commissionMap = {};
       if (Array.isArray(response.data)) {
-        response.data.forEach(item => {
-          commissionMap[item.employee_id] = item.commission_amount;
-        });
+        response.data.forEach(item => { commissionMap[item.employee_id] = item.commission_amount; });
       }
       setEmployeeCommissions(commissionMap);
-    } catch (error) {
-      // silently ignore
-    }
+    } catch {}
   };
 
   const fetchWalkInAuthorizations = async () => {
     try {
       setIsRefreshing(true);
       const response = await api.get('/walk-in/staff');
-      
       if (Array.isArray(response.data)) {
-        const authMap = {};
-        const authIdMap = {};
+        const authMap = {}, authIdMap = {};
         let authorizedCount = 0;
-        
         const latestAuths = {};
         response.data.forEach(auth => {
           const staffId = auth.staff_id || auth.staffId;
           if (!staffId) return;
-          
-          if (!latestAuths[staffId] || auth.id > latestAuths[staffId].id) {
-            latestAuths[staffId] = auth;
-          }
+          if (!latestAuths[staffId] || auth.id > latestAuths[staffId].id) latestAuths[staffId] = auth;
         });
-        
         Object.values(latestAuths).forEach(auth => {
           const isAuthorized = auth.isAuthorizedForWalkIn === 1 || auth.isAuthorizedForWalkin === 1;
           const staffId = auth.staff_id || auth.staffId;
-          
           if (staffId) {
             authMap[staffId] = isAuthorized;
             authIdMap[staffId] = auth.id;
             if (isAuthorized) authorizedCount++;
           }
         });
-        
         setWalkInAuthorizations(authMap);
         setWalkInAuthIds(authIdMap);
-        
-        setStats(prev => {
-          const newStats = [...prev];
-          newStats[2] = { ...newStats[2], value: authorizedCount.toString() };
-          return newStats;
-        });
+        setStats(prev => ({ ...prev, authorizedCount }));
       }
-    } catch (error) {
-      // silently ignore
-    } finally {
+    } catch {} finally {
       setIsRefreshing(false);
     }
   };
@@ -188,23 +251,17 @@ function Employees() {
     setIsLoading(true);
     try {
       const response = await api.get('/employee/specialties');
-      
       if (Array.isArray(response.data)) {
         const sortedEmployees = sortEmployeesByRecent(response.data);
         setEmployees(sortedEmployees);
-        
         const activeEmployees = sortedEmployees.filter(e => getEmployeeActiveStatus(e)).length;
-        
-        setStats(prev => {
-          const newStats = [...prev];
-          newStats[0] = { ...newStats[0], value: sortedEmployees.length.toString() };
-          newStats[1] = { ...newStats[1], value: activeEmployees.toString() };
-          return newStats;
-        });
+        setStats(prev => ({
+          ...prev,
+          totalStaff: sortedEmployees.length,
+          activeStaff: activeEmployees,
+        }));
       }
-    } catch (error) {
-      // silently ignore
-    } finally {
+    } catch {} finally {
       setIsLoading(false);
     }
   };
@@ -213,7 +270,7 @@ function Employees() {
     await Promise.all([
       fetchEmployees(),
       fetchWalkInAuthorizations(),
-      fetchEmployeeCommissions()
+      fetchEmployeeCommissions(),
     ]);
   };
 
@@ -231,10 +288,24 @@ function Employees() {
 
   const handleEmployeeFormChange = (e) => {
     const { name, value, type, checked } = e.target;
-    setEmployeeFormData(prev => ({ 
-      ...prev, 
-      [name]: type === 'checkbox' ? checked : value 
-    }));
+    setEmployeeFormData(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
+  };
+
+  const handleRemoveSpecialty = async (staffSpecialtyId) => {
+    try {
+      await api.delete(`/employees/specialty/${staffSpecialtyId}`);
+      showToast('Specialty removed successfully.', 'success');
+      await fetchEmployees();
+      setSelectedEmployee(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          staff_specialties: prev.staff_specialties.filter(s => s.id !== staffSpecialtyId),
+        };
+      });
+    } catch (error) {
+      showToast(error.response?.data?.message || 'Failed to remove specialty.', 'error');
+    }
   };
 
   const handleSaveAllChanges = async () => {
@@ -246,13 +317,18 @@ function Employees() {
     const hasActiveStatus = employeeFormData.active_status !== undefined;
 
     if (!hasSpecialty && !hasCommission && !hasWalkIn && !hasActiveStatus) {
-      showToast('No changes to save. Please add a specialty, commission, or update active status.', 'info');
-      return;
+      return showToast('No changes to save. Please add a specialty, commission, or update active status.', 'info');
+    }
+
+    if (hasSpecialty) {
+      const alreadyHasIt = selectedEmployee.staff_specialties?.some(
+        s => s.specialty_id === parseInt(employeeFormData.specialty_id) && s.is_active === 1
+      );
+      if (alreadyHasIt) return showToast('This employee already has that specialty active.', 'warning');
     }
 
     if (hasCommission && parseFloat(employeeFormData.commission_amount) <= 0) {
-      showToast('Commission amount must be greater than 0.', 'error');
-      return;
+      return showToast('Commission amount must be greater than 0.', 'error');
     }
 
     setIsSavingAll(true);
@@ -262,28 +338,25 @@ function Employees() {
         specialty_id: hasSpecialty ? parseInt(employeeFormData.specialty_id) : null,
         active_status: hasActiveStatus ? employeeFormData.active_status : null,
         commission_amount: hasCommission ? parseFloat(employeeFormData.commission_amount) : null,
-        walk_in_authorized: hasWalkIn ? employeeFormData.walk_in_authorized : null
+        walk_in_authorized: hasWalkIn ? employeeFormData.walk_in_authorized : null,
       };
 
       const response = await api.post('/employees/update-all', updateData);
 
       if (response.data.success) {
         showToast(response.data.message, 'success');
-        
         setEmployeeFormData({
           employee_id: selectedEmployee.id,
           specialty_id: '',
           active_status: employeeFormData.active_status,
           commission_amount: '',
-          walk_in_authorized: false
+          walk_in_authorized: false,
         });
-        
         await refreshAllData();
       } else {
         showToast(response.data.message || 'Some changes could not be saved.', 'warning');
         await refreshAllData();
       }
-
     } catch (error) {
       showToast(error.response?.data?.message || 'Error saving changes. Please try again.', 'error');
     } finally {
@@ -291,63 +364,41 @@ function Employees() {
     }
   };
 
-  const getSpecialtyName = (specialtyId) => {
-    const specialty = specialtiesList.find(s => s.id === specialtyId);
-    return specialty ? specialty.specialty_name : 'Unknown';
-  };
-
   const getAverageStaffRating = (staffId) => {
     const staffReviews = staffFeedbacks.filter(f => f.staff_id === staffId);
     if (staffReviews.length === 0) return 0;
-    
-    const total = staffReviews.reduce((sum, feedback) => {
-      const rating = typeof feedback.rating === 'number' ? feedback.rating : parseFloat(feedback.rating) || 0;
+    const total = staffReviews.reduce((sum, fb) => {
+      const rating = typeof fb.rating === 'number' ? fb.rating : parseFloat(fb.rating) || 0;
       return sum + rating;
     }, 0);
-    
     return parseFloat((total / staffReviews.length).toFixed(1));
   };
 
-  const getStaffReviewCount = (staffId) => {
-    return staffFeedbacks.filter(f => f.staff_id === staffId).length;
-  };
+  const getStaffReviewCount = (staffId) => staffFeedbacks.filter(f => f.staff_id === staffId).length;
 
   const renderStars = (rating) => {
     const fullStars = Math.floor(rating);
     const hasHalfStar = rating % 1 >= 0.5;
     const stars = [];
-    
     for (let i = 0; i < fullStars; i++) {
       stars.push(<Star key={`star-${i}`} size={12} className="fill-yellow-400 text-yellow-400" />);
     }
-    if (hasHalfStar) {
-      stars.push(<Star key="half-star" size={12} className="fill-yellow-400 text-yellow-400" />);
-    }
+    if (hasHalfStar) stars.push(<Star key="half-star" size={12} className="fill-yellow-400 text-yellow-400" />);
     const emptyStars = 5 - stars.length;
     for (let i = 0; i < emptyStars; i++) {
-      stars.push(<Star key={`empty-star-${i}`} size={12} className="text-gray-300" />);
+      stars.push(<Star key={`empty-star-${i}`} size={12} className="text-slate-300" />);
     }
     return stars;
   };
 
   const handleAddEmployee = async (e) => {
     e.preventDefault();
-    
-    if (!formData.first_name || !formData.last_name || !formData.email || 
+    if (!formData.first_name || !formData.last_name || !formData.email ||
         !formData.phone_number || !formData.password || !formData.password_confirmation) {
-      setFormError('Please fill in all required fields');
-      return;
+      return setFormError('Please fill in all required fields');
     }
-
-    if (formData.password !== formData.password_confirmation) {
-      setFormError('Passwords do not match');
-      return;
-    }
-
-    if (formData.password.length < 6) {
-      setFormError('Password must be at least 6 characters');
-      return;
-    }
+    if (formData.password !== formData.password_confirmation) return setFormError('Passwords do not match');
+    if (formData.password.length < 6) return setFormError('Password must be at least 6 characters');
 
     setIsLoading(true);
     try {
@@ -358,22 +409,16 @@ function Employees() {
         phone_number: formData.phone_number,
         password: formData.password,
         password_confirmation: formData.password_confirmation,
-        role: 'staff'
+        role: 'staff',
       });
-      
       showToast('Staff member added successfully!', 'success');
       setShowModal(false);
       resetForm();
       refreshAllData();
     } catch (error) {
-      if (error.response?.data?.message) {
-        setFormError(error.response.data.message);
-      } else if (error.response?.data?.errors) {
-        const errors = Object.values(error.response.data.errors).flat();
-        setFormError(errors.join(', '));
-      } else {
-        setFormError('Error adding employee. Please try again.');
-      }
+      const msg = error.response?.data?.message ||
+        (error.response?.data?.errors ? Object.values(error.response.data.errors).flat().join(', ') : 'Error adding employee. Please try again.');
+      setFormError(msg);
     } finally {
       setIsLoading(false);
     }
@@ -381,12 +426,9 @@ function Employees() {
 
   const handleUpdateEmployee = async (e) => {
     e.preventDefault();
-    
     if (!formData.first_name || !formData.last_name || !formData.email || !formData.phone_number) {
-      setFormError('Please fill in all required fields');
-      return;
+      return setFormError('Please fill in all required fields');
     }
-
     setIsLoading(true);
     try {
       const response = await api.post(`/employees/update/${editingEmployee.id}`, {
@@ -396,7 +438,6 @@ function Employees() {
         phone_number: formData.phone_number,
         role: formData.role,
       });
-      
       showToast(response.data.message || 'Staff member updated successfully!', 'success');
       setShowModal(false);
       resetForm();
@@ -410,13 +451,8 @@ function Employees() {
 
   const resetForm = () => {
     setFormData({
-      first_name: '',
-      last_name: '',
-      email: '',
-      phone_number: '',
-      password: '',
-      password_confirmation: '',
-      role: 'staff',
+      first_name: '', last_name: '', email: '', phone_number: '',
+      password: '', password_confirmation: '', role: 'staff',
     });
     setEditingEmployee(null);
     setFormError('');
@@ -424,11 +460,8 @@ function Employees() {
 
   const resetEmployeeForm = () => {
     setEmployeeFormData({
-      employee_id: '',
-      specialty_id: '',
-      active_status: true,
-      commission_amount: '',
-      walk_in_authorized: false
+      employee_id: '', specialty_id: '', active_status: true,
+      commission_amount: '', walk_in_authorized: false,
     });
   };
 
@@ -439,8 +472,7 @@ function Employees() {
       last_name: employee.last_name,
       email: employee.email,
       phone_number: employee.phone_number,
-      password: '',
-      password_confirmation: '',
+      password: '', password_confirmation: '',
       role: employee.role,
     });
     setShowModal(true);
@@ -453,22 +485,15 @@ function Employees() {
       specialty_id: '',
       active_status: getEmployeeActiveStatus(employee),
       commission_amount: employeeCommissions[employee.id] || '',
-      walk_in_authorized: walkInAuthorizations[employee.id] || false
+      walk_in_authorized: walkInAuthorizations[employee.id] || false,
     });
     setShowEmployeeModal(true);
   };
 
-  const handleSubmit = (e) => {
-    if (editingEmployee) {
-      handleUpdateEmployee(e);
-    } else {
-      handleAddEmployee(e);
-    }
-  };
+  const handleSubmit = (e) => editingEmployee ? handleUpdateEmployee(e) : handleAddEmployee(e);
 
-  const getInitials = (firstName, lastName) => {
-    return `${firstName?.charAt(0) || ''}${lastName?.charAt(0) || ''}`.toUpperCase();
-  };
+  const getInitials = (firstName, lastName) =>
+    `${firstName?.charAt(0) || ''}${lastName?.charAt(0) || ''}`.toUpperCase();
 
   const filteredEmployees = employees.filter(emp => {
     if (searchTerm && !`${emp.first_name} ${emp.last_name}`.toLowerCase().includes(searchTerm.toLowerCase())) return false;
@@ -477,8 +502,7 @@ function Employees() {
 
   const getSpecialtyIcon = (specialtyName) => {
     const name = specialtyName?.toLowerCase();
-    if (name === 'stylist') return <Scissors size={10} />;
-    if (name === 'barber') return <Scissors size={10} />;
+    if (name === 'stylist' || name === 'barber') return <Scissors size={10} />;
     if (name === 'nail_technician') return <Briefcase size={10} />;
     if (name === 'massage_therapist') return <Activity size={10} />;
     if (name === 'makeup_artist') return <Star size={10} />;
@@ -488,17 +512,23 @@ function Employees() {
 
   const formatSpecialtyName = (specialtyName) => {
     if (!specialtyName) return '';
-    return specialtyName.split('_').map(word => 
-      word.charAt(0).toUpperCase() + word.slice(1)
-    ).join(' ');
+    return specialtyName.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
   };
+
+  const availableSpecialtiesForDropdown = specialtiesList.filter(specialty => {
+    if (!selectedEmployee) return true;
+    const alreadyHasIt = selectedEmployee.staff_specialties?.some(
+      s => s.specialty_id === specialty.id && s.is_active === 1
+    );
+    return !alreadyHasIt;
+  });
 
   if (isLoading && employees.length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
-          <div className="w-12 h-12 border-4 border-pink-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-gray-500">Loading staff members...</p>
+          <div className="w-10 h-10 border-[3px] border-pink-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+          <p className="text-xs text-slate-500">Loading staff members...</p>
         </div>
       </div>
     );
@@ -506,80 +536,63 @@ function Employees() {
 
   return (
     <div className="space-y-6">
-      {/* Toast Notification */}
-      {toast.show && (
-        <div className="fixed top-4 right-4 z-50 animate-slide-in">
-          <div className={`rounded-lg shadow-lg p-4 flex items-center gap-3 ${
-            toast.type === 'success' ? 'bg-green-500' : 
-            toast.type === 'warning' ? 'bg-yellow-500' :
-            'bg-red-500'
-          } text-white min-w-[300px]`}>
-            {toast.type === 'success' ? (
-              <CheckCircle size={20} />
-            ) : (
-              <AlertCircle size={20} />
-            )}
-            <span>{toast.message}</span>
-          </div>
-        </div>
-      )}
+      {toast.show && <Toast message={toast.message} type={toast.type} onClose={() => setToast({ ...toast, show: false })} />}
 
-      {/* Stats Grid */}
+      {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {stats.map((stat, index) => (
-          <div key={index} className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 p-4 border border-gray-100">
-            <div className={`${stat.bgColor} w-10 h-10 rounded-xl flex items-center justify-center mb-2`}>
-              <stat.icon className={stat.textColor} size={18} />
-            </div>
-            <p className="text-gray-500 text-xs mb-0.5">{stat.label}</p>
-            <p className="text-xl font-bold text-gray-800">{stat.value}</p>
-          </div>
-        ))}
+        <StatCard
+          label="Total Staff"
+          value={stats.totalStaff}
+          sub="All team members"
+          icon={Users}
+          color="from-pink-500 to-pink-600"
+        />
+        <StatCard
+          label="Active Staff"
+          value={stats.activeStaff}
+          sub="Currently active"
+          icon={CheckCircle}
+          color="from-emerald-500 to-emerald-600"
+        />
+        <StatCard
+          label="Authorized for Receptionist"
+          value={stats.authorizedCount}
+          sub="With walk-in access"
+          icon={UserCheck}
+          color="from-blue-500 to-blue-600"
+        />
       </div>
 
-      {/* Controls Bar */}
+      {/* Controls */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div className="flex gap-2">
-          <button 
-            onClick={() => setViewMode('grid')}
-            className={`px-3 py-1.5 rounded-lg font-medium transition-all duration-200 text-sm ${
-              viewMode === 'grid' 
-                ? 'bg-pink-500 text-white shadow-md' 
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-            }`}
-          >
-            Grid View
-          </button>
-          <button 
-            onClick={() => setViewMode('list')}
-            className={`px-3 py-1.5 rounded-lg font-medium transition-all duration-200 text-sm ${
-              viewMode === 'list' 
-                ? 'bg-pink-500 text-white shadow-md' 
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-            }`}
-          >
-            List View
-          </button>
+        <div className="inline-flex bg-slate-100 rounded-xl p-1">
+          {['grid', 'list'].map((mode) => (
+            <button
+              key={mode}
+              onClick={() => setViewMode(mode)}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                viewMode === mode ? 'bg-white text-pink-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              {mode === 'grid' ? 'Grid View' : 'List View'}
+            </button>
+          ))}
         </div>
-        
+
         <div className="flex flex-wrap gap-2">
           <div className="relative">
-            <Search size={14} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-            <input 
-              type="text" 
-              placeholder="Search staff..." 
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Search staff..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-9 pr-3 py-1.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent text-sm w-40"
+              className="pl-9 pr-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-pink-500 focus:bg-white focus:border-transparent w-52 transition-all"
             />
           </div>
-          
-          <button 
-            onClick={() => {
-              resetForm();
-              setShowModal(true);
-            }}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 text-sm font-medium"
+          <button
+            onClick={() => { resetForm(); setShowModal(true); }}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-xl shadow-sm shadow-pink-500/30 hover:shadow-md transition-all text-xs font-semibold"
           >
             <UserPlus size={14} />
             <span>Add Staff</span>
@@ -590,456 +603,404 @@ function Employees() {
       {/* Grid View */}
       {viewMode === 'grid' && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {filteredEmployees.map((employee) => {
-            const avgRating = getAverageStaffRating(employee.id);
-            const reviewCount = getStaffReviewCount(employee.id);
-            const isAuthorized = walkInAuthorizations[employee.id] || false;
-            const commission = employeeCommissions[employee.id] || 0;
-            const imageUrl = getImageUrl(getEmployeeProfileImage(employee));
-            const isActive = getEmployeeActiveStatus(employee);
-            
-            return (
-              <div 
-                key={employee.id} 
-                onClick={() => handleEmployeeClick(employee)}
-                className={`bg-white rounded-xl shadow-sm hover:shadow-lg transition-all duration-300 border overflow-hidden cursor-pointer group ${
-                  isActive ? 'border-gray-100' : 'border-red-200 opacity-75'
-                }`}
-              >
-                <div className={`relative h-24 flex items-center justify-center ${
-                  isActive ? 'bg-gradient-to-r from-pink-50 to-purple-50' : 'bg-gray-100'
-                }`}>
-                  {imageUrl ? (
-                    <div className="w-14 h-14 rounded-xl overflow-hidden shadow-lg ring-2 ring-white">
-                      <img 
-                        src={imageUrl} 
-                        alt={`${employee.first_name} ${employee.last_name}`}
-                        className="w-full h-full object-cover"
-                        onError={(e) => {
-                          e.target.style.display = 'none';
-                          const parent = e.target.parentElement;
-                          if (parent) {
-                            parent.innerHTML = `<div class="w-full h-full bg-gradient-to-r from-pink-500 to-pink-600 flex items-center justify-center"><span class="text-white text-xl font-bold">${getInitials(employee.first_name, employee.last_name)}</span></div>`;
-                          }
-                        }}
-                      />
-                    </div>
-                  ) : (
-                    <div className={`w-14 h-14 rounded-xl flex items-center justify-center shadow-lg ${
-                      isActive ? 'bg-gradient-to-r from-pink-500 to-pink-600' : 'bg-gray-400'
-                    }`}>
-                      <span className="text-white text-xl font-bold">
-                        {getInitials(employee.first_name, employee.last_name)}
-                      </span>
-                    </div>
-                  )}
-                  {employee.staff_specialties && employee.staff_specialties.length > 0 && (
-                    <div className="absolute bottom-1.5 right-1.5 bg-white rounded-full px-1.5 py-0.5 shadow-md">
-                      <div className="flex items-center gap-0.5">
-                        <Tag size={10} className="text-pink-500" />
-                        <span className="text-[10px] font-medium text-gray-700">
-                          {employee.staff_specialties.length}
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                  <div className="absolute top-1.5 right-1.5">
-                    {!isActive ? (
-                      <div className="bg-red-500 rounded-full px-1.5 py-0.5 shadow-md">
-                        <div className="flex items-center gap-0.5">
-                          <XCircle size={10} className="text-white" />
-                          <span className="text-[8px] font-semibold text-white">Inactive</span>
+          {filteredEmployees.length === 0 ? (
+            <div className="col-span-full bg-white rounded-2xl border border-slate-200/70 p-8">
+              <EmptyState
+                icon={Users}
+                title="No staff members found"
+                subtitle={'Click "Add Staff" to add your first team member'}
+                action={
+                  <button
+                    onClick={() => { resetForm(); setShowModal(true); }}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-xl shadow-sm shadow-pink-500/30 hover:shadow-md transition-all text-xs font-semibold"
+                  >
+                    <UserPlus size={14} />
+                    <span>Add Staff</span>
+                  </button>
+                }
+              />
+            </div>
+          ) : (
+            filteredEmployees.map((employee) => {
+              const avgRating = getAverageStaffRating(employee.id);
+              const reviewCount = getStaffReviewCount(employee.id);
+              const isAuthorized = walkInAuthorizations[employee.id] || false;
+              const commission = employeeCommissions[employee.id] || 0;
+              const imageUrl = getImageUrl(getEmployeeProfileImage(employee));
+              const isActive = getEmployeeActiveStatus(employee);
+
+              return (
+                <div
+                  key={employee.id}
+                  onClick={() => handleEmployeeClick(employee)}
+                  className={`bg-white rounded-2xl shadow-sm border overflow-hidden cursor-pointer group relative transition-all duration-300 hover:shadow-[0_12px_32px_-16px_rgba(236,72,153,0.35)] hover:-translate-y-0.5 ${
+                    isActive ? 'border-slate-200/70' : 'border-red-200 opacity-80'
+                  }`}
+                >
+                  <div className={`relative h-32 p-3 ${isActive ? 'bg-gradient-to-br from-pink-500 to-fuchsia-600' : 'bg-gradient-to-br from-slate-400 to-slate-500'}`}>
+                    <div className="absolute -right-6 -top-6 w-24 h-24 rounded-full bg-white/10" />
+                    <div className="absolute -left-6 -bottom-6 w-20 h-20 rounded-full bg-white/5" />
+                    <div className="relative flex items-start justify-between">
+                      {imageUrl ? (
+                        <div className="relative w-16 h-16 rounded-xl overflow-hidden ring-4 ring-white/30 shadow-lg group-hover:scale-105 transition-transform">
+                          <img
+                            src={imageUrl}
+                            alt={`${employee.first_name} ${employee.last_name}`}
+                            className="w-full h-full object-cover"
+                            onError={(e) => {
+                              e.target.style.display = 'none';
+                              const parent = e.target.parentElement;
+                              if (parent) parent.innerHTML = `<div class="w-full h-full bg-white/20 flex items-center justify-center"><span class="text-white text-xl font-bold">${getInitials(employee.first_name, employee.last_name)}</span></div>`;
+                            }}
+                          />
                         </div>
-                      </div>
-                    ) : isAuthorized ? (
-                      <div className="bg-green-500 rounded-full px-1.5 py-0.5 shadow-md">
-                        <div className="flex items-center gap-0.5">
-                          <UserCheck size={10} className="text-white" />
-                          <span className="text-[8px] font-semibold text-white">Walk-in</span>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="bg-gray-400 rounded-full px-1.5 py-0.5 shadow-md">
-                        <div className="flex items-center gap-0.5">
-                          <UserX size={10} className="text-white" />
-                          <span className="text-[8px] font-semibold text-white">No Walk-in</span>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-                
-                <div className="p-3">
-                  <div className="text-center mb-2">
-                    <h3 className={`text-sm font-semibold ${isActive ? 'text-gray-800' : 'text-gray-500'}`}>
-                      {employee.first_name} {employee.last_name}
-                    </h3>
-                    <div className="flex items-center justify-center gap-1 mt-0.5">
-                      <Users size={10} className="text-gray-400" />
-                      <span className="text-xs text-gray-500">Staff</span>
-                    </div>
-                    {commission > 0 && (
-                      <div className="flex items-center justify-center gap-1 mt-0.5 text-green-600">
-                        <DollarSign size={10} />
-                        <span className="text-[10px] font-medium">{commission * 100}% Commission</span>
-                      </div>
-                    )}
-                  </div>
-                  
-                  <div className="flex items-center justify-center gap-1 mb-2">
-                    <div className="flex items-center gap-0.5">
-                      {renderStars(avgRating)}
-                    </div>
-                    {reviewCount > 0 && (
-                      <span className="text-[10px] text-gray-500 ml-1">
-                        ({avgRating.toFixed(1)} · {reviewCount})
-                      </span>
-                    )}
-                    {reviewCount === 0 && (
-                      <span className="text-[10px] text-gray-400 ml-1">No ratings</span>
-                    )}
-                  </div>
-                  
-                  <div className="mb-3 min-h-[36px]">
-                    {employee.staff_specialties && employee.staff_specialties.length > 0 ? (
-                      <div className="flex flex-wrap gap-1 justify-center">
-                        {employee.staff_specialties.slice(0, 2).map((specialty, idx) => (
-                          <span 
-                            key={idx} 
-                            className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                              isActive ? 'bg-pink-100 text-pink-700' : 'bg-gray-200 text-gray-600'
-                            }`}
-                          >
-                            {getSpecialtyIcon(specialty.specialties?.specialty_name)}
-                            <span>{formatSpecialtyName(specialty.specialties?.specialty_name)}</span>
+                      ) : (
+                        <div className="w-16 h-16 rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center shadow-lg ring-4 ring-white/30 group-hover:scale-105 transition-transform">
+                          <span className="text-white text-xl font-bold">
+                            {getInitials(employee.first_name, employee.last_name)}
                           </span>
-                        ))}
-                        {employee.staff_specialties.length > 2 && (
-                          <span className="inline-flex items-center px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded text-[10px] font-medium">
-                            +{employee.staff_specialties.length - 2}
-                          </span>
+                        </div>
+                      )}
+
+                      <div className="flex flex-col items-end gap-1">
+                        {employee.staff_specialties && employee.staff_specialties.length > 0 && (
+                          <div className="bg-white/90 backdrop-blur-sm rounded-full px-2 py-0.5 flex items-center gap-1">
+                            <Tag size={10} className="text-pink-500" />
+                            <span className="text-[10px] font-bold text-slate-700">{employee.staff_specialties.length}</span>
+                          </div>
                         )}
+                        <div className="bg-white rounded-full px-1.5 py-0.5">
+                          {!isActive ? (
+                            <StatusPill status="inactive" label="Inactive" />
+                          ) : isAuthorized ? (
+                            <StatusPill status="authorized" label="Authorized" />
+                          ) : (
+                            <StatusPill status="not_authorized" label="Not Authorized" />
+                          )}
+                        </div>
                       </div>
-                    ) : (
-                      <p className="text-center text-[10px] text-gray-400 italic">No specialties</p>
-                    )}
-                  </div>
-                  
-                  <div className="space-y-1 mb-3">
-                    <div className="flex items-center justify-center gap-1 text-xs text-gray-500">
-                      <Mail size={10} />
-                      <span className="truncate text-[10px]">{employee.email}</span>
-                    </div>
-                    <div className="flex items-center justify-center gap-1 text-xs text-gray-500">
-                      <Phone size={10} />
-                      <span className="text-[10px]">{employee.phone_number}</span>
                     </div>
                   </div>
-                  
-                  {/* ✅ Manage + Edit (Delete removed) */}
-                  <div className="flex gap-1.5">
-                    <button 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleEmployeeClick(employee);
-                      }}
-                      className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 bg-purple-50 text-purple-600 rounded-lg hover:bg-purple-100 transition-colors text-xs font-medium"
-                    >
-                      <Settings size={12} />
-                      Manage
-                    </button>
-                    <button 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleEdit(employee);
-                      }}
-                      className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 bg-pink-50 text-pink-600 rounded-lg hover:bg-pink-100 transition-colors text-xs font-medium"
-                    >
-                      <Edit size={12} />
-                      Edit
-                    </button>
+
+                  <div className="p-4">
+                    <div className="text-center mb-3">
+                      <h3 className={`text-sm font-bold truncate ${isActive ? 'text-slate-800' : 'text-slate-500'}`}>
+                        {employee.first_name} {employee.last_name}
+                      </h3>
+                      <div className="flex items-center justify-center gap-1 mt-1">
+                        <Users size={11} className="text-slate-400" />
+                        <span className="text-[11px] text-slate-500 font-medium">Staff</span>
+                      </div>
+                      {commission > 0 && (
+                        <div className="inline-flex items-center justify-center gap-1 mt-1.5 px-2 py-0.5 bg-emerald-50 text-emerald-600 rounded-full border border-emerald-100">
+                          <DollarSign size={10} />
+                          <span className="text-[10px] font-semibold">{commission * 100}% Commission</span>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex items-center justify-center gap-1 mb-3">
+                      <div className="flex items-center gap-0.5">{renderStars(avgRating)}</div>
+                      {reviewCount > 0 ? (
+                        <span className="text-[10px] text-slate-500 ml-1 font-medium">
+                          ({avgRating.toFixed(1)} · {reviewCount})
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-slate-400 ml-1">No ratings</span>
+                      )}
+                    </div>
+
+                    <div className="h-px bg-gradient-to-r from-transparent via-slate-200 to-transparent mb-3" />
+
+                    <div className="mb-3 min-h-[36px]">
+                      {employee.staff_specialties && employee.staff_specialties.length > 0 ? (
+                        <div className="flex flex-wrap gap-1 justify-center">
+                          {employee.staff_specialties.slice(0, 2).map((specialty, idx) => (
+                            <span
+                              key={idx}
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium ${
+                                isActive ? 'bg-pink-50 text-pink-700 border border-pink-100' : 'bg-slate-100 text-slate-600'
+                              }`}
+                            >
+                              {getSpecialtyIcon(specialty.specialties?.specialty_name)}
+                              <span>{formatSpecialtyName(specialty.specialties?.specialty_name)}</span>
+                            </span>
+                          ))}
+                          {employee.staff_specialties.length > 2 && (
+                            <span className="inline-flex items-center px-2 py-0.5 bg-slate-100 text-slate-600 rounded-md text-[10px] font-medium border border-slate-200">
+                              +{employee.staff_specialties.length - 2}
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="text-center text-[10px] text-slate-400 italic">No specialties</p>
+                      )}
+                    </div>
+
+                    <div className="space-y-1.5 mb-3">
+                      <div className="flex items-center justify-center gap-1.5 text-xs text-slate-500 bg-slate-50 border border-slate-100 rounded-lg py-1 px-2">
+                        <Mail size={11} className="text-slate-400 flex-shrink-0" />
+                        <span className="truncate text-[10px]">{employee.email}</span>
+                      </div>
+                      <div className="flex items-center justify-center gap-1.5 text-xs text-slate-500 bg-slate-50 border border-slate-100 rounded-lg py-1 px-2">
+                        <Phone size={11} className="text-slate-400 flex-shrink-0" />
+                        <span className="text-[10px]">{employee.phone_number}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex gap-2">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleEmployeeClick(employee); }}
+                        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-pink-600 bg-pink-50 border border-pink-100 rounded-xl hover:bg-pink-100 transition-colors"
+                      >
+                        <Settings size={13} />
+                        Manage
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleEdit(employee); }}
+                        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-600 bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100 transition-colors"
+                      >
+                        <Edit size={13} />
+                        Edit
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })
+          )}
         </div>
       )}
 
       {/* List View */}
       {viewMode === 'list' && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        <section className="bg-white rounded-2xl border border-slate-200/70 shadow-sm overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead className="bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
+              <thead className="bg-slate-50/80">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Staff Member</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Status</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Walk-in</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Commission</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Rating</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Specialties</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Email</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Phone</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Actions</th>
+                  {['Staff Member', 'Status', 'Receptionist', 'Commission', 'Rating', 'Specialties', 'Email', 'Phone', 'Actions'].map((h) => (
+                    <th key={h} className="px-4 py-3 text-left text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
+                      {h}
+                    </th>
+                  ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100">
-                {filteredEmployees.map((employee) => {
-                  const avgRating = getAverageStaffRating(employee.id);
-                  const reviewCount = getStaffReviewCount(employee.id);
-                  const isAuthorized = walkInAuthorizations[employee.id] || false;
-                  const commission = employeeCommissions[employee.id] || 0;
-                  const imageUrl = getImageUrl(getEmployeeProfileImage(employee));
-                  const isActive = getEmployeeActiveStatus(employee);
-                  
-                  return (
-                    <tr 
-                      key={employee.id} 
-                      className={`hover:bg-pink-50/30 transition-colors duration-200 ${!isActive ? 'opacity-75' : ''}`}
-                    >
-                      <td 
-                        onClick={() => handleEmployeeClick(employee)}
-                        className="px-4 py-3 whitespace-nowrap cursor-pointer"
+              <tbody className="divide-y divide-slate-100">
+                {filteredEmployees.length === 0 ? (
+                  <tr>
+                    <td colSpan="9" className="px-5 py-10">
+                      <EmptyState icon={Users} title="No staff members found" subtitle={'Click "Add Staff" to add your first team member'} />
+                    </td>
+                  </tr>
+                ) : (
+                  filteredEmployees.map((employee) => {
+                    const avgRating = getAverageStaffRating(employee.id);
+                    const reviewCount = getStaffReviewCount(employee.id);
+                    const isAuthorized = walkInAuthorizations[employee.id] || false;
+                    const commission = employeeCommissions[employee.id] || 0;
+                    const imageUrl = getImageUrl(getEmployeeProfileImage(employee));
+                    const isActive = getEmployeeActiveStatus(employee);
+
+                    return (
+                      <tr
+                        key={employee.id}
+                        className={`hover:bg-pink-50/40 transition-colors duration-200 ${!isActive ? 'opacity-75' : ''}`}
                       >
-                        <div className="flex items-center gap-2">
-                          {imageUrl ? (
-                            <div className="w-8 h-8 rounded-lg overflow-hidden">
-                              <img 
-                                src={imageUrl} 
-                                alt={`${employee.first_name} ${employee.last_name}`}
-                                className="w-full h-full object-cover"
-                                onError={(e) => {
-                                  e.target.style.display = 'none';
-                                  const parent = e.target.parentElement;
-                                  if (parent) {
-                                    parent.innerHTML = `<div class="w-full h-full bg-gradient-to-r from-pink-500 to-pink-600 flex items-center justify-center"><span class="text-white text-xs font-bold">${getInitials(employee.first_name, employee.last_name)}</span></div>`;
-                                  }
-                                }}
-                              />
-                            </div>
-                          ) : (
-                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                              isActive ? 'bg-gradient-to-r from-pink-500 to-pink-600' : 'bg-gray-400'
-                            }`}>
-                              <span className="text-white text-xs font-bold">
-                                {getInitials(employee.first_name, employee.last_name)}
-                              </span>
-                            </div>
-                          )}
-                          <div>
-                            <p className={`text-sm font-semibold ${isActive ? 'text-gray-900' : 'text-gray-500'}`}>
+                        <td onClick={() => handleEmployeeClick(employee)} className="px-4 py-3 whitespace-nowrap cursor-pointer">
+                          <div className="flex items-center gap-3">
+                            {imageUrl ? (
+                              <div className="w-8 h-8 rounded-full overflow-hidden ring-2 ring-pink-100 group-hover:scale-110 transition-transform">
+                                <img
+                                  src={imageUrl}
+                                  alt={`${employee.first_name} ${employee.last_name}`}
+                                  className="w-full h-full object-cover"
+                                  onError={(e) => {
+                                    e.target.style.display = 'none';
+                                    const parent = e.target.parentElement;
+                                    if (parent) parent.innerHTML = `<div class="w-full h-full bg-gradient-to-br from-pink-500 to-pink-600 flex items-center justify-center"><span class="text-white text-xs font-bold">${getInitials(employee.first_name, employee.last_name)}</span></div>`;
+                                  }}
+                                />
+                              </div>
+                            ) : (
+                              <div className={`w-8 h-8 rounded-full flex items-center justify-center ring-2 ring-pink-100 ${isActive ? 'bg-gradient-to-br from-pink-500 to-pink-600' : 'bg-slate-400'}`}>
+                                <span className="text-white text-xs font-bold">
+                                  {getInitials(employee.first_name, employee.last_name)}
+                                </span>
+                              </div>
+                            )}
+                            <p className={`text-xs font-semibold ${isActive ? 'text-slate-800' : 'text-slate-500'}`}>
                               {employee.first_name} {employee.last_name}
                             </p>
                           </div>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        {isActive ? (
-                          <span className="px-2 py-1 rounded-lg text-xs font-medium bg-green-100 text-green-700 flex items-center gap-1 w-fit">
-                            <CheckCircle size={12} />
-                            <span>Active</span>
-                          </span>
-                        ) : (
-                          <span className="px-2 py-1 rounded-lg text-xs font-medium bg-red-100 text-red-700 flex items-center gap-1 w-fit">
-                            <XCircle size={12} />
-                            <span>Inactive</span>
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <button
-                          onClick={() => handleEmployeeClick(employee)}
-                          className={`px-2 py-1 rounded-lg text-xs font-medium transition-all duration-200 flex items-center gap-1 ${
-                            isAuthorized 
-                              ? 'bg-green-100 text-green-700 hover:bg-green-200' 
-                              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                          }`}
-                        >
-                          {isAuthorized ? (
-                            <>
-                              <UserCheck size={12} />
-                              <span>Authorized</span>
-                            </>
-                          ) : (
-                            <>
-                              <UserX size={12} />
-                              <span>Not Authorized</span>
-                            </>
-                          )}
-                        </button>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <span className={`text-xs font-semibold ${
-                          commission > 0 ? 'text-green-600' : 'text-gray-400'
-                        }`}>
-                          {commission > 0 ? `${commission * 100}%` : 'None'}
-                        </span>
-                      </td>
-                      <td 
-                        onClick={() => handleEmployeeClick(employee)}
-                        className="px-4 py-3 whitespace-nowrap cursor-pointer"
-                      >
-                        <div className="flex items-center gap-1">
-                          <div className="flex items-center gap-0.5">
-                            {renderStars(avgRating)}
-                          </div>
-                          {reviewCount > 0 && (
-                            <span className="text-[10px] text-gray-500">
-                              ({avgRating.toFixed(1)})
-                            </span>
-                          )}
-                          {reviewCount === 0 && (
-                            <span className="text-[10px] text-gray-400">—</span>
-                          )}
-                        </div>
-                      </td>
-                      <td 
-                        onClick={() => handleEmployeeClick(employee)}
-                        className="px-4 py-3 cursor-pointer"
-                      >
-                        <div className="flex flex-wrap gap-1">
-                          {employee.staff_specialties && employee.staff_specialties.length > 0 ? (
-                            employee.staff_specialties.slice(0, 2).map((specialty, idx) => (
-                              <span 
-                                key={idx} 
-                                className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                                  isActive ? 'bg-pink-100 text-pink-700' : 'bg-gray-200 text-gray-600'
-                                }`}
-                              >
-                                {getSpecialtyIcon(specialty.specialties?.specialty_name)}
-                                <span>{formatSpecialtyName(specialty.specialties?.specialty_name)}</span>
-                              </span>
-                            ))
-                          ) : (
-                            <span className="text-[10px] text-gray-400 italic">None</span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-1.5">
-                          <Mail size={12} className="text-gray-400" />
-                          <span className="text-xs text-gray-600 truncate max-w-[180px]">{employee.email}</span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-1.5">
-                          <Phone size={12} className="text-gray-400" />
-                          <span className="text-xs text-gray-600">{employee.phone_number}</span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        {/* ✅ Manage + Edit (Delete removed) */}
-                        <div className="flex items-center gap-1.5">
-                          <button 
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <StatusPill status={isActive ? 'active' : 'inactive'} label={isActive ? 'Active' : 'Inactive'} />
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <button
                             onClick={() => handleEmployeeClick(employee)}
-                            className="p-1.5 hover:bg-purple-100 rounded-lg transition-colors"
-                            title="Manage"
+                            className={`px-2.5 py-1 rounded-full text-[11px] font-semibold transition-colors ${
+                              isAuthorized
+                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100'
+                                : 'bg-slate-100 text-slate-600 border border-slate-200 hover:bg-slate-200'
+                            }`}
                           >
-                            <Settings size={14} className="text-purple-500" />
+                            <span className="inline-flex items-center gap-1">
+                              {isAuthorized ? <UserCheck size={11} /> : <UserX size={11} />}
+                              {isAuthorized ? 'Authorized' : 'Not Authorized'}
+                            </span>
                           </button>
-                          <button 
-                            onClick={() => handleEdit(employee)}
-                            className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
-                            title="Edit"
-                          >
-                            <Edit size={14} className="text-gray-500" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <span className={`text-xs font-semibold ${commission > 0 ? 'text-emerald-600' : 'text-slate-400'}`}>
+                            {commission > 0 ? `${commission * 100}%` : 'None'}
+                          </span>
+                        </td>
+                        <td onClick={() => handleEmployeeClick(employee)} className="px-4 py-3 whitespace-nowrap cursor-pointer">
+                          <div className="flex items-center gap-1">
+                            <div className="flex items-center gap-0.5">{renderStars(avgRating)}</div>
+                            {reviewCount > 0 && <span className="text-[10px] text-slate-500">({avgRating.toFixed(1)})</span>}
+                            {reviewCount === 0 && <span className="text-[10px] text-slate-400">—</span>}
+                          </div>
+                        </td>
+                        <td onClick={() => handleEmployeeClick(employee)} className="px-4 py-3 cursor-pointer">
+                          <div className="flex flex-wrap gap-1">
+                            {employee.staff_specialties && employee.staff_specialties.length > 0 ? (
+                              employee.staff_specialties.slice(0, 2).map((specialty, idx) => (
+                                <span
+                                  key={idx}
+                                  className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                                    isActive ? 'bg-pink-50 text-pink-700 border border-pink-100' : 'bg-slate-100 text-slate-600'
+                                  }`}
+                                >
+                                  {getSpecialtyIcon(specialty.specialties?.specialty_name)}
+                                  <span>{formatSpecialtyName(specialty.specialties?.specialty_name)}</span>
+                                </span>
+                              ))
+                            ) : (
+                              <span className="text-[10px] text-slate-400 italic">None</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-1.5">
+                            <Mail size={12} className="text-slate-400" />
+                            <span className="text-xs text-slate-600 truncate max-w-[180px]">{employee.email}</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-1.5">
+                            <Phone size={12} className="text-slate-400" />
+                            <span className="text-xs text-slate-600">{employee.phone_number}</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              onClick={() => handleEmployeeClick(employee)}
+                              className="p-1.5 text-pink-600 bg-pink-50 border border-pink-100 rounded-lg hover:bg-pink-100 transition-colors"
+                              title="Manage"
+                            >
+                              <Settings size={13} />
+                            </button>
+                            <button
+                              onClick={() => handleEdit(employee)}
+                              className="p-1.5 text-slate-600 bg-slate-50 border border-slate-200 rounded-lg hover:bg-slate-100 transition-colors"
+                              title="Edit"
+                            >
+                              <Edit size={13} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
               </tbody>
             </table>
           </div>
-        </div>
+        </section>
       )}
 
       {/* Add/Edit Staff Modal */}
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden max-h-[90vh]">
-            <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-5 py-3 flex items-center justify-between sticky top-0 z-10">
-              <h2 className="text-lg font-bold text-white">
-                {editingEmployee ? 'Edit Staff Member' : 'Add New Staff Member'}
-              </h2>
-              <button 
-                onClick={() => {
-                  setShowModal(false);
-                  resetForm();
-                }}
-                className="text-white hover:bg-white/20 rounded-lg p-1 transition-colors"
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden max-h-[92vh] flex flex-col">
+            <div className="relative bg-gradient-to-r from-pink-500 to-fuchsia-600 px-5 py-4 flex items-center justify-between overflow-hidden flex-shrink-0">
+              <div className="absolute -right-6 -top-6 w-24 h-24 rounded-full bg-white/10" />
+              <div className="relative flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center">
+                  {editingEmployee ? <Edit size={18} className="text-white" /> : <UserPlus size={18} className="text-white" />}
+                </div>
+                <h2 className="text-lg font-bold text-white">
+                  {editingEmployee ? 'Edit Staff Member' : 'Add New Staff Member'}
+                </h2>
+              </div>
+              <button
+                onClick={() => { setShowModal(false); resetForm(); }}
+                className="relative text-white hover:bg-white/20 rounded-lg p-1.5 transition-colors"
               >
                 <X size={20} />
               </button>
             </div>
 
-            <form 
-              onSubmit={handleSubmit} 
+            <form
+              onSubmit={handleSubmit}
               className="p-5 space-y-3 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
-              style={{ maxHeight: 'calc(90vh - 60px)' }}
             >
               {formError && (
-                <div className="bg-red-50 border border-red-200 rounded-lg p-2 flex items-center gap-1.5">
-                  <AlertCircle size={12} className="text-red-500" />
+                <div className="bg-red-50 border border-red-200 rounded-xl p-3 flex items-center gap-2">
+                  <AlertCircle size={14} className="text-red-500 flex-shrink-0" />
                   <p className="text-red-600 text-xs">{formError}</p>
                 </div>
               )}
-              
+
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block text-gray-700 text-xs font-semibold mb-1">
-                    First Name *
-                  </label>
+                  <label className={labelClass}>First Name <span className="text-pink-500">*</span></label>
                   <input
                     type="text"
                     name="first_name"
                     value={formData.first_name}
                     onChange={handleInputChange}
-                    className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                    className={inputClass}
                     required
                   />
                 </div>
                 <div>
-                  <label className="block text-gray-700 text-xs font-semibold mb-1">
-                    Last Name *
-                  </label>
+                  <label className={labelClass}>Last Name <span className="text-pink-500">*</span></label>
                   <input
                     type="text"
                     name="last_name"
                     value={formData.last_name}
                     onChange={handleInputChange}
-                    className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                    className={inputClass}
                     required
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-gray-700 text-xs font-semibold mb-1">
-                  Email *
-                </label>
+                <label className={labelClass}>Email <span className="text-pink-500">*</span></label>
                 <input
                   type="email"
                   name="email"
                   value={formData.email}
                   onChange={handleInputChange}
-                  className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                  className={inputClass}
                   required
                 />
               </div>
 
               <div>
-                <label className="block text-gray-700 text-xs font-semibold mb-1">
-                  Phone Number *
-                </label>
+                <label className={labelClass}>Phone Number <span className="text-pink-500">*</span></label>
                 <input
                   type="tel"
                   name="phone_number"
                   value={formData.phone_number}
                   onChange={handleInputChange}
-                  className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                  className={inputClass}
                   required
                 />
               </div>
@@ -1047,51 +1008,43 @@ function Employees() {
               {!editingEmployee && (
                 <>
                   <div>
-                    <label className="block text-gray-700 text-xs font-semibold mb-1">
-                      Password *
-                    </label>
+                    <label className={labelClass}>Password <span className="text-pink-500">*</span></label>
                     <input
                       type="password"
                       name="password"
                       value={formData.password}
                       onChange={handleInputChange}
                       placeholder="Minimum 6 characters"
-                      className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                      className={inputClass}
                       required
                     />
                   </div>
-
                   <div>
-                    <label className="block text-gray-700 text-xs font-semibold mb-1">
-                      Confirm Password *
-                    </label>
+                    <label className={labelClass}>Confirm Password <span className="text-pink-500">*</span></label>
                     <input
                       type="password"
                       name="password_confirmation"
                       value={formData.password_confirmation}
                       onChange={handleInputChange}
-                      className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                      className={inputClass}
                       required
                     />
                   </div>
                 </>
               )}
 
-              <div className="flex gap-2 pt-3">
+              <div className="flex gap-2 justify-end pt-2">
                 <button
                   type="button"
-                  onClick={() => {
-                    setShowModal(false);
-                    resetForm();
-                  }}
-                  className="flex-1 px-3 py-1.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium"
+                  onClick={() => { setShowModal(false); resetForm(); }}
+                  className="px-4 py-2.5 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isLoading}
-                  className="flex-1 px-3 py-1.5 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 text-sm font-medium disabled:opacity-50"
+                  className="px-4 py-2.5 text-sm font-semibold text-white bg-gradient-to-r from-pink-500 to-pink-600 rounded-xl shadow-md shadow-pink-500/25 hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-all"
                 >
                   {isLoading ? 'Saving...' : (editingEmployee ? 'Update' : 'Add')}
                 </button>
@@ -1101,69 +1054,72 @@ function Employees() {
         </div>
       )}
 
-      {/* ✅ Manage Employee Modal — WIDER with proper viewport padding */}
+      {/* Manage Employee Modal */}
       {showEmployeeModal && selectedEmployee && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 sm:p-6">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl mx-auto overflow-hidden max-h-[90vh] flex flex-col">
-            {/* Sticky Header */}
-            <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-6 py-4 flex items-center justify-between flex-shrink-0">
-              <h2 className="text-lg font-bold text-white">
-                Manage {selectedEmployee.first_name} {selectedEmployee.last_name}
-              </h2>
-              <button 
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl overflow-hidden max-h-[92vh] flex flex-col">
+            <div className="relative bg-gradient-to-r from-pink-500 to-fuchsia-600 px-6 py-4 flex items-center justify-between overflow-hidden flex-shrink-0">
+              <div className="absolute -right-6 -top-6 w-24 h-24 rounded-full bg-white/10" />
+              <div className="relative flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center">
+                  <Settings size={18} className="text-white" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-white leading-tight">
+                    Manage {selectedEmployee.first_name} {selectedEmployee.last_name}
+                  </h2>
+                  <p className="text-[11px] text-pink-100">Update specialty, commission, status & authorization</p>
+                </div>
+              </div>
+              <button
                 onClick={() => {
                   setShowEmployeeModal(false);
                   setSelectedEmployee(null);
                   resetEmployeeForm();
                 }}
-                className="text-white hover:bg-white/20 rounded-lg p-1 transition-colors"
+                className="relative text-white hover:bg-white/20 rounded-lg p-1.5 transition-colors"
               >
                 <X size={20} />
               </button>
             </div>
 
-            {/* Scrollable Body */}
-            <div className="p-6 space-y-4 overflow-y-auto flex-1">
+            <div className="p-6 space-y-4 overflow-y-auto flex-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
               {/* Employee Info */}
-              <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+              <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-4">
                 <div className="flex items-center gap-4">
                   {getImageUrl(getEmployeeProfileImage(selectedEmployee)) ? (
-                    <div className="w-14 h-14 rounded-xl overflow-hidden shadow-lg flex-shrink-0">
-                      <img 
-                        src={getImageUrl(getEmployeeProfileImage(selectedEmployee))} 
+                    <div className="w-14 h-14 rounded-xl overflow-hidden shadow-lg ring-4 ring-white flex-shrink-0">
+                      <img
+                        src={getImageUrl(getEmployeeProfileImage(selectedEmployee))}
                         alt={`${selectedEmployee.first_name} ${selectedEmployee.last_name}`}
                         className="w-full h-full object-cover"
                         onError={(e) => {
                           e.target.style.display = 'none';
                           const parent = e.target.parentElement;
-                          if (parent) {
-                            parent.innerHTML = `<div class="w-full h-full bg-gradient-to-r from-pink-500 to-pink-600 flex items-center justify-center"><span class="text-white text-xl font-bold">${getInitials(selectedEmployee.first_name, selectedEmployee.last_name)}</span></div>`;
-                          }
+                          if (parent) parent.innerHTML = `<div class="w-full h-full bg-gradient-to-br from-pink-500 to-pink-600 flex items-center justify-center"><span class="text-white text-xl font-bold">${getInitials(selectedEmployee.first_name, selectedEmployee.last_name)}</span></div>`;
                         }}
                       />
                     </div>
                   ) : (
-                    <div className={`w-14 h-14 rounded-xl flex items-center justify-center shadow-lg flex-shrink-0 ${
-                      getEmployeeActiveStatus(selectedEmployee) 
-                        ? 'bg-gradient-to-r from-pink-500 to-pink-600' 
-                        : 'bg-gray-400'
+                    <div className={`w-14 h-14 rounded-xl flex items-center justify-center shadow-lg ring-4 ring-white flex-shrink-0 ${
+                      getEmployeeActiveStatus(selectedEmployee) ? 'bg-gradient-to-br from-pink-500 to-pink-600' : 'bg-slate-400'
                     }`}>
                       <span className="text-white text-xl font-bold">
                         {getInitials(selectedEmployee.first_name, selectedEmployee.last_name)}
                       </span>
                     </div>
                   )}
-                  <div>
-                    <h3 className="font-semibold text-gray-800 text-base">
+                  <div className="min-w-0">
+                    <h3 className="font-semibold text-slate-800 text-base truncate">
                       {selectedEmployee.first_name} {selectedEmployee.last_name}
                     </h3>
-                    <div className="flex items-center gap-3 mt-1 flex-wrap">
-                      <p className="text-sm text-gray-500 flex items-center gap-1">
-                        <Mail size={14} />
+                    <div className="flex flex-wrap items-center gap-3 mt-1">
+                      <p className="text-xs text-slate-500 flex items-center gap-1">
+                        <Mail size={12} />
                         {selectedEmployee.email}
                       </p>
-                      <p className="text-sm text-gray-500 flex items-center gap-1">
-                        <Phone size={14} />
+                      <p className="text-xs text-slate-500 flex items-center gap-1">
+                        <Phone size={12} />
                         {selectedEmployee.phone_number}
                       </p>
                     </div>
@@ -1174,23 +1130,15 @@ function Employees() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Left Column */}
                 <div className="space-y-4">
-                  {/* Active Status Toggle */}
-                  <div className={`rounded-lg p-4 border ${
-                    employeeFormData.active_status 
-                      ? 'bg-green-50 border-green-200' 
-                      : 'bg-red-50 border-red-200'
-                  }`}>
+                  <div className={`rounded-xl p-4 border ${employeeFormData.active_status ? 'bg-emerald-50/70 border-emerald-100' : 'bg-red-50/70 border-red-100'}`}>
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-xs text-gray-500">Staff Status</p>
-                        <p className={`text-sm font-semibold ${
-                          employeeFormData.active_status 
-                            ? 'text-green-700' 
-                            : 'text-red-700'
-                        }`}>
-                          {employeeFormData.active_status ? '✅ Active' : '❌ Inactive'}
+                        <p className="text-[11px] text-slate-500">Staff Status</p>
+                        <p className={`text-sm font-semibold ${employeeFormData.active_status ? 'text-emerald-700' : 'text-red-700'}`}>
+                          {employeeFormData.active_status ? 'Active' : 'Inactive'}
                         </p>
                       </div>
+                      <StatusPill status={employeeFormData.active_status ? 'active' : 'inactive'} label={employeeFormData.active_status ? 'Active' : 'Inactive'} />
                     </div>
                     <label className="flex items-center gap-3 cursor-pointer mt-3">
                       <input
@@ -1198,113 +1146,95 @@ function Employees() {
                         name="active_status"
                         checked={employeeFormData.active_status}
                         onChange={handleEmployeeFormChange}
-                        className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500"
+                        className="w-4 h-4 text-pink-600 border-slate-300 rounded focus:ring-pink-500"
                       />
-                      <span className="text-gray-700 font-semibold text-xs">
-                        {employeeFormData.active_status 
-                          ? 'Click to deactivate this staff member' 
-                          : 'Click to reactivate this staff member'}
+                      <span className="text-slate-700 font-medium text-xs">
+                        {employeeFormData.active_status ? 'Click to deactivate this staff member' : 'Click to reactivate this staff member'}
                       </span>
                     </label>
-                    <p className="text-[10px] text-gray-500 mt-2">
-                      Deactivating will hide this staff from booking, walk-in authorization, and assignment.
+                    <p className="text-[10px] text-slate-500 mt-2">
+                      Deactivating will hide this staff from booking, Receptionist authorization, and assignment.
                     </p>
                   </div>
 
-                  {/* Current Commission Display */}
                   {employeeCommissions[selectedEmployee.id] > 0 && (
-                    <div className="bg-green-50 rounded-lg p-4 border border-green-200">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-xs text-gray-500">Current Commission</p>
-                          <p className="text-sm font-semibold text-green-700">
-                            {employeeCommissions[selectedEmployee.id] * 100}%
-                          </p>
-                        </div>
-                      </div>
+                    <div className="bg-emerald-50/70 rounded-xl p-4 border border-emerald-100">
+                      <p className="text-[11px] text-slate-500">Current Commission</p>
+                      <p className="text-sm font-semibold text-emerald-700">
+                        {employeeCommissions[selectedEmployee.id] * 100}%
+                      </p>
                     </div>
                   )}
 
-                  {/* Current Walk-in Status */}
-                  <div className={`rounded-lg p-4 border ${
-                    walkInAuthorizations[selectedEmployee.id] 
-                      ? 'bg-blue-50 border-blue-200' 
-                      : 'bg-gray-50 border-gray-200'
-                  }`}>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-xs text-gray-500">Walk-in Authorization</p>
-                        <p className={`text-sm font-semibold ${
-                          walkInAuthorizations[selectedEmployee.id] 
-                            ? 'text-green-700' 
-                            : 'text-gray-600'
-                        }`}>
-                          {walkInAuthorizations[selectedEmployee.id] ? '✅ Authorized' : '❌ Not Authorized'}
-                        </p>
-                      </div>
+                  <div className={`rounded-xl p-4 border ${walkInAuthorizations[selectedEmployee.id] ? 'bg-blue-50/70 border-blue-100' : 'bg-slate-50/70 border-slate-200'}`}>
+                    <p className="text-[11px] text-slate-500">Receptionist Authorization</p>
+                    <div className="mt-1">
+                      <StatusPill
+                        status={walkInAuthorizations[selectedEmployee.id] ? 'authorized' : 'not_authorized'}
+                        label={walkInAuthorizations[selectedEmployee.id] ? 'Authorized' : 'Not Authorized'}
+                      />
                     </div>
                   </div>
 
-                  {/* Add Specialty Section */}
-                  <div className="border-t border-gray-200 pt-4">
-                    <h3 className="text-sm font-semibold text-gray-800 mb-3">Add Specialty</h3>
-                    <div className="space-y-3">
-                      <div>
-                        <label className="block text-gray-700 text-xs font-semibold mb-1">
-                          Select Specialty
-                        </label>
-                        <select
-                          name="specialty_id"
-                          value={employeeFormData.specialty_id}
-                          onChange={handleEmployeeFormChange}
-                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
-                        >
-                          <option value="">Select a specialty...</option>
-                          {specialtiesList.map((specialty) => (
-                            <option key={specialty.id} value={specialty.id}>
-                              {formatSpecialtyName(specialty.specialty_name)}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
+                  <div className="border-t border-slate-100 pt-4">
+                    <h3 className="text-sm font-semibold text-slate-800 mb-3">Add Specialty</h3>
+                    <div>
+                      <label className={labelClass}>Select Specialty</label>
+                      <select
+                        name="specialty_id"
+                        value={employeeFormData.specialty_id}
+                        onChange={handleEmployeeFormChange}
+                        className={inputClass}
+                      >
+                        <option value="">Select a specialty...</option>
+                        {availableSpecialtiesForDropdown.map((specialty) => (
+                          <option key={specialty.id} value={specialty.id}>
+                            {formatSpecialtyName(specialty.specialty_name)}
+                          </option>
+                        ))}
+                      </select>
                     </div>
                   </div>
                 </div>
 
                 {/* Right Column */}
                 <div className="space-y-4">
-                  {/* Current Specialties Display */}
                   {selectedEmployee.staff_specialties && selectedEmployee.staff_specialties.length > 0 && (
-                    <div className="border-t border-gray-200 pt-4 md:border-t-0">
-                      <label className="block text-gray-700 text-xs font-semibold mb-2">
+                    <div className="border-t md:border-t-0 border-slate-100 pt-4 md:pt-0">
+                      <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-2">
                         Current Specialties
                       </label>
                       <div className="flex flex-wrap gap-1.5">
                         {selectedEmployee.staff_specialties.map((specialty, idx) => (
-                          <span 
-                            key={idx} 
-                            className="inline-flex items-center gap-0.5 px-2 py-1 bg-pink-50 text-pink-600 rounded-md text-xs"
+                          <span
+                            key={idx}
+                            className="inline-flex items-center gap-1 px-2 py-1 bg-pink-50 text-pink-700 rounded-lg text-[11px] font-medium border border-pink-100"
                           >
                             {getSpecialtyIcon(specialty.specialties?.specialty_name)}
                             <span>{formatSpecialtyName(specialty.specialties?.specialty_name)}</span>
                             {specialty.is_active === 1 ? (
-                              <CheckCircle size={10} className="text-green-500 ml-0.5" />
+                              <CheckCircle size={10} className="text-emerald-500 ml-0.5" />
                             ) : (
                               <XCircle size={10} className="text-red-400 ml-0.5" />
                             )}
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveSpecialty(specialty.id)}
+                              className="ml-1 text-red-500 hover:text-red-700 hover:bg-pink-200 rounded-full p-0.5 transition-colors"
+                              title="Remove Specialty"
+                            >
+                              <X size={10} />
+                            </button>
                           </span>
                         ))}
                       </div>
                     </div>
                   )}
 
-                  {/* Add/Update Commission Section */}
-                  <div className="border-t border-gray-200 pt-4">
-                    <h3 className="text-sm font-semibold text-gray-800 mb-3">Commission</h3>
+                  <div className="border-t border-slate-100 pt-4">
+                    <h3 className="text-sm font-semibold text-slate-800 mb-3">Commission</h3>
                     <div>
-                      <label className="block text-gray-700 text-xs font-semibold mb-1">
-                        Commission Amount (%)
-                      </label>
+                      <label className={labelClass}>Commission Amount (%)</label>
                       <div className="relative">
                         <input
                           type="number"
@@ -1315,20 +1245,17 @@ function Employees() {
                           min="0"
                           max="100"
                           placeholder="e.g., 10 for 10%"
-                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                          className={`${inputClass} pr-8`}
                         />
-                        <span className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 text-sm">%</span>
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">%</span>
                       </div>
-                      <p className="text-xs text-gray-500 mt-1">
-                        Enter the commission percentage for this staff member (e.g., 10 = 10%)
-                      </p>
+                      <p className="text-[11px] text-slate-400 mt-1">Enter the commission percentage (e.g., 10 = 10%)</p>
                     </div>
                   </div>
 
-                  {/* Walk-in Authorization Toggle */}
-                  <div className="border-t border-gray-200 pt-4">
-                    <h3 className="text-sm font-semibold text-gray-800 mb-3">Walk-in Authorization</h3>
-                    <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                  <div className="border-t border-slate-100 pt-4">
+                    <h3 className="text-sm font-semibold text-slate-800 mb-3">Receptionist Authorization</h3>
+                    <div className="bg-slate-50/70 rounded-xl p-4 border border-slate-200">
                       <label className="flex items-center gap-3 cursor-pointer">
                         <input
                           type="checkbox"
@@ -1336,18 +1263,18 @@ function Employees() {
                           checked={employeeFormData.walk_in_authorized}
                           onChange={handleEmployeeFormChange}
                           disabled={!employeeFormData.active_status}
-                          className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500 disabled:opacity-50"
+                          className="w-4 h-4 text-pink-600 border-slate-300 rounded focus:ring-pink-500 disabled:opacity-50"
                         />
                         <div>
-                          <span className="text-gray-700 font-semibold text-sm">
-                            {employeeFormData.walk_in_authorized ? 'Revoke Authorization' : 'Authorize for Walk-in'}
+                          <span className="text-slate-700 font-semibold text-sm">
+                            {employeeFormData.walk_in_authorized ? 'Revoke Authorization' : 'Authorize for Receptionist'}
                           </span>
-                          <p className="text-xs text-gray-400">
+                          <p className="text-[11px] text-slate-400 mt-0.5">
                             {!employeeFormData.active_status
-                              ? 'Inactive staff cannot be authorized for walk-ins'
-                              : employeeFormData.walk_in_authorized 
-                                ? 'Remove walk-in access for this staff member' 
-                                : 'Allow this staff member to accept walk-in customers'}
+                              ? 'Inactive staff cannot be authorized for Receptionist'
+                              : employeeFormData.walk_in_authorized
+                                ? 'Remove Receptionist access for this staff member'
+                                : 'Allow this staff member to access and manage all appointments'}
                           </p>
                         </div>
                       </label>
@@ -1356,16 +1283,15 @@ function Employees() {
                 </div>
               </div>
 
-              {/* Save Changes Button */}
-              <div className="border-t border-gray-200 pt-4">
+              <div className="border-t border-slate-100 pt-4">
                 <button
                   onClick={handleSaveAllChanges}
                   disabled={isSavingAll}
-                  className="w-full px-4 py-2.5 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 text-sm font-medium disabled:opacity-50 flex items-center justify-center gap-2"
+                  className="w-full px-4 py-2.5 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-xl shadow-md shadow-pink-500/25 hover:shadow-lg transition-all text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
                   {isSavingAll ? (
                     <>
-                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                       Saving...
                     </>
                   ) : (
@@ -1378,27 +1304,6 @@ function Employees() {
               </div>
             </div>
           </div>
-        </div>
-      )}
-
-      {/* Empty State */}
-      {filteredEmployees.length === 0 && !isLoading && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 text-center">
-          <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
-            <Users size={28} className="text-gray-400" />
-          </div>
-          <h3 className="text-base font-semibold text-gray-800 mb-1">No staff members found</h3>
-          <p className="text-sm text-gray-500 mb-3">Click "Add Staff" to add your first team member</p>
-          <button 
-            onClick={() => {
-              resetForm();
-              setShowModal(true);
-            }}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-pink-500 text-white rounded-lg hover:bg-pink-600 transition-colors text-sm"
-          >
-            <UserPlus size={14} />
-            <span>Add Staff</span>
-          </button>
         </div>
       )}
     </div>

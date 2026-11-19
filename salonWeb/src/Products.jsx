@@ -1,13 +1,115 @@
 import { useState, useEffect } from 'react';
-import { 
-  Package, Search, Plus, Edit, Trash2, 
-  X, AlertCircle, CheckCircle, Filter,
-  Box, Ruler, PackageOpen, Layers, Image as ImageIcon,
-  Eye, EyeOff
+import {
+  Package, Search, Plus, Edit, X, AlertCircle, CheckCircle,
+  Box, Ruler, Layers, EyeOff, Image as ImageIcon
 } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../contexts/auth-context';
 
+// ─────────────────────────────────────────────────────────────
+// Design tokens (mirrors Dashboard.jsx / Inventory.jsx)
+// ─────────────────────────────────────────────────────────────
+const STATUS_STYLES = {
+  active:   { pill: 'bg-emerald-50 text-emerald-700 border-emerald-200', dot: 'bg-emerald-500' },
+  inactive: { pill: 'bg-red-50 text-red-700 border-red-200', dot: 'bg-red-500' },
+};
+
+function StatusPill({ status, label }) {
+  const style = STATUS_STYLES[status] || STATUS_STYLES.active;
+  return (
+    <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 text-[11px] font-semibold rounded-full border capitalize ${style.pill}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${style.dot}`} />
+      {label}
+    </span>
+  );
+}
+
+function Panel({ title, subtitle, icon: Icon, iconClass = 'bg-pink-50 text-pink-500', action, children, className = '', bodyClassName = 'p-5' }) {
+  return (
+    <section className={`bg-white rounded-2xl border border-slate-200/70 shadow-sm hover:shadow-[0_12px_32px_-16px_rgba(236,72,153,0.35)] transition-shadow duration-300 overflow-hidden ${className}`}>
+      <header className="px-5 py-4 border-b border-slate-100 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          {Icon && (
+            <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${iconClass}`}>
+              <Icon size={17} />
+            </div>
+          )}
+          <div className="min-w-0">
+            <h3 className="text-sm font-semibold text-slate-800 truncate">{title}</h3>
+            {subtitle && <p className="text-[11px] text-slate-500 mt-0.5 truncate">{subtitle}</p>}
+          </div>
+        </div>
+        {action}
+      </header>
+      <div className={bodyClassName}>{children}</div>
+    </section>
+  );
+}
+
+function StatCard({ label, value, sub, icon: Icon, color, badge, badgeClass }) {
+  return (
+    <div className="group relative bg-white rounded-2xl border border-slate-200/70 shadow-sm hover:shadow-[0_12px_32px_-16px_rgba(15,23,42,0.35)] hover:-translate-y-0.5 transition-all duration-300 p-5 overflow-hidden">
+      <div className={`absolute -top-8 -right-8 w-24 h-24 rounded-full opacity-[0.08] bg-gradient-to-br ${color} group-hover:scale-125 transition-transform duration-500`} />
+      <div className="relative flex items-start justify-between">
+        <div className={`w-11 h-11 rounded-xl bg-gradient-to-br ${color} flex items-center justify-center shadow-md`}>
+          <Icon size={20} className="text-white" />
+        </div>
+        {badge && (
+          <span className={`inline-flex items-center gap-0.5 text-[11px] font-semibold px-2 py-0.5 rounded-full ${badgeClass}`}>
+            {badge}
+          </span>
+        )}
+      </div>
+      <p className="relative text-xs font-medium text-slate-500 mt-4">{label}</p>
+      <p className="relative text-3xl font-bold text-slate-800 mt-0.5 tracking-tight">{value}</p>
+      {sub && <p className="relative text-[11px] text-slate-400 mt-2">{sub}</p>}
+    </div>
+  );
+}
+
+function EmptyState({ icon: Icon, title, subtitle, action }) {
+  return (
+    <div className="flex flex-col items-center justify-center text-center py-10">
+      <div className="w-14 h-14 rounded-2xl bg-slate-50 flex items-center justify-center mb-3">
+        <Icon size={26} className="text-slate-300" />
+      </div>
+      <p className="text-sm font-semibold text-slate-700">{title}</p>
+      {subtitle && <p className="text-xs text-slate-400 mt-1 max-w-xs">{subtitle}</p>}
+      {action && <div className="mt-4">{action}</div>}
+    </div>
+  );
+}
+
+function Toast({ message, type = 'success', onClose }) {
+  const accent =
+    type === 'success' ? { bar: 'bg-emerald-500', icon: 'bg-emerald-100 text-emerald-600' } :
+    { bar: 'bg-red-500', icon: 'bg-red-100 text-red-600' };
+  const Icon = type === 'success' ? CheckCircle : AlertCircle;
+
+  return (
+    <div className="fixed top-4 right-4 z-[100] animate-slide-in">
+      <div className="relative bg-white rounded-xl shadow-2xl border border-slate-100 p-3.5 pl-5 flex items-center gap-3 min-w-[300px] max-w-md overflow-hidden">
+        <span className={`absolute left-0 top-0 bottom-0 w-1.5 ${accent.bar}`} />
+        <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${accent.icon}`}>
+          <Icon size={16} />
+        </div>
+        <span className="text-sm font-medium text-slate-700 flex-1">{message}</span>
+        <button onClick={onClose} className="text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg p-1 flex-shrink-0 transition-colors">
+          <X size={16} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+const inputClass =
+  'w-full px-3.5 py-2.5 text-sm bg-slate-50/60 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-pink-500 focus:bg-white focus:border-transparent transition-all';
+
+const labelClass = 'block text-xs font-semibold text-slate-700 mb-1.5';
+
+// ─────────────────────────────────────────────────────────────
+// Main Component
+// ─────────────────────────────────────────────────────────────
 function Products() {
   const { user } = useAuth();
   const [products, setProducts] = useState([]);
@@ -21,47 +123,37 @@ function Products() {
   const [productImage, setProductImage] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
   const [isImageRemoved, setIsImageRemoved] = useState(false);
-  const [activeTab, setActiveTab] = useState('active'); // 'active' | 'inactive' | 'all'
-  
+  const [activeTab, setActiveTab] = useState('active');
+
   const [formData, setFormData] = useState({
     product_name: '',
     description: '',
     unit: '',
     unit_size: '',
     estimated_usages_per_unit: '',
-    is_active: true
+    is_active: true,
   });
 
-  const [stats, setStats] = useState([
-    { label: 'Total Products', value: '0', icon: Package, bgColor: 'bg-blue-50', textColor: 'text-blue-600' },
-    { label: 'Total Units', value: '0', icon: Box, bgColor: 'bg-green-50', textColor: 'text-green-600' },
-    { label: 'Inactive Products', value: '0', icon: EyeOff, bgColor: 'bg-red-50', textColor: 'text-red-600' },
-  ]);
+  const [stats, setStats] = useState({
+    totalProducts: 0,
+    totalUnits: 0,
+    inactiveProducts: 0,
+  });
 
-  // Toast notification
   const showToast = (message, type = 'success') => {
     setToast({ show: true, message, type });
-    setTimeout(() => {
-      setToast({ show: false, message: '', type: 'success' });
-    }, 3000);
+    setTimeout(() => setToast({ show: false, message: '', type: 'success' }), 3000);
   };
 
-  // Sort products by created_at (most recent first) or by id
-  const sortProductsByRecent = (productsArray) => {
-    return [...productsArray].sort((a, b) => {
-      if (a.created_at && b.created_at) {
-        return new Date(b.created_at) - new Date(a.created_at);
-      }
-      if (a.id && b.id) {
-        return b.id - a.id;
-      }
+  const sortProductsByRecent = (productsArray) =>
+    [...productsArray].sort((a, b) => {
+      if (a.created_at && b.created_at) return new Date(b.created_at) - new Date(a.created_at);
+      if (a.id && b.id) return b.id - a.id;
       return 0;
     });
-  };
 
-  // Get full image URL
-  const API_URL = import.meta.env.VITE_API_URL || "http://192.168.100.73:8000/api";
-  const BASE_URL = API_URL.replace(/\/api\/?$/, "");
+  const API_URL = import.meta.env.VITE_API_URL || 'http://192.168.100.73:8000/api';
+  const BASE_URL = API_URL.replace(/\/api\/?$/, '');
   const getImageUrl = (imagePath) => {
     if (!imagePath) return null;
     if (imagePath.startsWith('http')) return imagePath;
@@ -69,7 +161,6 @@ function Products() {
     return `${BASE_URL}/storage/${imagePath}`;
   };
 
-  // Fetch products
   const fetchProducts = async () => {
     setIsLoading(true);
     try {
@@ -78,166 +169,113 @@ function Products() {
         const sortedProducts = sortProductsByRecent(response.data);
         setProducts(sortedProducts);
         setFilteredProducts(sortedProducts);
-        
-        const totalProducts = sortedProducts.length;
-        const totalUnits = sortedProducts.reduce((sum, p) => sum + (parseFloat(p.unit_size) || 0), 0);
-        const inactiveProducts = sortedProducts.filter(p => p.is_active === 0 || p.is_active === false).length;
-        
-        setStats([
-          { ...stats[0], value: totalProducts.toString() },
-          { ...stats[1], value: totalUnits.toString() },
-          { ...stats[2], value: inactiveProducts.toString() },
-        ]);
+
+        setStats({
+          totalProducts: sortedProducts.length,
+          totalUnits: sortedProducts.reduce((sum, p) => sum + (parseFloat(p.unit_size) || 0), 0),
+          inactiveProducts: sortedProducts.filter(p => p.is_active === 0 || p.is_active === false).length,
+        });
       }
-    } catch (error) {
+    } catch {
       showToast('Failed to fetch products', 'error');
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Handle image selection
   const handleImageChange = (e) => {
     const file = e.target.files[0];
     if (file) {
       setProductImage(file);
       setIsImageRemoved(false);
       const reader = new FileReader();
-      reader.onloadend = () => {
-        setImagePreview(reader.result);
-      };
+      reader.onloadend = () => setImagePreview(reader.result);
       reader.readAsDataURL(file);
     }
   };
 
-  // Remove image
   const handleRemoveImage = () => {
     setImagePreview(null);
     setProductImage(null);
     setIsImageRemoved(true);
     const fileInput = document.getElementById('product_image');
-    if (fileInput) {
-      fileInput.value = '';
-    }
+    if (fileInput) fileInput.value = '';
   };
 
-  // Add product
   const handleAddProduct = async (e) => {
     e.preventDefault();
-    
     if (!formData.product_name || !formData.unit || !formData.unit_size || !formData.estimated_usages_per_unit) {
-      showToast('Please fill in all required fields', 'error');
-      return;
+      return showToast('Please fill in all required fields', 'error');
     }
-
     setIsSubmitting(true);
     try {
-      const formDataToSend = new FormData();
-      formDataToSend.append('product_name', formData.product_name);
-      formDataToSend.append('description', formData.description || '');
-      formDataToSend.append('unit', formData.unit);
-      formDataToSend.append('unit_size', parseFloat(formData.unit_size));
-      formDataToSend.append('estimated_usages_per_unit', parseFloat(formData.estimated_usages_per_unit));
-      formDataToSend.append('is_active', formData.is_active ? 1 : 0);
-      
-      if (productImage) {
-        formDataToSend.append('product_image', productImage);
-      }
-      
-      const response = await api.post('/products/add', formDataToSend, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      });
-      
+      const fd = new FormData();
+      fd.append('product_name', formData.product_name);
+      fd.append('description', formData.description || '');
+      fd.append('unit', formData.unit);
+      fd.append('unit_size', parseFloat(formData.unit_size));
+      fd.append('estimated_usages_per_unit', parseFloat(formData.estimated_usages_per_unit));
+      fd.append('is_active', formData.is_active ? 1 : 0);
+      if (productImage) fd.append('product_image', productImage);
+
+      const response = await api.post('/products/add', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
       showToast(response.data.message || 'Product added successfully!', 'success');
       setShowModal(false);
       resetForm();
       fetchProducts();
     } catch (error) {
-      if (error.response?.data?.message) {
-        showToast(error.response.data.message, 'error');
-      } else if (error.response?.data?.errors) {
-        const errors = Object.values(error.response.data.errors).flat();
-        showToast(errors.join(', '), 'error');
-      } else {
-        showToast('Failed to add product. Please try again.', 'error');
-      }
+      const msg = error.response?.data?.message ||
+        (error.response?.data?.errors ? Object.values(error.response.data.errors).flat().join(', ') : 'Failed to add product. Please try again.');
+      showToast(msg, 'error');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // Update product
   const handleUpdateProduct = async (e) => {
     e.preventDefault();
-    
     if (!formData.product_name || !formData.unit || !formData.unit_size || !formData.estimated_usages_per_unit) {
-      showToast('Please fill in all required fields', 'error');
-      return;
+      return showToast('Please fill in all required fields', 'error');
     }
-
     setIsSubmitting(true);
     try {
-      const formDataToSend = new FormData();
-      formDataToSend.append('product_name', formData.product_name);
-      formDataToSend.append('description', formData.description || '');
-      formDataToSend.append('unit', formData.unit);
-      formDataToSend.append('unit_size', parseFloat(formData.unit_size));
-      formDataToSend.append('estimated_usages_per_unit', parseFloat(formData.estimated_usages_per_unit));
-      formDataToSend.append('is_active', formData.is_active ? 1 : 0);
-      
-      if (productImage) {
-        formDataToSend.append('product_image', productImage);
-      } else if (isImageRemoved && editingProduct?.product_image) {
-        formDataToSend.append('remove_image', 'true');
-      }
-      
-      const response = await api.post(`/products/update/${editingProduct.id}`, formDataToSend, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      });
-      
+      const fd = new FormData();
+      fd.append('product_name', formData.product_name);
+      fd.append('description', formData.description || '');
+      fd.append('unit', formData.unit);
+      fd.append('unit_size', parseFloat(formData.unit_size));
+      fd.append('estimated_usages_per_unit', parseFloat(formData.estimated_usages_per_unit));
+      fd.append('is_active', formData.is_active ? 1 : 0);
+      if (productImage) fd.append('product_image', productImage);
+      else if (isImageRemoved && editingProduct?.product_image) fd.append('remove_image', 'true');
+
+      const response = await api.post(`/products/update/${editingProduct.id}`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
       showToast(response.data.message || 'Product updated successfully!', 'success');
       setShowModal(false);
       resetForm();
       fetchProducts();
     } catch (error) {
-      if (error.response?.data?.message) {
-        showToast(error.response.data.message, 'error');
-      } else if (error.response?.data?.errors) {
-        const errors = Object.values(error.response.data.errors).flat();
-        showToast(errors.join(', '), 'error');
-      } else {
-        showToast('Failed to update product. Please try again.', 'error');
-      }
+      const msg = error.response?.data?.message ||
+        (error.response?.data?.errors ? Object.values(error.response.data.errors).flat().join(', ') : 'Failed to update product. Please try again.');
+      showToast(msg, 'error');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // Reset form
   const resetForm = () => {
     setFormData({
-      product_name: '',
-      description: '',
-      unit: '',
-      unit_size: '',
-      estimated_usages_per_unit: '',
-      is_active: true
+      product_name: '', description: '', unit: '', unit_size: '',
+      estimated_usages_per_unit: '', is_active: true,
     });
     setProductImage(null);
     setImagePreview(null);
     setIsImageRemoved(false);
     setEditingProduct(null);
     const fileInput = document.getElementById('product_image');
-    if (fileInput) {
-      fileInput.value = '';
-    }
+    if (fileInput) fileInput.value = '';
   };
 
-  // Handle edit click
   const handleEdit = (product) => {
     setEditingProduct(product);
     setFormData({
@@ -246,73 +284,45 @@ function Products() {
       unit: product.unit || '',
       unit_size: product.unit_size?.toString() || '',
       estimated_usages_per_unit: product.estimated_usages_per_unit?.toString() || '',
-      is_active: product.is_active === 1 || product.is_active === true
+      is_active: product.is_active === 1 || product.is_active === true,
     });
-    if (product.product_image) {
-      setImagePreview(getImageUrl(product.product_image));
-    } else {
-      setImagePreview(null);
-    }
+    setImagePreview(product.product_image ? getImageUrl(product.product_image) : null);
     setProductImage(null);
     setIsImageRemoved(false);
     setShowModal(true);
   };
 
-  // Handle form input change
   const handleInputChange = (e) => {
     const { name, value, type, checked } = e.target;
-    setFormData(prev => ({ 
-      ...prev, 
-      [name]: type === 'checkbox' ? checked : value 
-    }));
+    setFormData(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
   };
 
-  // Filter products based on tab and search
   useEffect(() => {
     let filtered = products;
-    
-    // Filter by tab
-    if (activeTab === 'active') {
-      filtered = filtered.filter(p => p.is_active === 1 || p.is_active === true);
-    } else if (activeTab === 'inactive') {
-      filtered = filtered.filter(p => p.is_active === 0 || p.is_active === false);
-    }
-    // 'all' shows everything
-    
-    // Filter by search
+    if (activeTab === 'active') filtered = filtered.filter(p => p.is_active === 1 || p.is_active === true);
+    else if (activeTab === 'inactive') filtered = filtered.filter(p => p.is_active === 0 || p.is_active === false);
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
-      filtered = filtered.filter(p => 
+      filtered = filtered.filter(p =>
         p.product_name?.toLowerCase().includes(term) ||
         p.description?.toLowerCase().includes(term) ||
         p.unit?.toLowerCase().includes(term)
       );
     }
-    
     setFilteredProducts(filtered);
   }, [searchTerm, products, activeTab]);
 
-  // Fetch products on mount
-  useEffect(() => {
-    fetchProducts();
-  }, []);
+  useEffect(() => { fetchProducts(); }, []);
 
-  // Get counts for tabs
-  const getActiveCount = () => {
-    return products.filter(p => p.is_active === 1 || p.is_active === true).length;
-  };
+  const getActiveCount = () => products.filter(p => p.is_active === 1 || p.is_active === true).length;
+  const getInactiveCount = () => products.filter(p => p.is_active === 0 || p.is_active === false).length;
 
-  const getInactiveCount = () => {
-    return products.filter(p => p.is_active === 0 || p.is_active === false).length;
-  };
-
-  // Loading skeleton
   if (isLoading && products.length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
-          <div className="w-12 h-12 border-4 border-pink-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-gray-500">Loading products...</p>
+          <div className="w-10 h-10 border-[3px] border-pink-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+          <p className="text-xs text-slate-500">Loading products...</p>
         </div>
       </div>
     );
@@ -320,56 +330,50 @@ function Products() {
 
   return (
     <div className="space-y-6">
-      {/* Toast Notification */}
-      {toast.show && (
-        <div className="fixed top-4 right-4 z-50 animate-slide-in">
-          <div className={`rounded-lg shadow-lg p-4 flex items-center gap-3 ${
-            toast.type === 'success' ? 'bg-green-500' : 'bg-red-500'
-          } text-white min-w-[300px]`}>
-            {toast.type === 'success' ? (
-              <CheckCircle size={20} />
-            ) : (
-              <AlertCircle size={20} />
-            )}
-            <span>{toast.message}</span>
-          </div>
-        </div>
-      )}
+      {toast.show && <Toast message={toast.message} type={toast.type} onClose={() => setToast({ ...toast, show: false })} />}
 
-      {/* Stats Grid */}
+      {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {stats.map((stat, index) => (
-          <div key={index} className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 p-4 border border-gray-100">
-            <div className={`${stat.bgColor} w-10 h-10 rounded-xl flex items-center justify-center mb-2`}>
-              <stat.icon className={stat.textColor} size={18} />
-            </div>
-            <p className="text-gray-500 text-xs mb-0.5">{stat.label}</p>
-            <p className="text-xl font-bold text-gray-800">{stat.value}</p>
-          </div>
-        ))}
+        <StatCard
+          label="Total Products"
+          value={stats.totalProducts}
+          sub="All products in catalog"
+          icon={Package}
+          color="from-pink-500 to-pink-600"
+        />
+        <StatCard
+          label="Total Units"
+          value={stats.totalUnits}
+          sub="Sum of unit sizes"
+          icon={Box}
+          color="from-emerald-500 to-emerald-600"
+        />
+        <StatCard
+          label="Inactive Products"
+          value={stats.inactiveProducts}
+          sub="Hidden from inventory"
+          icon={EyeOff}
+          color="from-red-500 to-red-600"
+          badge={stats.inactiveProducts > 0 ? 'Attention' : null}
+          badgeClass="bg-red-50 text-red-600"
+        />
       </div>
 
-      {/* Controls Bar - Search and Add Product Button */}
+      {/* Controls */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div className="flex flex-wrap gap-2 flex-1">
-          <div className="relative flex-1 sm:max-w-xs">
-            <Search size={14} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-            <input 
-              type="text" 
-              placeholder="Search products..." 
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-9 pr-3 py-1.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent text-sm"
-            />
-          </div>
+        <div className="relative">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input
+            type="text"
+            placeholder="Search products..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="pl-9 pr-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-pink-500 focus:bg-white focus:border-transparent w-52 transition-all"
+          />
         </div>
-        
-        <button 
-          onClick={() => {
-            resetForm();
-            setShowModal(true);
-          }}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 text-sm font-medium whitespace-nowrap"
+        <button
+          onClick={() => { resetForm(); setShowModal(true); }}
+          className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-xl shadow-sm shadow-pink-500/30 hover:shadow-md transition-all text-xs font-semibold"
         >
           <Plus size={14} />
           <span>Add Product</span>
@@ -377,238 +381,204 @@ function Products() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-2 border-b border-gray-200">
-        <button
-          onClick={() => setActiveTab('all')}
-          className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
-            activeTab === 'all'
-              ? 'border-pink-500 text-pink-600'
-              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-          }`}
-        >
-          All Products ({products.length})
-        </button>
-        <button
-          onClick={() => setActiveTab('active')}
-          className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
-            activeTab === 'active'
-              ? 'border-pink-500 text-pink-600'
-              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-          }`}
-        >
-          <span className="flex items-center gap-1">
-            <CheckCircle size={14} />
-            Active ({getActiveCount()})
-          </span>
-        </button>
-        <button
-          onClick={() => setActiveTab('inactive')}
-          className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
-            activeTab === 'inactive'
-              ? 'border-pink-500 text-pink-600'
-              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-          }`}
-        >
-          <span className="flex items-center gap-1">
-            <EyeOff size={14} />
-            Inactive ({getInactiveCount()})
-          </span>
-        </button>
+      <div className="inline-flex bg-slate-100 rounded-xl p-1">
+        {[
+          { key: 'all', label: `All Products (${products.length})`, icon: null },
+          { key: 'active', label: `Active (${getActiveCount()})`, icon: CheckCircle },
+          { key: 'inactive', label: `Inactive (${getInactiveCount()})`, icon: EyeOff },
+        ].map(({ key, label, icon: Icon }) => (
+          <button
+            key={key}
+            onClick={() => setActiveTab(key)}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+              activeTab === key
+                ? 'bg-white text-pink-600 shadow-sm'
+                : 'text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            {Icon && <Icon size={13} />}
+            {label}
+          </button>
+        ))}
       </div>
 
-      {/* Products Grid - Card View */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-        {filteredProducts.map((product) => {
-          const imageUrl = getImageUrl(product.product_image);
-          const isInactive = product.is_active === 0 || product.is_active === false;
-          
-          return (
-            <div 
-              key={product.id} 
-              className={`bg-white rounded-xl shadow-sm hover:shadow-lg transition-all duration-300 border overflow-hidden group ${
-                isInactive ? 'border-red-200 opacity-75' : 'border-gray-100'
-              }`}
-            >
-              <div className="relative h-20 bg-gradient-to-r from-pink-50 to-purple-50 flex items-center justify-center">
-                {imageUrl ? (
-                  <img 
-                    src={imageUrl} 
-                    alt={product.product_name}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center shadow-lg ${
-                    isInactive ? 'bg-gray-400' : 'bg-gradient-to-r from-pink-500 to-pink-600'
-                  }`}>
-                    <Package size={24} className="text-white" />
-                  </div>
-                )}
-                {product.created_at && (
-                  <div className="absolute top-2 right-2 bg-green-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
-                    New
-                  </div>
-                )}
-                {isInactive && (
-                  <div className="absolute bottom-2 left-2 bg-red-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
-                    Inactive
-                  </div>
-                )}
-              </div>
-              
-              <div className="p-4">
-                <div className="text-center mb-3">
-                  <h3 className={`text-base font-semibold ${isInactive ? 'text-gray-500' : 'text-gray-800'}`}>
-                    {product.product_name}
-                  </h3>
-                  {product.description && (
-                    <p className={`text-xs mt-1 line-clamp-2 ${isInactive ? 'text-gray-400' : 'text-gray-500'}`}>
-                      {product.description}
-                    </p>
-                  )}
-                </div>
-                
-                <div className="grid grid-cols-2 gap-2 mb-4">
-                  <div className="bg-gray-50 rounded-lg p-2 text-center">
-                    <div className="flex items-center justify-center gap-1">
-                      <Box size={12} className="text-gray-400" />
-                      <span className="text-xs text-gray-500">Unit</span>
-                    </div>
-                    <p className="text-sm font-semibold text-gray-800">{product.unit || 'N/A'}</p>
-                  </div>
-                  <div className="bg-gray-50 rounded-lg p-2 text-center">
-                    <div className="flex items-center justify-center gap-1">
-                      <Ruler size={12} className="text-gray-400" />
-                      <span className="text-xs text-gray-500">Size</span>
-                    </div>
-                    <p className="text-sm font-semibold text-gray-800">{product.unit_size || 'N/A'}</p>
-                  </div>
-                  <div className="bg-gray-50 rounded-lg p-2 text-center col-span-2">
-                    <div className="flex items-center justify-center gap-1">
-                      <Layers size={12} className="text-gray-400" />
-                      <span className="text-xs text-gray-500">Estimated Usages</span>
-                    </div>
-                    <p className="text-sm font-semibold text-gray-800">{product.estimated_usages_per_unit || 'N/A'}</p>
-                  </div>
-                </div>
-                
-                {/* Only Edit button - Delete removed */}
-                <button 
-                  onClick={() => handleEdit(product)}
-                  className="w-full flex items-center justify-center gap-1 px-3 py-1.5 bg-pink-50 text-pink-600 rounded-lg hover:bg-pink-100 transition-colors text-xs font-medium"
+      {/* Products Grid */}
+      {filteredProducts.length === 0 && !isLoading ? (
+        <div className="bg-white rounded-2xl border border-slate-200/70 p-8">
+          <EmptyState
+            icon={activeTab === 'inactive' ? EyeOff : Package}
+            title={
+              activeTab === 'inactive' ? 'No inactive products found'
+                : activeTab === 'active' ? 'No active products found'
+                  : 'No products found'
+            }
+            subtitle={
+              searchTerm ? 'Try adjusting your search terms'
+                : activeTab === 'inactive' ? 'All products are currently active'
+                  : 'Click "Add Product" to create your first product'
+            }
+            action={
+              !searchTerm && activeTab !== 'inactive' ? (
+                <button
+                  onClick={() => { resetForm(); setShowModal(true); }}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-xl shadow-sm shadow-pink-500/30 hover:shadow-md transition-all text-xs font-semibold"
                 >
-                  <Edit size={12} />
-                  Edit
+                  <Plus size={14} />
+                  <span>Add Product</span>
                 </button>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+              ) : null
+            }
+          />
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          {filteredProducts.map((product) => {
+            const imageUrl = getImageUrl(product.product_image);
+            const isInactive = product.is_active === 0 || product.is_active === false;
 
-      {/* Empty State */}
-      {filteredProducts.length === 0 && !isLoading && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 text-center">
-          <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
-            {activeTab === 'inactive' ? (
-              <EyeOff size={28} className="text-gray-400" />
-            ) : (
-              <Package size={28} className="text-gray-400" />
-            )}
-          </div>
-          <h3 className="text-base font-semibold text-gray-800 mb-1">
-            {activeTab === 'inactive' 
-              ? 'No inactive products found' 
-              : activeTab === 'active'
-                ? 'No active products found'
-                : 'No products found'}
-          </h3>
-          <p className="text-sm text-gray-500 mb-3">
-            {searchTerm 
-              ? 'Try adjusting your search terms' 
-              : activeTab === 'inactive'
-                ? 'All products are currently active'
-                : 'Click "Add Product" to create your first product'}
-          </p>
-          {!searchTerm && activeTab !== 'inactive' && (
-            <button 
-              onClick={() => {
-                resetForm();
-                setShowModal(true);
-              }}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-pink-500 text-white rounded-lg hover:bg-pink-600 transition-colors text-sm"
-            >
-              <Plus size={14} />
-              <span>Add Product</span>
-            </button>
-          )}
+            return (
+              <div
+                key={product.id}
+                className={`bg-white rounded-2xl border shadow-sm hover:shadow-[0_12px_32px_-16px_rgba(236,72,153,0.35)] transition-all duration-300 overflow-hidden group ${
+                  isInactive ? 'border-slate-200/70 opacity-80' : 'border-slate-200/70'
+                }`}
+              >
+                <div className={`relative h-28 p-3 ${isInactive ? 'bg-gradient-to-r from-slate-200 to-slate-300' : 'bg-gradient-to-r from-pink-500 to-fuchsia-600'}`}>
+                  <div className="absolute -right-4 -top-4 w-16 h-16 rounded-full bg-white/10" />
+                  <div className="relative flex items-center justify-between h-full">
+                    {imageUrl ? (
+                      <div className="w-16 h-16 rounded-xl bg-white/20 backdrop-blur-sm p-1 flex items-center justify-center overflow-hidden">
+                        <img src={imageUrl} alt={product.product_name} className="w-full h-full object-contain rounded-lg" />
+                      </div>
+                    ) : (
+                      <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center">
+                        <Package size={22} className="text-white" />
+                      </div>
+                    )}
+                    <div className="flex flex-col items-end gap-1">
+                      {product.created_at && (
+                        <span className="bg-white/90 text-pink-600 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                          New
+                        </span>
+                      )}
+                      <div className="bg-white rounded-full px-1.5 py-0.5">
+                        <StatusPill status={isInactive ? 'inactive' : 'active'} label={isInactive ? 'Inactive' : 'Active'} />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-4">
+                  <div className="mb-3">
+                    <h3 className={`text-sm font-semibold truncate ${isInactive ? 'text-slate-500' : 'text-slate-800'}`}>
+                      {product.product_name}
+                    </h3>
+                    {product.description && (
+                      <p className={`text-[11px] mt-1 line-clamp-2 ${isInactive ? 'text-slate-400' : 'text-slate-500'}`}>
+                        {product.description}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 mb-3">
+                    <div className="rounded-xl bg-slate-50/60 border border-slate-100 p-2">
+                      <div className="flex items-center gap-1 text-slate-400">
+                        <Box size={11} />
+                        <span className="text-[10px] font-medium">Unit</span>
+                      </div>
+                      <p className="text-xs font-semibold text-slate-800 mt-0.5 truncate">{product.unit || 'N/A'}</p>
+                    </div>
+                    <div className="rounded-xl bg-slate-50/60 border border-slate-100 p-2">
+                      <div className="flex items-center gap-1 text-slate-400">
+                        <Ruler size={11} />
+                        <span className="text-[10px] font-medium">Size</span>
+                      </div>
+                      <p className="text-xs font-semibold text-slate-800 mt-0.5 truncate">{product.unit_size || 'N/A'}</p>
+                    </div>
+                    <div className="rounded-xl bg-slate-50/60 border border-slate-100 p-2 col-span-2">
+                      <div className="flex items-center gap-1 text-slate-400">
+                        <Layers size={11} />
+                        <span className="text-[10px] font-medium">Estimated Usages</span>
+                      </div>
+                      <p className="text-xs font-semibold text-slate-800 mt-0.5">{product.estimated_usages_per_unit || 'N/A'}</p>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => handleEdit(product)}
+                    className="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-pink-600 bg-pink-50 border border-pink-100 rounded-xl hover:bg-pink-100 transition-colors"
+                  >
+                    <Edit size={12} />
+                    Edit
+                  </button>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 
-      {/* Add/Edit Product Modal - WIDER AND UNSCROLLABLE */}
+      {/* Add/Edit Modal */}
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl mx-4 overflow-hidden">
-            <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-6 py-4 flex items-center justify-between">
-              <h2 className="text-lg font-bold text-white">
-                {editingProduct ? 'Edit Product' : 'Add New Product'}
-              </h2>
-              <button 
-                onClick={() => {
-                  setShowModal(false);
-                  resetForm();
-                }}
-                className="text-white hover:bg-white/20 rounded-lg p-1 transition-colors"
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden max-h-[92vh] flex flex-col">
+            <div className="relative bg-gradient-to-r from-pink-500 to-fuchsia-600 px-6 py-4 flex items-center justify-between overflow-hidden flex-shrink-0">
+              <div className="absolute -right-6 -top-6 w-24 h-24 rounded-full bg-white/10" />
+              <div className="relative flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center">
+                  {editingProduct ? <Edit size={18} className="text-white" /> : <Plus size={18} className="text-white" />}
+                </div>
+                <h2 className="text-lg font-bold text-white">
+                  {editingProduct ? 'Edit Product' : 'Add New Product'}
+                </h2>
+              </div>
+              <button
+                onClick={() => { setShowModal(false); resetForm(); }}
+                className="relative text-white hover:bg-white/20 rounded-lg p-1.5 transition-colors"
               >
                 <X size={20} />
               </button>
             </div>
 
-            <form 
-              onSubmit={editingProduct ? handleUpdateProduct : handleAddProduct} 
-              className="p-6 space-y-4"
+            <form
+              onSubmit={editingProduct ? handleUpdateProduct : handleAddProduct}
+              className="p-6 space-y-4 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
             >
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Left Column */}
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-gray-700 text-sm font-semibold mb-1">
-                      Product Name *
-                    </label>
+                    <label className={labelClass}>Product Name <span className="text-pink-500">*</span></label>
                     <input
                       type="text"
                       name="product_name"
                       value={formData.product_name}
                       onChange={handleInputChange}
-                      className="w-full px-4 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                      className={inputClass}
                       required
                     />
                   </div>
 
                   <div>
-                    <label className="block text-gray-700 text-sm font-semibold mb-1">
-                      Unit *
-                    </label>
+                    <label className={labelClass}>Unit <span className="text-pink-500">*</span></label>
                     <input
                       type="text"
                       name="unit"
                       value={formData.unit}
                       onChange={handleInputChange}
-                      className="w-full px-4 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                      className={inputClass}
                       placeholder="e.g., bottle, box, piece"
                       required
                     />
                   </div>
 
                   <div>
-                    <label className="block text-gray-700 text-sm font-semibold mb-1">
-                      Unit Size *
-                    </label>
+                    <label className={labelClass}>Unit Size <span className="text-pink-500">*</span></label>
                     <input
                       type="number"
                       name="unit_size"
                       value={formData.unit_size}
                       onChange={handleInputChange}
-                      className="w-full px-4 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                      className={inputClass}
                       placeholder="e.g., 500, 1000"
                       step="0.01"
                       required
@@ -616,18 +586,15 @@ function Products() {
                   </div>
                 </div>
 
-                {/* Right Column */}
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-gray-700 text-sm font-semibold mb-1">
-                      Estimated Usages per Unit *
-                    </label>
+                    <label className={labelClass}>Estimated Usages per Unit <span className="text-pink-500">*</span></label>
                     <input
                       type="number"
                       name="estimated_usages_per_unit"
                       value={formData.estimated_usages_per_unit}
                       onChange={handleInputChange}
-                      className="w-full px-4 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                      className={inputClass}
                       placeholder="e.g., 10, 50"
                       step="1"
                       required
@@ -635,72 +602,65 @@ function Products() {
                   </div>
 
                   <div>
-                    <label className="block text-gray-700 text-sm font-semibold mb-1">
-                      Status
-                    </label>
-                    <div className="flex items-center gap-3 pt-1">
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="radio"
-                          name="is_active"
-                          value="true"
-                          checked={formData.is_active === true}
-                          onChange={() => setFormData(prev => ({ ...prev, is_active: true }))}
-                          className="w-4 h-4 text-pink-500 border-gray-300 focus:ring-pink-500"
-                        />
-                        <span className="text-sm text-gray-700">Active</span>
-                      </label>
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="radio"
-                          name="is_active"
-                          value="false"
-                          checked={formData.is_active === false}
-                          onChange={() => setFormData(prev => ({ ...prev, is_active: false }))}
-                          className="w-4 h-4 text-pink-500 border-gray-300 focus:ring-pink-500"
-                        />
-                        <span className="text-sm text-gray-700">Inactive</span>
-                      </label>
+                    <label className={labelClass}>Status</label>
+                    <div className="inline-flex bg-slate-100 rounded-xl p-1 mt-1">
+                      {[
+                        { val: true, label: 'Active' },
+                        { val: false, label: 'Inactive' },
+                      ].map(({ val, label }) => (
+                        <button
+                          type="button"
+                          key={String(val)}
+                          onClick={() => setFormData(prev => ({ ...prev, is_active: val }))}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                            formData.is_active === val
+                              ? 'bg-white text-pink-600 shadow-sm'
+                              : 'text-slate-500 hover:text-slate-700'
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
                     </div>
-                    <p className="text-xs text-gray-500 mt-1">Inactive products will not appear in the inventory</p>
+                    <p className="text-[11px] text-slate-400 mt-1">Inactive products will not appear in the inventory</p>
                   </div>
                 </div>
               </div>
 
-              {/* Description - Full Width */}
               <div>
-                <label className="block text-gray-700 text-sm font-semibold mb-1">
-                  Description
-                </label>
+                <label className={labelClass}>Description</label>
                 <textarea
                   name="description"
                   value={formData.description}
                   onChange={handleInputChange}
                   rows="2"
-                  className="w-full px-4 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 resize-none"
+                  className={`${inputClass} resize-none`}
                   placeholder="Optional description"
                 />
               </div>
 
-              {/* Product Image Upload - Full Width */}
               <div>
-                <label className="block text-gray-700 text-sm font-semibold mb-1">
-                  Product Image
-                </label>
+                <label className={labelClass}>Product Image</label>
                 <div className="flex items-center gap-3">
-                  <input
-                    id="product_image"
-                    type="file"
-                    name="product_image"
-                    onChange={handleImageChange}
-                    accept="image/jpeg,image/png,image/jpg,image/gif"
-                    className="flex-1 px-4 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 file:mr-3 file:py-1.5 file:px-3 file:border-0 file:bg-pink-50 file:text-pink-600 file:text-sm file:font-medium hover:file:bg-pink-100"
-                  />
+                  <label className="flex-1 flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-pink-300 rounded-xl bg-pink-50/60 cursor-pointer hover:bg-pink-50 hover:border-pink-400 transition-colors">
+                    <ImageIcon size={16} className="text-pink-500" />
+                    <span className="text-xs font-medium text-pink-600">
+                      {productImage ? productImage.name : 'Click to upload image'}
+                    </span>
+                    <input
+                      id="product_image"
+                      type="file"
+                      name="product_image"
+                      onChange={handleImageChange}
+                      accept="image/jpeg,image/png,image/jpg,image/gif"
+                      className="hidden"
+                    />
+                  </label>
                   {imagePreview && (
                     <button
                       type="button"
                       onClick={handleRemoveImage}
-                      className="p-2 text-red-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                      className="p-2 text-red-500 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors"
                       title="Remove image"
                     >
                       <X size={18} />
@@ -708,44 +668,38 @@ function Products() {
                   )}
                 </div>
                 {imagePreview && (
-                  <div className="mt-2">
-                    <div className="relative inline-block">
-                      <img 
-                        src={imagePreview} 
-                        alt="Product preview" 
-                        className="w-24 h-24 object-cover rounded-lg border border-gray-200"
-                      />
-                      <span className="absolute -top-1 -right-1 bg-green-500 text-white text-[8px] font-bold px-1.5 py-0.5 rounded-full">
+                  <div className="mt-3 relative inline-block">
+                    <img
+                      src={imagePreview}
+                      alt="Product preview"
+                      className="w-24 h-24 object-cover rounded-xl border border-slate-200"
+                    />
+                    {productImage && (
+                      <span className="absolute -top-1 -right-1 bg-emerald-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">
                         New
                       </span>
-                    </div>
-                    <p className="text-[10px] text-gray-400 mt-1">Image preview</p>
+                    )}
                   </div>
                 )}
-                <p className="text-xs text-gray-500 mt-1">
-                  Supported formats: JPEG, PNG, JPG, GIF (Max 2MB)
-                </p>
+                <p className="text-[11px] text-slate-400 mt-2">Supported formats: JPEG, PNG, JPG, GIF (Max 2MB)</p>
               </div>
 
-              <div className="flex gap-3 pt-2">
+              <div className="flex gap-2 justify-end pt-2">
                 <button
                   type="button"
-                  onClick={() => {
-                    setShowModal(false);
-                    resetForm();
-                  }}
-                  className="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium"
+                  onClick={() => { setShowModal(false); resetForm(); }}
+                  className="px-4 py-2.5 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="flex-1 px-4 py-2.5 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 text-sm font-medium disabled:opacity-50 flex items-center justify-center gap-2"
+                  className="px-4 py-2.5 text-sm font-semibold text-white bg-gradient-to-r from-pink-500 to-pink-600 rounded-xl shadow-md shadow-pink-500/25 hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-all"
                 >
                   {isSubmitting ? (
                     <>
-                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                       {editingProduct ? 'Updating...' : 'Adding...'}
                     </>
                   ) : (

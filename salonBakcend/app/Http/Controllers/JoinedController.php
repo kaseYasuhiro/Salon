@@ -37,6 +37,7 @@ use App\Notifications\AppointmentRescheduled;
 use App\Notifications\LowStockAlert;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Validator;
 use Carbon\Carbon;
 
 class JoinedController extends Controller
@@ -514,6 +515,8 @@ class JoinedController extends Controller
             'balance' => $balance,
         ], 200);
     }
+
+    
     public function remainingBalancePayment(Request $request)
     {
         $request->validate([
@@ -1277,6 +1280,18 @@ class JoinedController extends Controller
                     ]);
                     $results['product_usage_added'] = true;
                     $results['messages'][] = 'Product usage added successfully.';
+
+                    // ✅ NEW: cascade — a new usage row may point at a product
+                    //         that is already inactive, in which case this
+                    //         service must be deactivated immediately.
+                    Services::syncServicesForProduct((int) $productId);
+
+                    // Reflect the cascade result in the response.
+                    $service = Services::find($serviceId);
+                    if ($service && $service->service_status === 'inactive') {
+                        $results['messages'][] =
+                            'Service was automatically set to inactive because one of its linked products is inactive.';
+                    }
                 } else {
                     $results['messages'][] = 'Product usage already exists for this service.';
                 }
@@ -1723,16 +1738,22 @@ class JoinedController extends Controller
         }
 
         $results = [
-            'service_updated'       => false,
+            'service_updated'           => false,
             'price_adjustments_updated' => false,
-            'specialty_added'       => false,
-            'product_usage_added'   => false,
-            'hair_colors_updated'   => false,
-            'messages'              => [],
+            'specialty_added'           => false,
+            'product_usage_added'       => false,
+            'hair_colors_updated'       => false,
+            'messages'                  => [],
         ];
 
+        // ✅ NEW: remember the old status so we can detect manual overrides
+        $previousStatus        = $service->service_status;
+        $previousDeactivatedBy = $service->deactivated_by_product;
+
         try {
-            $service->update([
+            // ✅ NEW: build the update payload so we can conditionally clear
+            //         the cascade marker when an admin manually reactivates.
+            $servicePayload = [
                 'service_name'     => $request->service_name,
                 'description'      => $request->description,
                 'price'            => $request->price,
@@ -1740,7 +1761,22 @@ class JoinedController extends Controller
                 'is_multitaskable' => $request->is_multitaskable,
                 'reqHairColor'     => $request->reqHairColor ?? false,
                 'service_status'   => $request->service_status,
-            ]);
+            ];
+
+            // If an admin explicitly flips the service back to 'active',
+            // clear the "deactivated by product" marker — otherwise the next
+            // product-reactivation cycle would try to reactivate a service
+            // the admin deliberately kept off.
+            //
+            // NOTE: this honors the admin override even if an inactive
+            // product is still linked. If you want the product rule to win
+            // instead, remove this block and let syncServicesForProduct()
+            // force it back to inactive.
+            if ($request->service_status === 'active' && $previousDeactivatedBy !== null) {
+                $servicePayload['deactivated_by_product'] = null;
+            }
+
+            $service->update($servicePayload);
 
             $results['service_updated'] = true;
             $results['messages'][] = 'Service details updated.';
@@ -1803,6 +1839,23 @@ class JoinedController extends Controller
                     ]);
                     $results['product_usage_added'] = true;
                     $results['messages'][] = 'Product usage added.';
+
+                    // ✅ NEW: cascade — a new usage row may point at a product
+                    //         that is already inactive, in which case this
+                    //         service must be deactivated immediately.
+                    Services::syncServicesForProduct((int) $request->product_id);
+
+                    // Refresh the in-memory model so the cascade result is
+                    // reflected if we return the service later.
+                    $service->refresh();
+
+                    // If the cascade just deactivated the service, note it
+                    // in the response so the frontend can surface it.
+                    if ($service->service_status === 'inactive'
+                        && $request->service_status === 'active') {
+                        $results['messages'][] =
+                            'Service was automatically set to inactive because one of its linked products is inactive.';
+                    }
                 } else {
                     $results['messages'][] = 'Product usage already exists for this service.';
                 }
@@ -1844,7 +1897,85 @@ class JoinedController extends Controller
             'message' => $anyChange ? 'Service updated successfully' : 'No changes were saved',
             'success' => $anyChange,
             'results' => $results,
+            // ✅ NEW: hand back the final state so the client can immediately
+            //         reflect any cascade-induced status change without refetching.
+            'service' => $service->fresh(),
         ], $anyChange ? 200 : 400);
+    }
+
+
+
+
+    public function removeSpecialty($id)
+    {
+        // 1. Find the staff-specialty record
+        $staffSpecialty = DB::table('staff_specialties')->find($id);
+
+        if (!$staffSpecialty) {
+            return response()->json(['message' => 'Specialty assignment not found.'], 404);
+        }
+
+        $staffId = $staffSpecialty->staff_id;
+        $specialtyId = $staffSpecialty->specialty_id;
+
+        // 2. Check for upcoming appointments for this specialty
+        // We look for transactions assigned to this staff member, 
+        // where the appointment status is pending/confirmed, 
+        // and the service requires this specific specialty.
+        
+        $hasUpcomingAppointments = \DB::table('transactions')
+            ->join('appointments', 'transactions.appointment_id', '=', 'appointments.id')
+            ->join('service_specialties', 'transactions.service_id', '=', 'service_specialties.service_id')
+            ->where('transactions.assigned_employee_id', $staffId)
+            ->where('service_specialties.specialty_id', $specialtyId)
+            ->whereIn('appointments.status', ['pending', 'confirmed'])
+            ->where('appointments.appointment_date', '>=', now()->toDateString()) // Only upcoming/today
+            ->exists();
+
+        if ($hasUpcomingAppointments) {
+            return response()->json([
+                'message' => 'Cannot remove this specialty. The staff member has upcoming appointments that require it.'
+            ], 422);
+        }
+
+        // 3. If no upcoming appointments, safe to remove
+        DB::table('staff_specialties')->where('id', $id)->delete();
+
+        return response()->json(['message' => 'Specialty removed successfully.']);
+    }
+
+
+    public function removeServiceSpecialty(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'service_id'   => 'required|integer|exists:services,id',
+            'specialty_id' => 'required|integer|exists:specialties,id',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed.',
+                'errors'  => $validator->errors(),
+            ], 422);
+        }
+
+        $serviceId   = (int) $request->input('service_id');
+        $specialtyId = (int) $request->input('specialty_id');
+
+        $deleted = DB::table('service_specialties')
+            ->where('service_id', $serviceId)
+            ->where('specialty_id', $specialtyId)
+            ->delete();
+
+        // Idempotent response — 0 rows deleted just means it was already gone.
+        return response()->json([
+            'success' => true,
+            'message' => $deleted > 0
+                ? 'Specialty removed from service.'
+                : 'Specialty was not linked to this service (nothing to remove).',
+            'deleted' => $deleted,
+        ], 200);
     }
 
 

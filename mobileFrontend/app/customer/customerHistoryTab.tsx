@@ -71,6 +71,8 @@ interface Appointment {
   service_name?: string;
   duration_minutes?: number;
   price?: string;
+  // ✅ Marks a session that came from the walk_ins table (not an appointment)
+  is_walk_in?: boolean;
 }
 
 interface Feedback {
@@ -128,6 +130,32 @@ interface Refund {
   processed_at?: string | null;
   created_at?: string;
   updated_at?: string;
+}
+
+// ✅ Shape returned by GET /walk-in/customer
+interface CustomerWalkInSession {
+  session_id: number;
+  walk_in_ids: number[];
+  customer_id: number | null;
+  customer_name: string;
+  stylist: {
+    id: number;
+    first_name: string | null;
+    last_name: string | null;
+    profile_image: string | null;
+  };
+  services: Array<{
+    service_id: number;
+    service_name: string;
+    duration_minutes: number;
+    price: number;
+  }>;
+  total_price: number;
+  total_duration: number;
+  amount_paid: number;
+  status: string; // 'completed' | 'ongoing'
+  created_at: string;
+  updated_at: string;
 }
 
 interface CustomerHistoryProps {
@@ -734,6 +762,8 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
   const [staffFeedbacks, setStaffFeedbacks] = useState<StaffFeedback[]>([]);
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [refunds, setRefunds] = useState<Refund[]>([]);
+  // ✅ Walk-in sessions linked to this customer
+  const [walkIns, setWalkIns] = useState<Appointment[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
   const { user } = useAuth();
@@ -843,6 +873,72 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
       setAppointments(groupedAppointments);
       return groupedAppointments;
     } catch (error) {
+      return [];
+    }
+  };
+
+  // ✅ Fetch walk-in sessions linked to this customer (via walk_ins.customer_id)
+  const fetchCustomerWalkIns = async () => {
+    try {
+      const response = await api.get("/walk-in/customer");
+
+      const raw = response.data;
+      const sessionsRaw: any[] = Array.isArray(raw?.walk_ins)
+        ? raw.walk_ins
+        : Array.isArray(raw)
+          ? raw
+          : [];
+
+      const mapped: Appointment[] = sessionsRaw.map((s: CustomerWalkInSession) => {
+        const stylistName = s.stylist
+          ? `${s.stylist.first_name || ''} ${s.stylist.last_name || ''}`.trim()
+          : '';
+
+        // Reuse the same shape the appointments produce so the UI code doesn't
+        // need a second code path. `is_walk_in: true` drives the badge + skips
+        // feedback/refund actions.
+        const createdAt = s.created_at ? new Date(s.created_at) : null;
+        const validDate = createdAt && !isNaN(createdAt.getTime());
+        const dateStr = validDate ? createdAt!.toISOString().slice(0, 10) : '';
+        const timeStr = validDate
+          ? `${String(createdAt!.getHours()).padStart(2, '0')}:${String(createdAt!.getMinutes()).padStart(2, '0')}`
+          : '';
+
+        return {
+          id: s.session_id,
+          customer_id: s.customer_id ?? (user?.id || 0),
+          appointment_date: dateStr,
+          appointment_time: timeStr,
+          // Server already tells us 'completed' | 'ongoing'.
+          status: s.status === 'completed' ? 'completed' : 'pending',
+          service_status: s.status === 'completed' ? 'completed' : 'pending',
+          services: (s.services || []).map((svc) => ({
+            service_name: svc.service_name,
+            duration_minutes: svc.duration_minutes,
+            price: String(svc.price ?? 0),
+            service_status: s.status === 'completed' ? 'completed' : 'pending',
+          })),
+          service_names: (s.services || []).map((svc) => svc.service_name),
+          total_price: Number(s.total_price) || 0,
+          total_duration: Number(s.total_duration) || 0,
+          assigned_employee_id: s.stylist?.id,
+          stylist_name: stylistName || 'Not assigned',
+          stylist_id: s.stylist?.id,
+          billing_total_amount: Number(s.total_price) || 0,
+          billing_paid_amount: Number(s.amount_paid) || 0,
+          billing_balance:
+            (Number(s.total_price) || 0) - (Number(s.amount_paid) || 0),
+          service_name: (s.services || []).map((svc) => svc.service_name).join(' + '),
+          duration_minutes: Number(s.total_duration) || 0,
+          price: String(s.total_price ?? 0),
+          is_walk_in: true,
+        };
+      });
+
+      setWalkIns(mapped);
+      return mapped;
+    } catch (error) {
+      setWalkIns([]);
       return [];
     }
   };
@@ -1073,6 +1169,15 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
   };
 
   const handleOpenFeedbackPage = (appointment: Appointment) => {
+    // ✅ Walk-ins don't run through the appointment feedback endpoints
+    if (appointment.is_walk_in) {
+      Alert.alert(
+        "Feedback Not Available",
+        "Feedback is only available for scheduled appointments."
+      );
+      return;
+    }
+
     const stylistName = getStylistNameForAppointment(appointment);
     const stylistId = getStylistIdForAppointment(appointment.id);
 
@@ -1149,7 +1254,8 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
       fetchUserTransactions(),
       fetchFeedbacks(),
       fetchStaffFeedbacks(),
-      fetchRefunds()
+      fetchRefunds(),
+      fetchCustomerWalkIns(),
     ]);
   };
 
@@ -1161,7 +1267,8 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
       fetchFeedbacks(),
       fetchStaffFeedbacks(),
       fetchStaff(),
-      fetchRefunds()
+      fetchRefunds(),
+      fetchCustomerWalkIns(),
     ]);
     setRefreshing(false);
   }, []);
@@ -1174,7 +1281,8 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
       fetchFeedbacks(),
       fetchStaffFeedbacks(),
       fetchStaff(),
-      fetchRefunds()
+      fetchRefunds(),
+      fetchCustomerWalkIns(),
     ]).finally(() => setIsLoading(false));
   }, []);
 
@@ -1186,7 +1294,8 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
         fetchFeedbacks(),
         fetchStaffFeedbacks(),
         fetchStaff(),
-        fetchRefunds()
+        fetchRefunds(),
+        fetchCustomerWalkIns(),
       ]);
     }
   }, [refreshTrigger]);
@@ -1206,11 +1315,14 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
     return stars;
   };
 
-  // ✅ Sort by appointment date/time, latest first
-  const filteredAppointments = appointments
-    .filter((item) => item.status === 'completed' || item.status === 'cancelled')
+  // ✅ Appointments + completed walk-ins, sorted newest-first
+  const filteredAppointments = [...appointments, ...walkIns]
+    .filter((item) => {
+      // Walk-ins are already surfaced as completed / ongoing sessions
+      if (item.is_walk_in) return true;
+      return item.status === 'completed' || item.status === 'cancelled';
+    })
     .sort((a, b) => {
-      // Combine date + time into a single comparable string (YYYY-MM-DD HH:MM)
       const aKey = `${a.appointment_date || ''} ${a.appointment_time || ''}`;
       const bKey = `${b.appointment_date || ''} ${b.appointment_time || ''}`;
       return bKey.localeCompare(aKey);
@@ -1257,7 +1369,7 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
       >
         <View className="px-5 pt-6">
           <Text className="text-3xl font-bold text-gray-800 mb-2">History</Text>
-          <Text className="text-gray-500 mb-6">Your completed and cancelled appointments</Text>
+          <Text className="text-gray-500 mb-6">Your completed appointments & walk-ins</Text>
 
           {isLoading ? (
             <View className="py-10">
@@ -1266,14 +1378,15 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
           ) : filteredAppointments.length === 0 ? (
             <View className="bg-white rounded-2xl p-8 items-center" style={{ elevation: 2 }}>
               <Ionicons name="document-text-outline" size={50} color="#d1d5db" />
-              <Text className="text-gray-500 text-center mt-3">No completed or cancelled appointments</Text>
+              <Text className="text-gray-500 text-center mt-3">No completed appointments or walk-ins yet</Text>
             </View>
           ) : (
             filteredAppointments.map((item) => {
-              const hasGivenFeedback = hasFeedback(item.id);
-              const existingRating = getFeedbackRating(item.id);
+              const isWalkIn = !!item.is_walk_in;
+              const hasGivenFeedback = !isWalkIn && hasFeedback(item.id);
+              const existingRating = !isWalkIn ? getFeedbackRating(item.id) : null;
               const isCompleted = item.status === 'completed';
-              const isCancelled = item.status === 'cancelled';
+              const isCancelled = !isWalkIn && item.status === 'cancelled';
               const isMultipleServices = item.services && item.services.length > 1;
               const services = item.services || [];
               const serviceNames = item.service_names || ['No Service'];
@@ -1290,7 +1403,7 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
               const refund = isCancelled ? getRefundForAppointment(item.id) : null;
 
               return (
-                <View key={item.id} className="bg-white rounded-2xl p-4 mb-3 shadow-sm">
+                <View key={`${isWalkIn ? 'walkin' : 'appt'}-${item.id}`} className="bg-white rounded-2xl p-4 mb-3 shadow-sm">
                   <TouchableOpacity
                     activeOpacity={canViewReview ? 0.7 : 1}
                     disabled={!canViewReview}
@@ -1302,6 +1415,14 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
                           <Text className="font-semibold text-gray-800 text-lg">
                             {serviceNames.join(' + ')}
                           </Text>
+                          {isWalkIn && (
+                            <View className="ml-2 bg-green-100 px-2 py-0.5 rounded-full flex-row items-center">
+                              <Ionicons name="walk-outline" size={10} color="#15803d" />
+                              <Text className="text-green-700 text-[10px] font-semibold ml-0.5">
+                                Walk-in
+                              </Text>
+                            </View>
+                          )}
                           {isMultipleServices && (
                             <View className="ml-2 bg-pink-100 px-2 py-0.5 rounded-full">
                               <Text className="text-pink-600 text-xs font-semibold">
@@ -1389,7 +1510,8 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
                         <Text className="text-xs font-semibold capitalize">{item.status}</Text>
                       </View>
 
-                      {isCompleted && !hasGivenFeedback && (!stylistId || stylistName === 'Not assigned') && (
+                      {/* ✅ Feedback only applies to scheduled appointments */}
+                      {!isWalkIn && isCompleted && !hasGivenFeedback && (!stylistId || stylistName === 'Not assigned') && (
                         <TouchableOpacity 
                           onPress={() => {
                             Alert.alert(
@@ -1420,7 +1542,7 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
                         </TouchableOpacity>
                       )}
 
-                      {isCompleted && !hasGivenFeedback && stylistId && stylistName !== 'Not assigned' && (
+                      {!isWalkIn && isCompleted && !hasGivenFeedback && stylistId && stylistName !== 'Not assigned' && (
                         <TouchableOpacity 
                           onPress={() => handleOpenFeedbackPage(item)}
                           className="flex-row items-center gap-1 px-3 py-1.5 bg-yellow-50 rounded-full"
@@ -1430,7 +1552,7 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
                         </TouchableOpacity>
                       )}
 
-                      {isCompleted && hasGivenFeedback && (
+                      {!isWalkIn && isCompleted && hasGivenFeedback && (
                         <TouchableOpacity
                           onPress={() => handleViewComment(item)}
                           activeOpacity={0.7}
@@ -1447,7 +1569,7 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
                       )}
                     </View>
 
-                    {isCompleted && hasGivenFeedback && (
+                    {!isWalkIn && isCompleted && hasGivenFeedback && (
                       <TouchableOpacity
                         onPress={() => handleViewComment(item)}
                         activeOpacity={0.7}

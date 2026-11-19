@@ -1,11 +1,41 @@
 import { useState, useEffect } from 'react';
-import { 
-  Scissors, Sparkles, Hand, Clock, 
+import {
+  Scissors, Sparkles, Hand, Clock,
   Edit, Eye, Plus, Search, Filter, Trash2,
   Star, Users, Calendar, Package, Activity, X, AlertCircle,
-  ChevronDown, CheckCircle, Tag, Save, EyeOff, Palette, Ruler, Maximize, Trash
+  ChevronDown, CheckCircle, Tag, Save, EyeOff, Palette, Ruler, Maximize, Trash,
+  ArrowUpRight, ArrowDownRight, Minus, Sparkles as SparklesIcon, Crown
 } from 'lucide-react';
 import api from '../api/axios';
+
+// ─────────────────────────────────────────────────────────────
+// Service categories
+// ─────────────────────────────────────────────────────────────
+const SERVICE_CATEGORIES = [
+  { value: 'hair', label: 'Hair', icon: Scissors },
+  { value: 'nails', label: 'Nails', icon: Hand },
+  { value: 'skincare', label: 'Skin Care', icon: Sparkles },
+  { value: 'massage', label: 'Massage', icon: Activity },
+  { value: 'makeup', label: 'Makeup', icon: Star },
+];
+
+const DEFAULT_CATEGORY = 'hair';
+
+const normalizeCategory = (value) =>
+  (value || DEFAULT_CATEGORY).toString().trim().toLowerCase();
+
+const getCategory = (value) =>
+  SERVICE_CATEGORIES.find((c) => c.value === normalizeCategory(value)) || SERVICE_CATEGORIES[0];
+
+// ─────────────────────────────────────────────────────────────
+// Stat card icons config (gradient-driven)
+// ─────────────────────────────────────────────────────────────
+const STAT_META = [
+  { key: 'total',     color: 'from-pink-500 to-fuchsia-600',    bgColor: 'bg-pink-50',    icon: Scissors },
+  { key: 'active',    color: 'from-emerald-500 to-green-600',   bgColor: 'bg-emerald-50', icon: Activity },
+  { key: 'inactive',  color: 'from-red-500 to-rose-600',        bgColor: 'bg-red-50',     icon: EyeOff },
+  { key: 'avgPrice',  color: 'from-blue-500 to-indigo-600',     bgColor: 'bg-blue-50',    icon: null },
+];
 
 function Services() {
   const [searchTerm, setSearchTerm] = useState('');
@@ -26,8 +56,11 @@ function Services() {
   const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
   const [isSavingAll, setIsSavingAll] = useState(false);
   const [statusFilter, setStatusFilter] = useState('all');
+  const [categoryFilter, setCategoryFilter] = useState('all');
 
-  // ── Hair Color sub-modal state (add/edit color) ──
+  const [isRemovingSpecialty, setIsRemovingSpecialty] = useState(false);
+
+  // Hair Color sub-modal
   const [showHairColorModal, setShowHairColorModal] = useState(false);
   const [isSavingHairColor, setIsSavingHairColor] = useState(false);
   const [hairColorError, setHairColorError] = useState('');
@@ -38,10 +71,8 @@ function Services() {
     is_active: true,
   });
 
-  // ✅ Selected hair color IDs for the service being edited
   const [selectedHairColorIds, setSelectedHairColorIds] = useState([]);
 
-  // ── Product usage form ──
   const [usageFormData, setUsageFormData] = useState({
     service_id: '',
     product_id: '',
@@ -49,16 +80,15 @@ function Services() {
     estimated_usage: ''
   });
 
-  // ── Specialty form ──
   const [serviceSpecialtyFormData, setServiceSpecialtyFormData] = useState({
     service_id: '',
     specialty_id: ''
   });
 
-  // ── Main service form ──
   const [formData, setFormData] = useState({
     service_name: '',
     description: '',
+    category: DEFAULT_CATEGORY,
     price: '',
     duration_minutes: '',
     service_status: 'active',
@@ -68,6 +98,8 @@ function Services() {
       { hair_length: 'short', hair_thickness: 'thin', additional_price: '0' }
     ]
   });
+
+  const isHairCategory = normalizeCategory(formData.category) === 'hair';
 
   const hairLengthOptions = [
     { value: 'short', label: 'Short' },
@@ -82,10 +114,10 @@ function Services() {
   ];
 
   const [stats, setStats] = useState([
-    { label: 'Total Services', value: '0', icon: Scissors, bgColor: 'bg-pink-50', textColor: 'text-pink-600' },
-    { label: 'Active Services', value: '0', icon: Activity, bgColor: 'bg-green-50', textColor: 'text-green-600' },
-    { label: 'Inactive Services', value: '0', icon: EyeOff, bgColor: 'bg-red-50', textColor: 'text-red-600' },
-    { label: 'Avg. Price', value: '₱0', icon: null, bgColor: 'bg-blue-50', textColor: 'text-blue-600' },
+    { label: 'Total Services', value: '0', icon: Scissors },
+    { label: 'Active Services', value: '0', icon: Activity },
+    { label: 'Inactive Services', value: '0', icon: EyeOff },
+    { label: 'Avg. Price', value: '₱0', icon: null },
   ]);
 
   const showToast = (message, type = 'success') => {
@@ -120,7 +152,7 @@ function Services() {
   const updatePriceAdjustment = (index, field, value) => {
     setFormData(prev => ({
       ...prev,
-      price_adjustments: prev.price_adjustments.map((adj, i) => 
+      price_adjustments: prev.price_adjustments.map((adj, i) =>
         i === index ? { ...adj, [field]: value } : adj
       )
     }));
@@ -206,7 +238,6 @@ function Services() {
     } catch (error) {}
   };
 
-  // ✅ Fetch hair colors currently linked to a service
   const fetchServiceHairColors = async (serviceId) => {
     try {
       const response = await api.get(`/services/haircolors/${serviceId}`);
@@ -244,7 +275,13 @@ function Services() {
     }
   };
 
-  // ── Hair color toggle (in the service modal) ──
+  const removeServiceSpecialty = async (serviceId, specialtyId) => {
+    const response = await api.delete('/services/specialties/remove', {
+      data: { service_id: serviceId, specialty_id: specialtyId },
+    });
+    return response.data;
+  };
+
   const toggleHairColorSelection = (colorId) => {
     setSelectedHairColorIds(prev =>
       prev.includes(colorId)
@@ -253,7 +290,6 @@ function Services() {
     );
   };
 
-  // ── Hair Color sub-modal (add / edit) ──
   const handleOpenHairColorModal = (color = null) => {
     if (color) {
       setEditingHairColor(color);
@@ -326,12 +362,11 @@ function Services() {
     fetchHairColors();
   }, []);
 
-  // ── Input helpers ──
   const handleInputChange = (e) => {
     const { name, value, type, checked } = e.target;
-    setFormData(prev => ({ 
-      ...prev, 
-      [name]: type === 'checkbox' ? checked : value 
+    setFormData(prev => ({
+      ...prev,
+      [name]: type === 'checkbox' ? checked : value
     }));
     setFormError('');
   };
@@ -356,11 +391,13 @@ function Services() {
     setShowProductDropdown(false);
   };
 
-  const filteredProducts = allProducts.filter(product =>
-    product.product_name.toLowerCase().includes(productSearchTerm.toLowerCase())
-  );
+  const filteredProducts = allProducts.filter(product => {
+    const isInactive = product.is_active === 0 || product.is_active === false;
+    if (isInactive) return false;
 
-  // ── Open modal (create) ──
+    return product.product_name.toLowerCase().includes(productSearchTerm.toLowerCase());
+  });
+
   const handleAddNewService = () => {
     setIsCreatingNew(true);
     setSelectedService(null);
@@ -369,6 +406,7 @@ function Services() {
     setFormData({
       service_name: '',
       description: '',
+      category: categoryFilter !== 'all' ? categoryFilter : DEFAULT_CATEGORY,
       price: '',
       duration_minutes: '',
       service_status: 'active',
@@ -385,7 +423,6 @@ function Services() {
     setShowModal(true);
   };
 
-  // ── Open modal (edit) ──
   const handleOpenService = async (service) => {
     setIsCreatingNew(false);
     setSelectedService(service);
@@ -413,6 +450,7 @@ function Services() {
     setFormData({
       service_name: service.service_name,
       description: service.description,
+      category: normalizeCategory(service.category),
       price: service.price,
       duration_minutes: service.duration_minutes,
       service_status: service.service_status,
@@ -429,7 +467,56 @@ function Services() {
     setShowModal(true);
   };
 
-  // ── Save all ──
+  const handleRemoveSpecialty = async (specialtyId) => {
+    if (!selectedService?.id) return;
+
+    const serviceId = selectedService.id;
+
+    setSelectedService((prev) =>
+      prev
+        ? {
+            ...prev,
+            service_specialties: (prev.service_specialties || []).filter(
+              (s) => s.specialty_id !== specialtyId
+            ),
+          }
+        : prev
+    );
+
+    setIsRemovingSpecialty(true);
+    try {
+      await removeServiceSpecialty(serviceId, specialtyId);
+      showToast('Service Specialty removed.', 'success');
+      await fetchServices();
+    } catch (error) {
+      const msg =
+        error.response?.data?.errors
+          ? Object.values(error.response.data.errors).flat().join(' ')
+          : error.response?.data?.message || 'Failed to remove specialty.';
+      showToast(msg, 'error');
+
+      try {
+        const refreshedSpecialties = await api.get('/services/specialties');
+        const restored = Array.isArray(refreshedSpecialties.data)
+          ? refreshedSpecialties.data
+              .filter((s) => s.service_id === serviceId)
+              .map((s) => ({
+                id: s.id,
+                specialty_id: s.specialty_id,
+                specialty: s.specialties,
+              }))
+          : [];
+        setSelectedService((prev) =>
+          prev ? { ...prev, service_specialties: restored } : prev
+        );
+      } catch {
+        // leave state
+      }
+    } finally {
+      setIsRemovingSpecialty(false);
+    }
+  };
+
   const handleSaveAllChanges = async () => {
     setFormError('');
 
@@ -438,10 +525,19 @@ function Services() {
       return;
     }
 
-    for (const adj of formData.price_adjustments) {
-      if (!adj.hair_length || !adj.hair_thickness || parseFloat(adj.additional_price) < 0) {
-        setFormError('Please fill in all price adjustment fields correctly.');
-        return;
+    if (!formData.category) {
+      setFormError('Please select a category for this service.');
+      return;
+    }
+
+    const isHair = normalizeCategory(formData.category) === 'hair';
+
+    if (isHair) {
+      for (const adj of formData.price_adjustments) {
+        if (!adj.hair_length || !adj.hair_thickness || parseFloat(adj.additional_price) < 0) {
+          setFormError('Please fill in all price adjustment fields correctly.');
+          return;
+        }
       }
     }
 
@@ -452,17 +548,20 @@ function Services() {
 
         service_name: formData.service_name.trim(),
         description: formData.description.trim(),
+        category: normalizeCategory(formData.category),
         price: parseFloat(formData.price),
         duration_minutes: parseInt(formData.duration_minutes),
         service_status: formData.service_status,
         is_multitaskable: !!formData.is_multitaskable,
-        reqHairColor: !!formData.reqHairColor,
+        reqHairColor: isHair ? !!formData.reqHairColor : false,
 
-        price_adjustments: formData.price_adjustments.map(adj => ({
-          hair_length: adj.hair_length,
-          hair_thickness: adj.hair_thickness,
-          additional_price: parseFloat(adj.additional_price) || 0
-        })),
+        price_adjustments: isHair
+          ? formData.price_adjustments.map(adj => ({
+              hair_length: adj.hair_length,
+              hair_thickness: adj.hair_thickness,
+              additional_price: parseFloat(adj.additional_price) || 0
+            }))
+          : [],
       };
 
       if (serviceSpecialtyFormData.specialty_id) {
@@ -474,7 +573,7 @@ function Services() {
         payload.estimated_usage = parseFloat(usageFormData.estimated_usage);
       }
 
-      if (formData.reqHairColor) {
+      if (isHair && formData.reqHairColor) {
         payload.hair_color_ids = selectedHairColorIds;
       }
 
@@ -514,12 +613,18 @@ function Services() {
     if (searchTerm && !service.service_name.toLowerCase().includes(searchTerm.toLowerCase())) return false;
     if (statusFilter === 'active' && service.service_status !== 'active') return false;
     if (statusFilter === 'inactive' && service.service_status !== 'inactive') return false;
+    if (categoryFilter !== 'all' && normalizeCategory(service.category) !== categoryFilter) return false;
     return true;
   });
 
+  const getCategoryCount = (value) =>
+    value === 'all'
+      ? services.length
+      : services.filter(s => normalizeCategory(s.category) === value).length;
+
   const formatSpecialtyName = (specialtyName) => {
     if (!specialtyName) return '';
-    return specialtyName.split('_').map(word => 
+    return specialtyName.split('_').map(word =>
       word.charAt(0).toUpperCase() + word.slice(1)
     ).join(' ');
   };
@@ -555,91 +660,139 @@ function Services() {
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
           <div className="w-12 h-12 border-4 border-pink-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-gray-500">Loading services...</p>
+          <p className="text-slate-500">Loading services...</p>
         </div>
       </div>
     );
   }
 
+  const selectedCategoryLabel = categoryFilter !== 'all' ? getCategory(categoryFilter).label : '';
+
   return (
     <div className="space-y-6">
       {/* Toast */}
       {toast.show && (
-        <div className="fixed top-4 right-4 z-50 animate-slide-in">
-          <div className={`rounded-lg shadow-lg p-4 flex items-center gap-3 ${
-            toast.type === 'success' ? 'bg-green-500' : 
-            toast.type === 'warning' ? 'bg-yellow-500' :
-            'bg-red-500'
-          } text-white min-w-[300px]`}>
-            {toast.type === 'success' ? <CheckCircle size={20} /> : <AlertCircle size={20} />}
-            <span>{toast.message}</span>
+        <div className="fixed top-4 right-4 z-[100] animate-slide-in">
+          <div className="relative bg-white rounded-xl shadow-2xl border border-slate-100 p-3.5 pl-5 flex items-center gap-3 min-w-[300px] max-w-md overflow-hidden">
+            <span className={`absolute left-0 top-0 bottom-0 w-1.5 ${
+              toast.type === 'success' ? 'bg-emerald-500' :
+              toast.type === 'warning' ? 'bg-amber-500' : 'bg-red-500'
+            }`} />
+            <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
+              toast.type === 'success' ? 'bg-emerald-100 text-emerald-600' :
+              toast.type === 'warning' ? 'bg-amber-100 text-amber-600' : 'bg-red-100 text-red-600'
+            }`}>
+              {toast.type === 'success' ? <CheckCircle size={16} /> : <AlertCircle size={16} />}
+            </div>
+            <span className="text-sm font-medium text-slate-700 flex-1">{toast.message}</span>
           </div>
         </div>
       )}
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {stats.map((stat, index) => (
-          <div key={index} className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-300 p-4 border border-gray-100">
-            <div className={`${stat.bgColor} w-10 h-10 rounded-xl flex items-center justify-center mb-2`}>
-              {stat.icon ? (
-                <stat.icon className={stat.textColor} size={18} />
-              ) : (
-                <span className={`text-lg font-bold ${stat.textColor}`}>₱</span>
-              )}
+        {stats.map((stat, index) => {
+          const meta = STAT_META[index];
+          const Icon = stat.icon;
+          return (
+            <div
+              key={index}
+              className="group relative bg-white rounded-2xl border border-slate-200/70 shadow-sm hover:shadow-[0_12px_32px_-16px_rgba(15,23,42,0.35)] hover:-translate-y-0.5 transition-all duration-300 p-5 overflow-hidden"
+            >
+              <div className={`absolute -top-8 -right-8 w-24 h-24 rounded-full opacity-[0.08] bg-gradient-to-br ${meta.color} group-hover:scale-125 transition-transform duration-500`} />
+              <div className={`relative w-11 h-11 rounded-xl bg-gradient-to-br ${meta.color} flex items-center justify-center shadow-md`}>
+                {Icon ? (
+                  <Icon size={20} className="text-white" />
+                ) : (
+                  <span className="text-white font-bold text-base">₱</span>
+                )}
+              </div>
+              <p className="relative text-xs font-medium text-slate-500 mt-4">{stat.label}</p>
+              <p className="relative text-3xl font-bold text-slate-800 mt-0.5 tracking-tight">{stat.value}</p>
+              <div className={`relative mt-3 h-1 rounded-full ${meta.bgColor} overflow-hidden`}>
+                <div className={`h-full w-2/3 rounded-full bg-gradient-to-r ${meta.color}`} />
+              </div>
             </div>
-            <p className="text-gray-500 text-xs mb-0.5">{stat.label}</p>
-            <p className="text-xl font-bold text-gray-800">{stat.value}</p>
-          </div>
-        ))}
+          );
+        })}
+      </div>
+
+      {/* Category tabs */}
+      <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+        {[{ value: 'all', label: 'All', icon: null }, ...SERVICE_CATEGORIES].map((cat) => {
+          const isActive = categoryFilter === cat.value;
+          const CategoryIcon = cat.icon;
+          return (
+            <button
+              key={cat.value}
+              type="button"
+              onClick={() => setCategoryFilter(cat.value)}
+              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all duration-200 border ${
+                isActive
+                  ? 'bg-gradient-to-r from-pink-500 to-pink-600 text-white border-pink-500 shadow-md shadow-pink-500/25'
+                  : 'bg-white text-slate-600 border-slate-200 hover:border-pink-300 hover:text-pink-600'
+              }`}
+            >
+              {CategoryIcon && <CategoryIcon size={13} />}
+              <span>{cat.label}</span>
+              <span
+                className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                  isActive ? 'bg-white/25 text-white' : 'bg-slate-100 text-slate-500'
+                }`}
+              >
+                {getCategoryCount(cat.value)}
+              </span>
+            </button>
+          );
+        })}
       </div>
 
       {/* Controls */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div className="flex gap-2">
-          <button 
+        <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-xl">
+          <button
             onClick={() => setViewMode('grid')}
-            className={`px-3 py-1.5 rounded-lg font-medium transition-all duration-200 text-sm ${
-              viewMode === 'grid' ? 'bg-pink-500 text-white shadow-md' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            className={`px-3 py-1.5 rounded-lg font-semibold transition-all text-xs ${
+              viewMode === 'grid' ? 'bg-white text-pink-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
             }`}
           >
             Grid View
           </button>
-          <button 
+          <button
             onClick={() => setViewMode('list')}
-            className={`px-3 py-1.5 rounded-lg font-medium transition-all duration-200 text-sm ${
-              viewMode === 'list' ? 'bg-pink-500 text-white shadow-md' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            className={`px-3 py-1.5 rounded-lg font-semibold transition-all text-xs ${
+              viewMode === 'list' ? 'bg-white text-pink-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
             }`}
           >
             List View
           </button>
         </div>
-        
+
         <div className="flex flex-wrap gap-2">
           <div className="relative">
-            <Search size={14} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-            <input 
-              type="text" 
-              placeholder="Search services..." 
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Search services..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-9 pr-3 py-1.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent text-sm w-44"
+              className="pl-9 pr-3 py-2 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent w-48 transition-all"
             />
           </div>
-          
+
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 bg-white"
+            className="px-3 py-2 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent transition-all"
           >
             <option value="all">All Services</option>
             <option value="active">Active Only</option>
             <option value="inactive">Inactive Only</option>
           </select>
 
-          <button 
+          <button
             onClick={handleAddNewService}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 text-sm font-medium"
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-xl shadow-md shadow-pink-500/25 hover:shadow-lg transition-all text-xs font-semibold"
           >
             <Plus size={14} />
             <span>Add Service</span>
@@ -653,66 +806,74 @@ function Services() {
           {filteredServices.map((service) => {
             const isInactive = service.service_status === 'inactive';
             const hasHairColor = service.reqHairColor === true || service.reqHairColor === 1;
-            
+            const category = getCategory(service.category);
+            const CategoryIcon = category.icon;
+
             return (
-              <div 
-                key={service.id} 
+              <div
+                key={service.id}
                 onClick={() => handleOpenService(service)}
-                className={`bg-white rounded-xl shadow-sm hover:shadow-lg transition-all duration-300 border overflow-hidden cursor-pointer group ${
-                  isInactive ? 'border-red-200 opacity-75' : 'border-gray-100'
+                className={`bg-white rounded-2xl shadow-sm hover:shadow-[0_12px_32px_-16px_rgba(15,23,42,0.35)] hover:-translate-y-0.5 transition-all duration-300 border overflow-hidden cursor-pointer group ${
+                  isInactive ? 'border-red-200/70 opacity-90' : 'border-slate-200/70'
                 }`}
               >
                 <div className={`relative h-24 flex items-center justify-center ${
-                  isInactive ? 'bg-gray-100' : 'bg-gradient-to-r from-pink-50 to-purple-50'
+                  isInactive ? 'bg-slate-100' : 'bg-gradient-to-br from-pink-50 via-fuchsia-50 to-purple-50'
                 }`}>
                   <div className={`w-12 h-12 rounded-xl flex items-center justify-center shadow-lg ${
-                    isInactive ? 'bg-gray-400' : 'bg-gradient-to-r from-pink-500 to-pink-600'
+                    isInactive ? 'bg-slate-400' : 'bg-gradient-to-br from-pink-500 to-fuchsia-600'
                   }`}>
-                    <Scissors size={24} className="text-white" />
+                    <CategoryIcon size={22} className="text-white" />
                   </div>
                   {isInactive && (
-                    <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                      <span className="bg-red-500 text-white text-xs font-semibold px-2 py-0.5 rounded-full">Inactive</span>
+                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                      <span className="bg-red-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">Inactive</span>
                     </div>
                   )}
+                  <div className="absolute top-2 left-2 bg-white/95 backdrop-blur-sm rounded-full px-2 py-0.5 shadow-sm border border-white">
+                    <div className="flex items-center gap-1">
+                      <CategoryIcon size={10} className="text-pink-500" />
+                      <span className="text-[10px] font-semibold text-slate-700">{category.label}</span>
+                    </div>
+                  </div>
                   {service.service_specialties && service.service_specialties.length > 0 && (
-                    <div className="absolute bottom-1.5 right-1.5 bg-white rounded-full px-1.5 py-0.5 shadow-md">
-                      <div className="flex items-center gap-0.5">
+                    <div className="absolute bottom-2 left-2 bg-white/95 backdrop-blur-sm rounded-full px-2 py-0.5 shadow-sm border border-white">
+                      <div className="flex items-center gap-1">
                         <Tag size={10} className="text-pink-500" />
-                        <span className="text-[10px] font-medium text-gray-700">
+                        <span className="text-[10px] font-semibold text-slate-700">
                           {service.service_specialties.length}
                         </span>
                       </div>
                     </div>
                   )}
                   {hasHairColor && (
-                    <div className="absolute top-1.5 right-1.5 bg-purple-500 rounded-full px-1.5 py-0.5 shadow-md">
-                      <div className="flex items-center gap-0.5">
+                    <div className="absolute top-2 right-2 bg-purple-500 rounded-full px-2 py-0.5 shadow-md">
+                      <div className="flex items-center gap-1">
                         <Palette size={10} className="text-white" />
-                        <span className="text-[8px] font-semibold text-white">Hair Color</span>
+                        <span className="text-[9px] font-bold text-white">Hair Color</span>
                       </div>
                     </div>
                   )}
                 </div>
-                
-                <div className="p-3">
+
+                <div className="p-4">
                   <div className="mb-2">
-                    <h3 className={`text-sm font-semibold truncate ${isInactive ? 'text-gray-500' : 'text-gray-800'}`}>
+                    <h3 className={`text-sm font-bold truncate ${isInactive ? 'text-slate-500' : 'text-slate-800'}`}>
                       {service.service_name}
                     </h3>
-                    <p className={`text-xs mt-0.5 line-clamp-2 ${isInactive ? 'text-gray-400' : 'text-gray-500'}`}>
+                    <p className={`text-[11px] mt-0.5 line-clamp-2 ${isInactive ? 'text-slate-400' : 'text-slate-500'}`}>
                       {service.description}
                     </p>
                   </div>
-                  
-                  <div className="mb-2 min-h-[32px]">
+
+                  <div className="mb-2 min-h-[28px]">
                     {service.service_specialties && service.service_specialties.length > 0 ? (
                       <div className="flex flex-wrap gap-1">
                         {service.service_specialties.slice(0, 2).map((specialtyItem, idx) => {
                           const specialtyName = specialtyItem.specialty?.specialty_name;
                           return specialtyName ? (
-                            <span key={idx} className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                              isInactive ? 'bg-gray-200 text-gray-600' : 'bg-pink-100 text-pink-700'
+                            <span key={idx} className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${
+                              isInactive ? 'bg-slate-200 text-slate-600' : 'bg-pink-50 text-pink-700 border border-pink-100'
                             }`}>
                               {getSpecialtyIcon(specialtyName)}
                               <span>{formatSpecialtyName(specialtyName)}</span>
@@ -720,37 +881,37 @@ function Services() {
                           ) : null;
                         })}
                         {service.service_specialties.length > 2 && (
-                          <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                            isInactive ? 'bg-gray-200 text-gray-600' : 'bg-gray-100 text-gray-600'
+                          <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${
+                            isInactive ? 'bg-slate-200 text-slate-600' : 'bg-slate-100 text-slate-600'
                           }`}>
                             +{service.service_specialties.length - 2}
                           </span>
                         )}
                       </div>
                     ) : (
-                      <p className="text-[10px] italic text-gray-400">No specialties</p>
+                      <p className="text-[10px] italic text-slate-400">No specialties</p>
                     )}
                   </div>
-                  
+
                   <div className="flex items-center justify-between mb-3">
-                    <div className={`flex items-center gap-0.5 font-bold ${isInactive ? 'text-gray-500' : 'text-green-600'}`}>
+                    <div className={`flex items-center gap-0.5 font-bold ${isInactive ? 'text-slate-500' : 'text-emerald-600'}`}>
                       <span className="text-sm">₱{parseFloat(service.price).toFixed(2)}</span>
                     </div>
-                    <div className={`flex items-center gap-0.5 text-xs ${isInactive ? 'text-gray-400' : 'text-gray-500'}`}>
-                      <Clock size={10} />
+                    <div className={`flex items-center gap-1 text-[11px] ${isInactive ? 'text-slate-400' : 'text-slate-500'}`}>
+                      <Clock size={11} />
                       <span>{service.duration_minutes} min</span>
                     </div>
                   </div>
-                  
-                  <button 
+
+                  <button
                     onClick={(e) => {
                       e.stopPropagation();
                       handleOpenService(service);
                     }}
-                    className={`w-full flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg transition-colors text-xs font-medium ${
-                      isInactive 
-                        ? 'bg-gray-100 text-gray-500 hover:bg-gray-200' 
-                        : 'bg-pink-50 text-pink-600 hover:bg-pink-100'
+                    className={`w-full flex items-center justify-center gap-1.5 px-2 py-2 rounded-xl transition-all text-xs font-semibold ${
+                      isInactive
+                        ? 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                        : 'bg-pink-50 text-pink-600 hover:bg-pink-100 border border-pink-100'
                     }`}
                   >
                     <Edit size={12} />
@@ -765,51 +926,62 @@ function Services() {
 
       {/* List View */}
       {viewMode === 'list' && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        <section className="bg-white rounded-2xl border border-slate-200/70 shadow-sm overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead className="bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
+              <thead className="bg-slate-50/80 border-b border-slate-100">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Service</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Description</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Specialties</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Duration</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Price</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Status</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Actions</th>
+                  <th className="px-4 py-3 text-left text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Service</th>
+                  <th className="px-4 py-3 text-left text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Category</th>
+                  <th className="px-4 py-3 text-left text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Description</th>
+                  <th className="px-4 py-3 text-left text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Specialties</th>
+                  <th className="px-4 py-3 text-left text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Duration</th>
+                  <th className="px-4 py-3 text-left text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Price</th>
+                  <th className="px-4 py-3 text-left text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Status</th>
+                  <th className="px-4 py-3 text-left text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100">
+              <tbody className="divide-y divide-slate-100">
                 {filteredServices.map((service) => {
                   const isInactive = service.service_status === 'inactive';
                   const hasHairColor = service.reqHairColor === true || service.reqHairColor === 1;
-                  
+                  const category = getCategory(service.category);
+                  const CategoryIcon = category.icon;
+
                   return (
-                    <tr 
-                      key={service.id} 
+                    <tr
+                      key={service.id}
                       onClick={() => handleOpenService(service)}
-                      className={`hover:bg-pink-50/30 transition-colors duration-200 cursor-pointer ${isInactive ? 'opacity-75' : ''}`}
+                      className={`hover:bg-pink-50/40 transition-colors duration-200 cursor-pointer ${isInactive ? 'opacity-80' : ''}`}
                     >
                       <td className="px-4 py-3 whitespace-nowrap">
-                        <div className="flex items-center gap-2">
-                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                            isInactive ? 'bg-gray-400' : 'bg-gradient-to-r from-pink-500 to-pink-600'
+                        <div className="flex items-center gap-2.5">
+                          <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${
+                            isInactive ? 'bg-slate-400' : 'bg-gradient-to-br from-pink-500 to-fuchsia-600'
                           }`}>
-                            <Scissors size={14} className="text-white" />
+                            <CategoryIcon size={15} className="text-white" />
                           </div>
-                          <span className={`text-sm font-semibold ${isInactive ? 'text-gray-500' : 'text-gray-900'}`}>
+                          <span className={`text-sm font-semibold ${isInactive ? 'text-slate-500' : 'text-slate-900'}`}>
                             {service.service_name}
                           </span>
                           {hasHairColor && (
-                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded text-[10px] font-medium">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full text-[10px] font-semibold border border-purple-200">
                               <Palette size={10} />
                               Hair Color
                             </span>
                           )}
                         </div>
                       </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold ${
+                          isInactive ? 'bg-slate-200 text-slate-600' : 'bg-pink-50 text-pink-700 border border-pink-100'
+                        }`}>
+                          <CategoryIcon size={10} />
+                          {category.label}
+                        </span>
+                      </td>
                       <td className="px-4 py-3">
-                        <p className={`text-xs max-w-xs truncate ${isInactive ? 'text-gray-400' : 'text-gray-600'}`}>
+                        <p className={`text-xs max-w-xs truncate ${isInactive ? 'text-slate-400' : 'text-slate-600'}`}>
                           {service.description}
                         </p>
                       </td>
@@ -819,8 +991,8 @@ function Services() {
                             service.service_specialties.slice(0, 2).map((specialtyItem, idx) => {
                               const specialtyName = specialtyItem.specialty?.specialty_name;
                               return specialtyName ? (
-                                <span key={idx} className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                                  isInactive ? 'bg-gray-200 text-gray-600' : 'bg-pink-100 text-pink-700'
+                                <span key={idx} className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${
+                                  isInactive ? 'bg-slate-200 text-slate-600' : 'bg-pink-50 text-pink-700 border border-pink-100'
                                 }`}>
                                   {getSpecialtyIcon(specialtyName)}
                                   <span>{formatSpecialtyName(specialtyName)}</span>
@@ -828,39 +1000,40 @@ function Services() {
                               ) : null;
                             })
                           ) : (
-                            <span className="text-[10px] text-gray-400 italic">None</span>
+                            <span className="text-[10px] text-slate-400 italic">None</span>
                           )}
                         </div>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
-                        <div className={`flex items-center gap-1 ${isInactive ? 'text-gray-400' : 'text-gray-600'}`}>
-                          <Clock size={10} />
+                        <div className={`flex items-center gap-1 ${isInactive ? 'text-slate-400' : 'text-slate-600'}`}>
+                          <Clock size={11} />
                           <span className="text-xs">{service.duration_minutes} min</span>
                         </div>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
-                        <span className={`text-xs font-semibold ${isInactive ? 'text-gray-500' : 'text-gray-800'}`}>
+                        <span className={`text-xs font-bold ${isInactive ? 'text-slate-500' : 'text-slate-800'}`}>
                           ₱{parseFloat(service.price).toFixed(2)}
                         </span>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
-                        <span className={`px-1.5 py-0.5 text-[10px] rounded-full ${
-                          service.service_status === 'active' 
-                            ? 'bg-green-100 text-green-700' 
-                            : 'bg-red-100 text-red-700'
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full border ${
+                          service.service_status === 'active'
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                            : 'bg-red-50 text-red-700 border-red-200'
                         }`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${service.service_status === 'active' ? 'bg-emerald-500' : 'bg-red-500'}`} />
                           {service.service_status}
                         </span>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
-                        <button 
+                        <button
                           onClick={(e) => {
                             e.stopPropagation();
                             handleOpenService(service);
                           }}
-                          className={`p-1 rounded transition-colors ${isInactive ? 'hover:bg-gray-200' : 'hover:bg-gray-100'}`}
+                          className={`p-1.5 rounded-lg transition-colors ${isInactive ? 'hover:bg-slate-200' : 'hover:bg-pink-50'}`}
                         >
-                          <Edit size={14} className="text-gray-500" />
+                          <Edit size={14} className={isInactive ? 'text-slate-400' : 'text-pink-500'} />
                         </button>
                       </td>
                     </tr>
@@ -869,19 +1042,29 @@ function Services() {
               </tbody>
             </table>
           </div>
-        </div>
+        </section>
       )}
 
-      {/* ✅ Unified Service Modal */}
+      {/* Unified Service Modal */}
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl mx-4 overflow-hidden max-h-[90vh]">
-            {/* Header */}
-            <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-6 py-4 flex items-center justify-between sticky top-0 z-10">
-              <h2 className="text-xl font-bold text-white">
-                {isCreatingNew ? 'Add New Service' : `Manage: ${selectedService?.service_name || ''}`}
-              </h2>
-              <button 
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl overflow-hidden max-h-[90vh]">
+            <div className="relative bg-gradient-to-r from-pink-500 to-fuchsia-600 px-6 py-4 flex items-center justify-between sticky top-0 z-10 overflow-hidden">
+              <div className="absolute -right-6 -top-6 w-28 h-28 rounded-full bg-white/10" />
+              <div className="relative flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center">
+                  <Scissors size={18} className="text-white" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-white leading-tight">
+                    {isCreatingNew ? 'Add New Service' : `Manage: ${selectedService?.service_name || ''}`}
+                  </h2>
+                  <p className="text-[11px] text-pink-100">
+                    {isCreatingNew ? 'Create a new salon service' : 'Update service details and settings'}
+                  </p>
+                </div>
+              </div>
+              <button
                 onClick={() => {
                   setShowModal(false);
                   setSelectedService(null);
@@ -889,19 +1072,19 @@ function Services() {
                   setSelectedServiceUsages([]);
                   setSelectedHairColorIds([]);
                 }}
-                className="text-white hover:bg-white/20 rounded-lg p-1 transition-colors"
+                className="relative text-white hover:bg-white/20 rounded-lg p-1.5 transition-colors"
               >
-                <X size={24} />
+                <X size={20} />
               </button>
             </div>
 
-            <div 
+            <div
               className="p-6 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
-              style={{ maxHeight: 'calc(90vh - 72px)' }}
+              style={{ maxHeight: 'calc(90vh - 76px)' }}
             >
               {formError && (
-                <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center gap-2 mb-4">
-                  <AlertCircle size={16} className="text-red-500" />
+                <div className="bg-red-50 border border-red-200 rounded-xl p-3 flex items-center gap-2 mb-4">
+                  <AlertCircle size={16} className="text-red-500 flex-shrink-0" />
                   <p className="text-red-600 text-sm">{formError}</p>
                 </div>
               )}
@@ -909,35 +1092,35 @@ function Services() {
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* LEFT COLUMN — Main fields + Price Adjustments */}
                 <div className="space-y-4">
-                  <h3 className="text-sm font-semibold text-gray-800">Service Details</h3>
+                  <h3 className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Service Details</h3>
 
                   <div>
-                    <label className="block text-gray-700 text-xs font-semibold mb-1">Service Name *</label>
+                    <label className="block text-slate-700 text-xs font-semibold mb-1.5">Service Name <span className="text-pink-500">*</span></label>
                     <input
                       type="text"
                       name="service_name"
                       value={formData.service_name}
                       onChange={handleInputChange}
-                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                      className="w-full px-3.5 py-2.5 text-sm bg-slate-50/60 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-pink-500 focus:bg-white focus:border-transparent transition-all"
                       required
                     />
                   </div>
 
                   <div>
-                    <label className="block text-gray-700 text-xs font-semibold mb-1">Description *</label>
+                    <label className="block text-slate-700 text-xs font-semibold mb-1.5">Description <span className="text-pink-500">*</span></label>
                     <textarea
                       name="description"
                       value={formData.description}
                       onChange={handleInputChange}
                       rows="2"
-                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 resize-none"
+                      className="w-full px-3.5 py-2.5 text-sm bg-slate-50/60 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-pink-500 focus:bg-white focus:border-transparent resize-none transition-all"
                       required
                     />
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-gray-700 text-xs font-semibold mb-1">Price (₱) *</label>
+                      <label className="block text-slate-700 text-xs font-semibold mb-1.5">Price (₱) <span className="text-pink-500">*</span></label>
                       <input
                         type="number"
                         name="price"
@@ -945,12 +1128,12 @@ function Services() {
                         onChange={handleInputChange}
                         step="0.01"
                         min="0"
-                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                        className="w-full px-3.5 py-2.5 text-sm bg-slate-50/60 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-pink-500 focus:bg-white focus:border-transparent transition-all"
                         required
                       />
                     </div>
                     <div>
-                      <label className="block text-gray-700 text-xs font-semibold mb-1">Duration (min) *</label>
+                      <label className="block text-slate-700 text-xs font-semibold mb-1.5">Duration (min) <span className="text-pink-500">*</span></label>
                       <input
                         type="number"
                         name="duration_minutes"
@@ -958,23 +1141,38 @@ function Services() {
                         onChange={handleInputChange}
                         step="15"
                         min="15"
-                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                        className="w-full px-3.5 py-2.5 text-sm bg-slate-50/60 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-pink-500 focus:bg-white focus:border-transparent transition-all"
                         required
                       />
                     </div>
                   </div>
 
-                  <div>
-                    <label className="block text-gray-700 text-xs font-semibold mb-1">Status</label>
-                    <select
-                      name="service_status"
-                      value={formData.service_status}
-                      onChange={handleInputChange}
-                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
-                    >
-                      <option value="active">Active</option>
-                      <option value="inactive">Inactive</option>
-                    </select>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-slate-700 text-xs font-semibold mb-1.5">Category <span className="text-pink-500">*</span></label>
+                      <select
+                        name="category"
+                        value={normalizeCategory(formData.category)}
+                        onChange={handleInputChange}
+                        className="w-full px-3.5 py-2.5 text-sm bg-slate-50/60 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-pink-500 focus:bg-white focus:border-transparent transition-all"
+                      >
+                        {SERVICE_CATEGORIES.map((cat) => (
+                          <option key={cat.value} value={cat.value}>{cat.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-slate-700 text-xs font-semibold mb-1.5">Status</label>
+                      <select
+                        name="service_status"
+                        value={formData.service_status}
+                        onChange={handleInputChange}
+                        className="w-full px-3.5 py-2.5 text-sm bg-slate-50/60 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-pink-500 focus:bg-white focus:border-transparent transition-all"
+                      >
+                        <option value="active">Active</option>
+                        <option value="inactive">Inactive</option>
+                      </select>
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-3 pt-2">
@@ -984,94 +1182,106 @@ function Services() {
                         name="is_multitaskable"
                         checked={formData.is_multitaskable}
                         onChange={(e) => setFormData(prev => ({ ...prev, is_multitaskable: e.target.checked }))}
-                        className="w-4 h-4 text-pink-500 border-gray-300 rounded focus:ring-pink-500"
+                        className="w-4 h-4 text-pink-500 border-slate-300 rounded focus:ring-pink-500"
                       />
-                      <span className="text-gray-700 text-xs font-semibold">Multi-tasking</span>
+                      <span className="text-slate-700 text-xs font-semibold">Multi-tasking</span>
                     </label>
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        name="reqHairColor"
-                        checked={formData.reqHairColor}
-                        onChange={(e) => setFormData(prev => ({ ...prev, reqHairColor: e.target.checked }))}
-                        className="w-4 h-4 text-purple-500 border-gray-300 rounded focus:ring-purple-500"
-                      />
-                      <span className="text-gray-700 text-xs font-semibold">Requires Hair Color</span>
-                    </label>
+                    {isHairCategory && (
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          name="reqHairColor"
+                          checked={formData.reqHairColor}
+                          onChange={(e) => setFormData(prev => ({ ...prev, reqHairColor: e.target.checked }))}
+                          className="w-4 h-4 text-purple-500 border-slate-300 rounded focus:ring-purple-500"
+                        />
+                        <span className="text-slate-700 text-xs font-semibold">Requires Hair Color</span>
+                      </label>
+                    )}
                   </div>
 
-                  {/* Price Adjustments */}
-                  <div className="border-t border-gray-200 pt-4">
-                    <div className="flex items-center justify-between mb-3">
-                      <h3 className="text-sm font-semibold text-gray-800">Price Adjustments</h3>
-                      <button
-                        type="button"
-                        onClick={addPriceAdjustment}
-                        className="flex items-center gap-1 px-2.5 py-1 bg-pink-50 text-pink-600 rounded-lg hover:bg-pink-100 transition-colors text-xs font-medium"
-                      >
-                        <Plus size={12} />
-                        Add Row
-                      </button>
-                    </div>
+                  {isHairCategory ? (
+                    <div className="border-t border-slate-100 pt-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <h3 className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Price Adjustments</h3>
+                        <button
+                          type="button"
+                          onClick={addPriceAdjustment}
+                          className="flex items-center gap-1 px-2.5 py-1 bg-pink-50 text-pink-600 rounded-lg hover:bg-pink-100 transition-colors text-xs font-semibold border border-pink-100"
+                        >
+                          <Plus size={12} />
+                          Add Row
+                        </button>
+                      </div>
 
-                    <div className="space-y-2">
-                      {formData.price_adjustments.map((adjustment, index) => (
-                        <div key={index} className="flex items-center gap-2 bg-gray-50 rounded-lg p-2.5 border border-gray-200">
-                          <div className="flex-1 grid grid-cols-3 gap-2">
-                            <select
-                              value={adjustment.hair_length}
-                              onChange={(e) => updatePriceAdjustment(index, 'hair_length', e.target.value)}
-                              className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 bg-white"
-                            >
-                              {hairLengthOptions.map(option => (
-                                <option key={option.value} value={option.value}>{option.label}</option>
-                              ))}
-                            </select>
-                            <select
-                              value={adjustment.hair_thickness}
-                              onChange={(e) => updatePriceAdjustment(index, 'hair_thickness', e.target.value)}
-                              className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 bg-white"
-                            >
-                              {hairThicknessOptions.map(option => (
-                                <option key={option.value} value={option.value}>{option.label}</option>
-                              ))}
-                            </select>
-                            <div className="flex items-center gap-1">
-                              <span className="text-gray-500 text-xs font-medium">₱</span>
-                              <input
-                                type="number"
-                                value={adjustment.additional_price}
-                                onChange={(e) => updatePriceAdjustment(index, 'additional_price', e.target.value)}
-                                step="0.01"
-                                min="0"
-                                className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
-                                placeholder="0.00"
-                              />
+                      <div className="space-y-2">
+                        {formData.price_adjustments.map((adjustment, index) => (
+                          <div key={index} className="flex items-center gap-2 bg-slate-50 rounded-xl p-2.5 border border-slate-200">
+                            <div className="flex-1 grid grid-cols-3 gap-2">
+                              <select
+                                value={adjustment.hair_length}
+                                onChange={(e) => updatePriceAdjustment(index, 'hair_length', e.target.value)}
+                                className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent"
+                              >
+                                {hairLengthOptions.map(option => (
+                                  <option key={option.value} value={option.value}>{option.label}</option>
+                                ))}
+                              </select>
+                              <select
+                                value={adjustment.hair_thickness}
+                                onChange={(e) => updatePriceAdjustment(index, 'hair_thickness', e.target.value)}
+                                className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent"
+                              >
+                                {hairThicknessOptions.map(option => (
+                                  <option key={option.value} value={option.value}>{option.label}</option>
+                                ))}
+                              </select>
+                              <div className="flex items-center gap-1">
+                                <span className="text-slate-500 text-xs font-semibold">₱</span>
+                                <input
+                                  type="number"
+                                  value={adjustment.additional_price}
+                                  onChange={(e) => updatePriceAdjustment(index, 'additional_price', e.target.value)}
+                                  step="0.01"
+                                  min="0"
+                                  className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent"
+                                  placeholder="0.00"
+                                />
+                              </div>
                             </div>
+                            <button
+                              type="button"
+                              onClick={() => removePriceAdjustment(index)}
+                              className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                            >
+                              <Trash size={14} />
+                            </button>
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => removePriceAdjustment(index)}
-                            className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                          >
-                            <Trash size={14} />
-                          </button>
-                        </div>
-                      ))}
+                        ))}
+                      </div>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="border-t border-slate-100 pt-4">
+                      <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 flex items-start gap-2">
+                        <AlertCircle size={14} className="text-slate-400 mt-0.5 flex-shrink-0" />
+                        <p className="text-[11px] text-slate-500">
+                          Hair length/thickness pricing and hair colors only apply to Hair services,
+                          so they're hidden for {getCategory(formData.category).label}.
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
-                {/* RIGHT COLUMN — Specialties, Products, and Hair Colors */}
+                {/* RIGHT COLUMN — Specialties, Products, Hair Colors */}
                 <div className="space-y-4">
-                  {/* Add Specialty */}
                   <div>
-                    <h3 className="text-sm font-semibold text-gray-800 mb-3">Add Specialty</h3>
+                    <h3 className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">Add Specialty</h3>
                     <select
                       name="specialty_id"
                       value={serviceSpecialtyFormData.specialty_id}
                       onChange={handleServiceSpecialtyChange}
-                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                      className="w-full px-3.5 py-2.5 text-sm bg-slate-50/60 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-pink-500 focus:bg-white focus:border-transparent transition-all"
                     >
                       <option value="">Select a specialty...</option>
                       {specialtiesList.map((specialty) => (
@@ -1080,51 +1290,72 @@ function Services() {
                         </option>
                       ))}
                     </select>
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      The specialty decides which staff can be booked for this service
+                      (e.g. choose Nail Technician for Nails).
+                    </p>
                   </div>
 
-                  {/* Current Specialties */}
-                  {!isCreatingNew && selectedService?.service_specialties && selectedService.service_specialties.length > 0 && (
+                  {!isCreatingNew && (
                     <div>
-                      <label className="block text-gray-700 text-xs font-semibold mb-2">Current Specialties</label>
-                      <div className="flex flex-wrap gap-1.5">
-                        {selectedService.service_specialties.map((specialtyItem, idx) => {
-                          const specialtyName = specialtyItem.specialty?.specialty_name;
-                          return specialtyName ? (
-                            <span key={idx} className="inline-flex items-center gap-1 px-2 py-1 bg-pink-50 text-pink-600 rounded-md text-xs">
-                              {getSpecialtyIcon(specialtyName)}
-                              <span>{formatSpecialtyName(specialtyName)}</span>
-                            </span>
-                          ) : null;
-                        })}
-                      </div>
+                      <label className="block text-slate-700 text-xs font-semibold mb-2">
+                        Current Specialties
+                      </label>
+                      {selectedService?.service_specialties && selectedService.service_specialties.length > 0 ? (
+                        <div className="flex flex-wrap gap-1.5">
+                          {selectedService.service_specialties.map((specialtyItem, idx) => {
+                            const specialtyName = specialtyItem.specialty?.specialty_name;
+                            if (!specialtyName) return null;
+                            return (
+                              <span
+                                key={specialtyItem.id ?? `${specialtyItem.specialty_id}-${idx}`}
+                                className="inline-flex items-center gap-1 pl-2 pr-1 py-1 bg-pink-50 text-pink-700 border border-pink-100 rounded-full text-xs font-semibold"
+                              >
+                                {getSpecialtyIcon(specialtyName)}
+                                <span>{formatSpecialtyName(specialtyName)}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveSpecialty(specialtyItem.specialty_id)}
+                                  disabled={isRemovingSpecialty}
+                                  className="p-0.5 rounded-full hover:bg-red-100 text-red-400 hover:text-red-600 transition-colors disabled:opacity-50"
+                                  title="Remove specialty"
+                                >
+                                  <X size={12} />
+                                </button>
+                              </span>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <p className="text-[10px] italic text-slate-400">No specialties assigned yet.</p>
+                      )}
                     </div>
                   )}
 
-                  {/* Product Usage */}
                   {!isCreatingNew && (
-                    <div className="border-t border-gray-200 pt-4">
+                    <div className="border-t border-slate-100 pt-4">
                       <div className="flex items-center justify-between mb-3">
-                        <h3 className="text-sm font-semibold text-gray-800">Product Usage</h3>
-                        <span className="text-xs text-gray-500">{selectedServiceUsages.length} product(s)</span>
+                        <h3 className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Product Usage</h3>
+                        <span className="text-[10px] text-slate-500 font-semibold">{selectedServiceUsages.length} product(s)</span>
                       </div>
 
                       {isLoadingUsages ? (
                         <div className="flex justify-center py-6">
-                          <div className="w-6 h-6 border-3 border-pink-500 border-t-transparent rounded-full animate-spin"></div>
+                          <div className="w-6 h-6 border-[3px] border-pink-500 border-t-transparent rounded-full animate-spin"></div>
                         </div>
                       ) : selectedServiceUsages.length > 0 ? (
-                        <div className="space-y-2 max-h-40 overflow-y-auto mb-3">
+                        <div className="space-y-2 max-h-40 overflow-y-auto mb-3 scrollbar-hide">
                           {selectedServiceUsages.map((usage, index) => (
-                            <div key={index} className="bg-gray-50 rounded-lg p-3 flex items-center justify-between">
+                            <div key={index} className="bg-slate-50 rounded-xl p-3 flex items-center justify-between border border-slate-100">
                               <div className="flex items-center gap-3">
                                 <div className="w-8 h-8 bg-pink-100 rounded-lg flex items-center justify-center">
-                                  <Package size={16} className="text-pink-600" />
+                                  <Package size={15} className="text-pink-600" />
                                 </div>
                                 <div>
-                                  <p className="text-sm font-semibold text-gray-800">
+                                  <p className="text-sm font-semibold text-slate-800">
                                     {getProductNameFromUsage(usage)}
                                   </p>
-                                  <p className="text-xs text-gray-500">
+                                  <p className="text-xs text-slate-500">
                                     Usage: {usage.estimated_usage} {getProductUnit(usage)}
                                   </p>
                                 </div>
@@ -1133,15 +1364,15 @@ function Services() {
                           ))}
                         </div>
                       ) : (
-                        <div className="text-center py-4 bg-gray-50 rounded-lg mb-3">
-                          <Package size={24} className="text-gray-400 mx-auto mb-1" />
-                          <p className="text-xs text-gray-500">No products linked</p>
+                        <div className="text-center py-4 bg-slate-50 rounded-xl mb-3 border border-slate-100">
+                          <Package size={24} className="text-slate-300 mx-auto mb-1" />
+                          <p className="text-xs text-slate-500">No products linked</p>
                         </div>
                       )}
 
                       <div className="space-y-2">
                         <div className="relative">
-                          <Package size={14} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                          <Package size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
                           <input
                             type="text"
                             value={productSearchTerm}
@@ -1152,16 +1383,16 @@ function Services() {
                             }}
                             onFocus={() => setShowProductDropdown(true)}
                             placeholder="Search for a product..."
-                            className="w-full pl-9 pr-8 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                            className="w-full pl-9 pr-8 py-2.5 text-sm bg-slate-50/60 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-pink-500 focus:bg-white focus:border-transparent transition-all"
                           />
-                          <ChevronDown 
-                            size={14} 
-                            className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 cursor-pointer"
+                          <ChevronDown
+                            size={14}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 cursor-pointer"
                             onClick={() => setShowProductDropdown(!showProductDropdown)}
                           />
-                          
+
                           {showProductDropdown && filteredProducts.length > 0 && (
-                            <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                            <div className="absolute z-10 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
                               {filteredProducts.map(product => (
                                 <div
                                   key={product.id}
@@ -1169,8 +1400,8 @@ function Services() {
                                   className="px-3 py-2 hover:bg-pink-50 cursor-pointer transition-colors text-sm"
                                 >
                                   <div className="flex items-center justify-between">
-                                    <span className="font-medium text-gray-800">{product.product_name}</span>
-                                    <span className="text-xs text-gray-500">{product.unit_size}{product.unit}</span>
+                                    <span className="font-semibold text-slate-800">{product.product_name}</span>
+                                    <span className="text-xs text-slate-500">{product.unit_size}{product.unit}</span>
                                   </div>
                                 </div>
                               ))}
@@ -1185,66 +1416,65 @@ function Services() {
                           onChange={handleUsageInputChange}
                           step="0.01"
                           placeholder="Estimated usage per service"
-                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                          className="w-full px-3.5 py-2.5 text-sm bg-slate-50/60 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-pink-500 focus:bg-white focus:border-transparent transition-all"
                         />
                       </div>
                     </div>
                   )}
 
-                  {/* HAIR COLORS — only shown when reqHairColor is enabled */}
-                  {formData.reqHairColor && (
-                    <div className="border-t border-gray-200 pt-4">
+                  {isHairCategory && formData.reqHairColor && (
+                    <div className="border-t border-slate-100 pt-4">
                       <div className="flex items-center justify-between mb-3">
                         <div className="flex items-center gap-2">
-                          <Palette size={16} className="text-purple-500" />
-                          <h3 className="text-sm font-semibold text-gray-800">
-                            Hair Colors
-                          </h3>
-                          <span className="text-xs text-gray-500">
+                          <div className="w-7 h-7 rounded-lg bg-purple-100 flex items-center justify-center">
+                            <Palette size={14} className="text-purple-500" />
+                          </div>
+                          <h3 className="text-sm font-semibold text-slate-800">Hair Colors</h3>
+                          <span className="text-[10px] text-slate-500 font-semibold">
                             ({selectedHairColorIds.length} selected)
                           </span>
                         </div>
                         <button
                           type="button"
                           onClick={() => handleOpenHairColorModal()}
-                          className="flex items-center gap-1 px-2.5 py-1 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-md transition-all text-[10px] font-semibold"
+                          className="flex items-center gap-1 px-2.5 py-1 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-md transition-all text-[10px] font-semibold shadow-sm shadow-pink-500/25"
                         >
                           <Plus size={12} />
                           Add Color
                         </button>
                       </div>
 
-                      <p className="text-[11px] text-gray-500 mb-3">
+                      <p className="text-[11px] text-slate-500 mb-3">
                         Select which hair colors customers can choose from for this service.
                       </p>
 
                       {hairColors.length === 0 ? (
-                        <div className="text-center py-6 bg-gray-50 rounded-lg">
-                          <Palette size={28} className="text-gray-300 mx-auto mb-1" />
-                          <p className="text-xs text-gray-400">No hair colors yet</p>
+                        <div className="text-center py-6 bg-slate-50 rounded-xl border border-slate-100">
+                          <Palette size={28} className="text-slate-300 mx-auto mb-1" />
+                          <p className="text-xs text-slate-400">No hair colors yet</p>
                           <button
                             type="button"
                             onClick={() => handleOpenHairColorModal()}
-                            className="mt-2 inline-flex items-center gap-1 px-2.5 py-1 bg-pink-500 text-white rounded-lg hover:bg-pink-600 text-xs"
+                            className="mt-2 inline-flex items-center gap-1 px-2.5 py-1 bg-pink-500 text-white rounded-lg hover:bg-pink-600 text-xs font-semibold"
                           >
                             <Plus size={12} />
                             Add Your First Color
                           </button>
                         </div>
                       ) : (
-                        <div className="grid grid-cols-2 gap-2 max-h-64 overflow-y-auto pr-1">
+                        <div className="grid grid-cols-2 gap-2 max-h-64 overflow-y-auto pr-1 scrollbar-hide">
                           {hairColors.map((color) => {
                             const isInactive = color.is_active === 0 || color.is_active === false;
                             const isSelected = selectedHairColorIds.includes(color.id);
                             return (
                               <div
                                 key={color.id}
-                                className={`relative rounded-lg border p-2.5 transition-all ${
+                                className={`relative rounded-xl border p-2.5 transition-all ${
                                   isInactive
-                                    ? 'border-gray-200 bg-gray-50 opacity-60'
+                                    ? 'border-slate-200 bg-slate-50 opacity-60'
                                     : isSelected
                                       ? 'border-pink-500 bg-pink-50 ring-2 ring-pink-200'
-                                      : 'border-gray-200 bg-white hover:border-pink-300'
+                                      : 'border-slate-200 bg-white hover:border-pink-300'
                                 }`}
                               >
                                 <div className="flex items-center gap-2">
@@ -1252,21 +1482,21 @@ function Services() {
                                     type="button"
                                     onClick={() => !isInactive && toggleHairColorSelection(color.id)}
                                     disabled={isInactive}
-                                    className={`flex-shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${
-                                      isSelected ? 'border-pink-500' : 'border-gray-300'
+                                    className={`flex-shrink-0 w-7 h-7 rounded-full border-2 flex items-center justify-center transition-all ${
+                                      isSelected ? 'border-pink-500' : 'border-slate-300'
                                     } ${isInactive ? 'cursor-not-allowed' : 'cursor-pointer'}`}
                                     style={{ backgroundColor: color.color_code || '#808080' }}
                                   >
                                     {isSelected && (
-                                      <CheckCircle size={14} className="text-white drop-shadow-md" />
+                                      <CheckCircle size={15} className="text-white drop-shadow-md" />
                                     )}
                                   </button>
 
                                   <div className="min-w-0 flex-1">
-                                    <p className="text-xs font-semibold text-gray-800 truncate">
+                                    <p className="text-xs font-semibold text-slate-800 truncate">
                                       {color.color_name}
                                     </p>
-                                    <p className="text-[9px] text-gray-500 font-mono uppercase">
+                                    <p className="text-[9px] text-slate-500 font-mono uppercase">
                                       {color.color_code}
                                     </p>
                                   </div>
@@ -1274,7 +1504,7 @@ function Services() {
                                   <button
                                     type="button"
                                     onClick={() => handleOpenHairColorModal(color)}
-                                    className="p-1 rounded hover:bg-pink-100 transition-colors flex-shrink-0"
+                                    className="p-1 rounded-lg hover:bg-pink-100 transition-colors flex-shrink-0"
                                     title="Edit color"
                                   >
                                     <Edit size={12} className="text-pink-500" />
@@ -1282,7 +1512,7 @@ function Services() {
                                 </div>
 
                                 {isInactive && (
-                                  <span className="absolute top-1 right-1 text-[8px] bg-red-100 text-red-600 px-1 py-0.5 rounded-full">
+                                  <span className="absolute top-1 right-1 text-[8px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full font-semibold">
                                     Inactive
                                   </span>
                                 )}
@@ -1293,7 +1523,7 @@ function Services() {
                       )}
 
                       {selectedHairColorIds.length > 0 && (
-                        <p className="text-[10px] text-gray-500 mt-2">
+                        <p className="text-[10px] text-slate-500 mt-2 font-semibold">
                           {selectedHairColorIds.length} color{selectedHairColorIds.length !== 1 ? 's' : ''} selected
                         </p>
                       )}
@@ -1303,7 +1533,7 @@ function Services() {
               </div>
 
               {/* Footer */}
-              <div className="mt-6 pt-4 border-t border-gray-200 flex justify-end gap-2">
+              <div className="mt-6 pt-4 border-t border-slate-100 flex justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => {
@@ -1313,7 +1543,7 @@ function Services() {
                     setSelectedServiceUsages([]);
                     setSelectedHairColorIds([]);
                   }}
-                  className="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors text-sm font-medium"
+                  className="px-5 py-2.5 bg-white border border-slate-200 text-slate-700 rounded-xl hover:bg-slate-50 transition-colors text-sm font-semibold"
                 >
                   Cancel
                 </button>
@@ -1321,7 +1551,7 @@ function Services() {
                   type="button"
                   onClick={handleSaveAllChanges}
                   disabled={isSavingAll}
-                  className="px-6 py-2 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 text-sm font-medium disabled:opacity-50 flex items-center gap-2"
+                  className="px-5 py-2.5 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-xl shadow-md shadow-pink-500/25 hover:shadow-lg transition-all text-sm font-semibold disabled:opacity-50 flex items-center gap-2"
                 >
                   {isSavingAll ? (
                     <>
@@ -1330,7 +1560,7 @@ function Services() {
                     </>
                   ) : (
                     <>
-                      <Save size={16} />
+                      <Save size={15} />
                       {isCreatingNew ? 'Create Service' : 'Save Changes'}
                     </>
                   )}
@@ -1341,54 +1571,65 @@ function Services() {
         </div>
       )}
 
-      {/* Hair Color Modal (Add/Edit color) */}
+      {/* Hair Color Modal */}
       {showHairColorModal && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
-            <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-6 py-4 flex items-center justify-between">
-              <h2 className="text-xl font-bold text-white">
-                {editingHairColor ? 'Edit Hair Color' : 'Add Hair Color'}
-              </h2>
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+            <div className="relative bg-gradient-to-r from-pink-500 to-fuchsia-600 px-6 py-4 flex items-center justify-between overflow-hidden">
+              <div className="absolute -right-6 -top-6 w-24 h-24 rounded-full bg-white/10" />
+              <div className="relative flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center">
+                  <Palette size={18} className="text-white" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-white">
+                    {editingHairColor ? 'Edit Hair Color' : 'Add Hair Color'}
+                  </h2>
+                  <p className="text-[11px] text-pink-100">
+                    {editingHairColor ? 'Update color details' : 'Create a new hair color option'}
+                  </p>
+                </div>
+              </div>
               <button
                 onClick={() => {
                   setShowHairColorModal(false);
                   setEditingHairColor(null);
                 }}
-                className="text-white hover:bg-white/20 rounded-lg p-1 transition-colors"
+                className="relative text-white hover:bg-white/20 rounded-lg p-1.5 transition-colors"
               >
-                <X size={24} />
+                <X size={20} />
               </button>
             </div>
 
             <form onSubmit={handleSaveHairColor} className="p-6 space-y-4">
               {hairColorError && (
-                <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center gap-2">
-                  <AlertCircle size={16} className="text-red-500" />
+                <div className="bg-red-50 border border-red-200 rounded-xl p-3 flex items-center gap-2">
+                  <AlertCircle size={16} className="text-red-500 flex-shrink-0" />
                   <p className="text-red-600 text-sm">{hairColorError}</p>
                 </div>
               )}
 
               <div>
-                <label className="block text-gray-700 text-sm font-semibold mb-1">Color Name *</label>
+                <label className="block text-slate-700 text-xs font-semibold mb-1.5">Color Name <span className="text-pink-500">*</span></label>
                 <input
                   type="text"
                   value={hairColorForm.color_name}
                   onChange={(e) => setHairColorForm(prev => ({ ...prev, color_name: e.target.value }))}
                   placeholder="e.g. Ash Blonde, Burgundy"
-                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500"
+                  className="w-full px-3.5 py-2.5 text-sm bg-slate-50/60 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-pink-500 focus:bg-white focus:border-transparent transition-all"
                   disabled={isSavingHairColor}
                   required
                 />
               </div>
 
               <div>
-                <label className="block text-gray-700 text-sm font-semibold mb-1">Color Code *</label>
+                <label className="block text-slate-700 text-xs font-semibold mb-1.5">Color Code <span className="text-pink-500">*</span></label>
                 <div className="flex items-center gap-3">
                   <input
                     type="color"
                     value={hairColorForm.color_code}
                     onChange={(e) => setHairColorForm(prev => ({ ...prev, color_code: e.target.value.toUpperCase() }))}
-                    className="w-12 h-10 rounded-lg border border-gray-200 cursor-pointer"
+                    className="w-12 h-11 rounded-xl border border-slate-200 cursor-pointer"
                     disabled={isSavingHairColor}
                   />
                   <input
@@ -1397,24 +1638,24 @@ function Services() {
                     onChange={(e) => setHairColorForm(prev => ({ ...prev, color_code: e.target.value.toUpperCase() }))}
                     placeholder="#000000"
                     maxLength={7}
-                    className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 font-mono"
+                    className="flex-1 px-3.5 py-2.5 text-sm bg-slate-50/60 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-pink-500 focus:bg-white focus:border-transparent font-mono transition-all"
                     disabled={isSavingHairColor}
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-gray-700 text-sm font-semibold mb-1">Preview</label>
-                <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                <label className="block text-slate-700 text-xs font-semibold mb-1.5">Preview</label>
+                <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl border border-slate-100">
                   <div
-                    className="w-10 h-10 rounded-full border-2 border-gray-200"
+                    className="w-11 h-11 rounded-full border-2 border-white shadow-md"
                     style={{ backgroundColor: hairColorForm.color_code }}
                   />
                   <div>
-                    <p className="text-sm font-semibold text-gray-800">
+                    <p className="text-sm font-semibold text-slate-800">
                       {hairColorForm.color_name || 'Untitled Color'}
                     </p>
-                    <p className="text-xs text-gray-500 font-mono">{hairColorForm.color_code}</p>
+                    <p className="text-xs text-slate-500 font-mono">{hairColorForm.color_code}</p>
                   </div>
                 </div>
               </div>
@@ -1424,10 +1665,10 @@ function Services() {
                   type="checkbox"
                   checked={hairColorForm.is_active}
                   onChange={(e) => setHairColorForm(prev => ({ ...prev, is_active: e.target.checked }))}
-                  className="w-4 h-4 text-pink-500 border-gray-300 rounded focus:ring-pink-500"
+                  className="w-4 h-4 text-pink-500 border-slate-300 rounded focus:ring-pink-500"
                   disabled={isSavingHairColor}
                 />
-                <span className="text-gray-700 text-sm font-semibold">Mark as active</span>
+                <span className="text-slate-700 text-sm font-semibold">Mark as active</span>
               </label>
 
               <div className="flex gap-3 pt-2">
@@ -1438,14 +1679,14 @@ function Services() {
                     setEditingHairColor(null);
                   }}
                   disabled={isSavingHairColor}
-                  className="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium disabled:opacity-50"
+                  className="flex-1 px-4 py-2.5 border border-slate-200 text-slate-700 rounded-xl hover:bg-slate-50 transition-colors text-sm font-semibold disabled:opacity-50"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSavingHairColor}
-                  className="flex-1 px-4 py-2.5 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-lg transition-all duration-300 text-sm font-medium disabled:opacity-50 flex items-center justify-center gap-2"
+                  className="flex-1 px-4 py-2.5 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-xl shadow-md shadow-pink-500/25 hover:shadow-lg transition-all text-sm font-semibold disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {isSavingHairColor ? (
                     <>
@@ -1454,7 +1695,7 @@ function Services() {
                     </>
                   ) : (
                     <>
-                      <Palette size={16} />
+                      <Palette size={15} />
                       {editingHairColor ? 'Save Changes' : 'Add Color'}
                     </>
                   )}
@@ -1467,28 +1708,32 @@ function Services() {
 
       {/* Empty State */}
       {filteredServices.length === 0 && !isLoading && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 text-center">
-          <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
-            <Scissors size={28} className="text-gray-400" />
+        <div className="bg-white rounded-2xl border border-slate-200/70 shadow-sm p-10 text-center">
+          <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-3">
+            <Scissors size={28} className="text-slate-300" />
           </div>
-          <h3 className="text-base font-semibold text-gray-800 mb-1">
-            {statusFilter === 'inactive' 
-              ? 'No inactive services found' 
+          <h3 className="text-base font-semibold text-slate-800 mb-1">
+            {statusFilter === 'inactive'
+              ? 'No inactive services found'
               : statusFilter === 'active'
                 ? 'No active services found'
-                : 'No services found'}
+                : selectedCategoryLabel
+                  ? `No ${selectedCategoryLabel} services found`
+                  : 'No services found'}
           </h3>
-          <p className="text-sm text-gray-500 mb-3">
-            {searchTerm 
-              ? 'Try adjusting your search terms' 
+          <p className="text-sm text-slate-500 mb-3">
+            {searchTerm
+              ? 'Try adjusting your search terms'
               : statusFilter === 'inactive'
                 ? 'All services are currently active'
-                : 'Click "Add Service" to create your first service'}
+                : selectedCategoryLabel
+                  ? `Click "Add Service" to create your first ${selectedCategoryLabel} service`
+                  : 'Click "Add Service" to create your first service'}
           </p>
           {!searchTerm && statusFilter !== 'inactive' && (
-            <button 
+            <button
               onClick={handleAddNewService}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-pink-500 text-white rounded-lg hover:bg-pink-600 transition-colors text-sm"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-xl shadow-md shadow-pink-500/25 hover:shadow-lg transition-all text-sm font-semibold"
             >
               <Plus size={14} />
               <span>Add Service</span>

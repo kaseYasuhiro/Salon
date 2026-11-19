@@ -74,6 +74,7 @@ interface WalkIn {
   customer_name: string;
   service_id: number;
   stylist_id: number;
+  amount_paid?: number;
   is_finished: number;
   created_at: string;
   updated_at: string;
@@ -161,9 +162,6 @@ interface ServiceWithAdjustments {
   service_price_adjustments?: PriceAdjustment[];
 }
 
-/**
- * Build a lookup map: service_id → PriceAdjustment[]
- */
 const buildAdjustmentMap = (services: ServiceWithAdjustments[]) => {
   const map = new Map<number, PriceAdjustment[]>();
   services.forEach((service) => {
@@ -175,10 +173,6 @@ const buildAdjustmentMap = (services: ServiceWithAdjustments[]) => {
   return map;
 };
 
-/**
- * Resolve the additional price for a specific service + hair combo.
- * Returns 0 if no match.
- */
 const getAdditionalPrice = (
   adjustmentMap: Map<number, PriceAdjustment[]>,
   serviceId: number | undefined,
@@ -212,6 +206,20 @@ const getImageUrl = (imagePath: string | null | undefined) => {
   if (imagePath.startsWith('http')) return imagePath;
   if (imagePath.startsWith('/storage/')) return `${BASE_URL}${imagePath}`;
   return `${BASE_URL}/storage/${imagePath}`;
+};
+
+// ─────────────────────────────────────────────────────────────
+// Time formatting — "HH:mm" or "HH:mm:ss" → "h:mm AM/PM"
+// ─────────────────────────────────────────────────────────────
+const format12Hour = (time: string | null | undefined): string => {
+  if (!time) return '';
+  const [hStr, mStr] = time.split(':');
+  const h = parseInt(hStr, 10);
+  const m = parseInt(mStr, 10);
+  if (isNaN(h) || isNaN(m)) return time;
+  const suffix = h >= 12 ? 'PM' : 'AM';
+  const displayHour = h % 12 || 12;
+  return `${displayHour}:${String(m).padStart(2, '0')} ${suffix}`;
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -955,6 +963,11 @@ export default function StaffDashboard() {
   const [remitAmount, setRemitAmount] = useState(0);
   const [isLoadingRemit, setIsLoadingRemit] = useState(false);
 
+  // ✅ Guard state for one-remit-per-day
+  const [hasRemittedToday, setHasRemittedToday] = useState(false);
+  // ✅ Ticks once a minute so the "after close" check flips without a manual refresh
+  const [nowTick, setNowTick] = useState(0);
+
   // Report states
   const [showReportModal, setShowReportModal] = useState(false);
   const [reportAppointment, setReportAppointment] = useState<Appointment | null>(null);
@@ -1005,7 +1018,6 @@ export default function StaffDashboard() {
     }
   };
 
-  // ✅ Fetch all price adjustments once and cache them
   const fetchPriceAdjustments = async () => {
     try {
       const response = await api.get('/services/price/adjustment');
@@ -1025,7 +1037,6 @@ export default function StaffDashboard() {
       let appointmentsData: Appointment[] = [];
       if (Array.isArray(response.data)) {
         appointmentsData = response.data.map((item: any) => {
-          // ✅ Apply the price adjustment for this transaction row
           const basePrice = parseFloat(item.price) || 0;
           const additional = getAdditionalPrice(
             adjustmentMap,
@@ -1045,7 +1056,7 @@ export default function StaffDashboard() {
             status: item.status,
             service_name: item.service_name,
             duration_minutes: item.duration_minutes,
-            price: adjustedPrice.toString(),   // ✅ adjusted price
+            price: adjustedPrice.toString(),
             notes: item.notes,
             transaction_id: item.transaction_id,
             billing_payment_type: item.billing_payment_type ?? null,
@@ -1113,6 +1124,7 @@ export default function StaffDashboard() {
           customer_name: item.customer_name,
           service_id: item.service_id,
           stylist_id: item.stylist_id,
+          amount_paid: Number(item.amount_paid) || 0,
           is_finished: item.is_finished,
           created_at: item.created_at,
           updated_at: item.updated_at,
@@ -1191,6 +1203,68 @@ export default function StaffDashboard() {
 
   const getTodayDateStr = () => getUTCDateString(new Date());
 
+  const getTodaySchedule = (): BusinessSchedule | null => {
+    const todayStr = getTodayDateStr();
+    return businessSchedules.find(s => s.business_date === todayStr) || null;
+  };
+
+  // ─────────────────────────────────────────────────────────────
+  // ✅ Remittance gate calculations
+  // ─────────────────────────────────────────────────────────────
+  const currentMinutesOfDay = (): number => {
+    const now = new Date();
+    return now.getHours() * 60 + now.getMinutes();
+  };
+
+  const timeStrToMinutes = (t: string | null | undefined): number => {
+    if (!t) return 0;
+    const [h, m] = t.split(':').map(Number);
+    return (h || 0) * 60 + (m || 0);
+  };
+
+  const todayScheduleForRemit = getTodaySchedule();
+  const isPastClosingTime = todayScheduleForRemit
+    ? currentMinutesOfDay() >= timeStrToMinutes(todayScheduleForRemit.close_time)
+    : false;
+
+  // ✅ Once per day check — already looked up in the remittances array from /remittance
+  const alreadyRemittedToday = (() => {
+    if (!user?.id || !todayScheduleForRemit) return false;
+    return remittances.some(
+      (r) => r.user_id === user.id && r.business_date_id === todayScheduleForRemit.id
+    );
+  })();
+
+  // Keep `hasRemittedToday` in sync (used by the modal's submit guard as well)
+  useEffect(() => {
+    setHasRemittedToday(alreadyRemittedToday);
+  }, [alreadyRemittedToday]);
+
+  // Tick once a minute so the "before close" state resolves automatically
+  useEffect(() => {
+    const id = setInterval(() => setNowTick(t => t + 1), 60_000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Manual re-check helper — recomputes `nowTick` on demand (refresh button, remit click)
+  const refreshTimeGate = () => setNowTick(t => t + 1);
+
+  // The button is enabled only when:
+  //  - the day's schedule exists
+  //  - it's past closing time
+  //  - the staff hasn't already remitted today
+  const canOpenRemitModal =
+    !!todayScheduleForRemit &&
+    isPastClosingTime &&
+    !alreadyRemittedToday;
+
+  const remitGateReason = (): string | null => {
+    if (!todayScheduleForRemit) return 'No business schedule for today';
+    if (!isPastClosingTime) return `Available after ${format12Hour(todayScheduleForRemit.close_time)}`;
+    if (alreadyRemittedToday) return 'You already remitted today';
+    return null;
+  };
+
   // ✅ Earnings calculation — completed + no-show only (confirmed excluded) + completed walk-ins
   const getTodayEarnings = () => {
     const todayStr = getTodayDateStr();
@@ -1259,7 +1333,7 @@ export default function StaffDashboard() {
   const loadRemittanceData = async () => {
     setIsLoadingRemit(true);
     try {
-      await Promise.all([fetchStaffAppointments(), fetchWalkIns(), fetchEmployeeCommissions()]);
+      await Promise.all([fetchStaffAppointments(), fetchWalkIns(), fetchEmployeeCommissions(), fetchRemittances()]);
       const earnings = getTodayEarnings();
       setTotalProfit(earnings.profit);
       setRemitAmount(earnings.profit);
@@ -1272,6 +1346,40 @@ export default function StaffDashboard() {
   };
 
   const handleOpenRemitModal = async () => {
+    refreshTimeGate();
+
+    // Refuse if the day's schedule is missing
+    if (!todayScheduleForRemit) {
+      Alert.alert('No Schedule', 'No business schedule found for today.');
+      return;
+    }
+    // Refuse before closing time
+    if (!isPastClosingTime) {
+      Alert.alert(
+        'Not Yet Available',
+        `Remittance opens after closing time (${format12Hour(todayScheduleForRemit.close_time)}).`
+      );
+      return;
+    }
+    // Refuse if already remitted today (double-check with fresh data first)
+    try {
+      const fresh = await fetchRemittances();
+      const alreadyThere = fresh.some(
+        (r: Remittance) => r.user_id === user?.id && r.business_date_id === todayScheduleForRemit.id
+      );
+      if (alreadyThere) {
+        setHasRemittedToday(true);
+        Alert.alert('Already Remitted', 'You have already submitted your remittance for today.');
+        return;
+      }
+    } catch {
+      // If the refresh fails, fall back to the cached flag
+      if (alreadyRemittedToday) {
+        Alert.alert('Already Remitted', 'You have already submitted your remittance for today.');
+        return;
+      }
+    }
+
     try {
       await loadRemittanceData();
       setShowRemitModal(true);
@@ -1295,6 +1403,21 @@ export default function StaffDashboard() {
       Alert.alert('No Schedule', 'No business schedule found for today');
       return;
     }
+    // ✅ Final guard — block a second submission even if the UI state slipped
+    if (hasRemittedToday) {
+      Alert.alert('Already Remitted', 'You have already submitted your remittance for today.');
+      setShowRemitModal(false);
+      return;
+    }
+    // ✅ Block submission before closing time too
+    if (!isPastClosingTime) {
+      Alert.alert(
+        'Not Yet Available',
+        `Remittance opens after closing time (${format12Hour(schedule.close_time)}).`
+      );
+      return;
+    }
+
     setIsSubmittingRemit(true);
     try {
       await submitRemittance({
@@ -1303,6 +1426,7 @@ export default function StaffDashboard() {
         remittance_amount: remitAmount
       });
       Alert.alert('Success', 'Remittance submitted successfully!');
+      setHasRemittedToday(true);
       setShowRemitModal(false);
       await Promise.all([fetchStaffAppointments(), fetchEmployeeCommissions(), fetchRemittances(), fetchWalkIns()]);
     } catch (error: any) {
@@ -1345,7 +1469,6 @@ export default function StaffDashboard() {
     }
   };
 
-  // ✅ Today's appointments list on the Home tab — still shows confirmed ones for visibility
   const todayAppointments = staffAppointments.filter(app => {
     const today = getUTCDateString(new Date());
     if (app.appointment_date !== today) return false;
@@ -1356,20 +1479,31 @@ export default function StaffDashboard() {
   const staffCommissionRecord = employeeCommissions.find(c => c.employee_id === user?.id);
   const staffCommissionRate = staffCommissionRecord ? parseFloat(String(staffCommissionRecord.commission_amount)) || 0 : 0;
 
-  // ✅ Big "My Total Earnings" card — completed + weighted no-shows (confirmed excluded)
-  const completedRevenue = staffAppointments.reduce((sum, app) => {
-    if (app.status === 'completed') {
-      return sum + parseFloat(app.price || '0');
-    }
-    if (app.status === 'no-show') {
-      const price = parseFloat(app.price || '0');
-      const paymentType = (app.billing_payment_type || '').toLowerCase();
-      if (paymentType === 'downpayment') return sum + price * 0.5;
-      if (paymentType === 'remaining') return sum + price;
-      return sum + price * 0.5;
-    }
-    return sum;
-  }, 0);
+  const completedRevenue = (() => {
+    const appointmentRevenue = staffAppointments.reduce((sum, app) => {
+      if (app.status === 'completed') {
+        return sum + parseFloat(app.price || '0');
+      }
+      if (app.status === 'no-show') {
+        const price = parseFloat(app.price || '0');
+        const paymentType = (app.billing_payment_type || '').toLowerCase();
+        if (paymentType === 'downpayment') return sum + price * 0.5;
+        if (paymentType === 'remaining') return sum + price;
+        return sum + price * 0.5;
+      }
+      return sum;
+    }, 0);
+
+    const walkInRevenue = walkIns.reduce((sum, walkIn) => {
+      if (walkIn.stylist_id !== user?.id) return sum;
+      if (walkIn.is_finished !== 1) return sum;
+      const amountPaid = Number(walkIn.amount_paid) || 0;
+      const servicePrice = parseFloat(walkIn.services?.price || '0') || 0;
+      return sum + (amountPaid > 0 ? amountPaid : servicePrice);
+    }, 0);
+
+    return appointmentRevenue + walkInRevenue;
+  })();
 
   const completedEarnings = completedRevenue * staffCommissionRate;
 
@@ -1436,6 +1570,23 @@ export default function StaffDashboard() {
     });
   };
 
+  const getLocalDateStr = (date: Date): string =>
+    `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+
+  const getUpcomingAssignedDays = () => {
+    const todayStr = getLocalDateStr(new Date());
+
+    return staffAssignments
+      .filter((a) => a.staff_id === user?.id)
+      .map((a) => {
+        const schedule =
+          a.business_schedules ?? businessSchedules.find((s) => s.id === a.business_date_id) ?? null;
+        return { assignment: a, schedule, dateStr: (schedule?.business_date || '').slice(0, 10) };
+      })
+      .filter((item) => item.dateStr !== '' && item.dateStr >= todayStr)
+      .sort((x, y) => x.dateStr.localeCompare(y.dateStr));
+  };
+
   const getScheduleStatus = (date: Date): { status: 'open' | 'closed' | 'no_schedule'; schedule: BusinessSchedule | null; isAssigned: boolean } => {
     const dateStr = getUTCDateString(date);
     const schedule = getScheduleForDate(dateStr);
@@ -1468,7 +1619,6 @@ export default function StaffDashboard() {
     }
   };
 
-  // ✅ Initial load — price adjustments FIRST, then everything else
   useEffect(() => {
     if (user?.id) {
       (async () => {
@@ -1488,8 +1638,6 @@ export default function StaffDashboard() {
     }
   }, [user?.id]);
 
-  // ✅ Safety net — if adjustments arrive/change after appointments were loaded,
-  // recompute appointment prices.
   useEffect(() => {
     if (adjustmentMap.size > 0 && user?.id) {
       fetchStaffAppointments();
@@ -1519,6 +1667,7 @@ export default function StaffDashboard() {
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
+    refreshTimeGate();
     await fetchPriceAdjustments();
     await Promise.all([
       fetchUserData(),
@@ -1968,7 +2117,7 @@ export default function StaffDashboard() {
               <View className="mb-4">
                 <Text className="text-gray-500 text-sm">Business Hours</Text>
                 <Text className="text-gray-800 font-semibold">
-                  {selectedSchedule.open_time.substring(0, 5)} - {selectedSchedule.close_time.substring(0, 5)}
+                  {format12Hour(selectedSchedule.open_time)} - {format12Hour(selectedSchedule.close_time)}
                 </Text>
               </View>
 
@@ -2073,15 +2222,15 @@ export default function StaffDashboard() {
             <View className="px-5 mt-4">
               <TouchableOpacity
                 onPress={handleOpenRemitModal}
-                disabled={isLoadingRemit}
+                disabled={isLoadingRemit || !canOpenRemitModal}
                 className="w-full py-4 rounded-2xl"
                 style={{
-                  backgroundColor: '#ec4899',
-                  shadowColor: '#ec4899',
+                  backgroundColor: !canOpenRemitModal ? '#d1d5db' : '#ec4899',
+                  shadowColor: !canOpenRemitModal ? 'transparent' : '#ec4899',
                   shadowOffset: { width: 0, height: 4 },
-                  shadowOpacity: 0.3,
+                  shadowOpacity: !canOpenRemitModal ? 0 : 0.3,
                   shadowRadius: 8,
-                  elevation: 6,
+                  elevation: !canOpenRemitModal ? 0 : 6,
                 }}
               >
                 <View className="flex-row items-center justify-center gap-3">
@@ -2092,13 +2241,28 @@ export default function StaffDashboard() {
                     </>
                   ) : (
                     <>
-                      <Ionicons name="cash-outline" size={24} color="white" />
-                      <Text className="text-white font-bold text-lg">Remit Profit</Text>
-                      <Ionicons name="arrow-forward-circle-outline" size={24} color="white" />
+                      <Ionicons
+                        name={alreadyRemittedToday ? 'checkmark-done-circle-outline' : 'cash-outline'}
+                        size={24}
+                        color="white"
+                      />
+                      <Text className="text-white font-bold text-lg">
+                        {alreadyRemittedToday ? 'Already Remitted Today' : 'Remit Profit'}
+                      </Text>
+                      {!alreadyRemittedToday && <Ionicons name="arrow-forward-circle-outline" size={24} color="white" />}
                     </>
                   )}
                 </View>
               </TouchableOpacity>
+
+              {/* Reason the button is disabled (if any) */}
+              {(() => {
+                const reason = remitGateReason();
+                if (!reason) return null;
+                return (
+                  <Text className="text-gray-400 text-xs text-center mt-2">{reason}</Text>
+                );
+              })()}
             </View>
 
             <View className="px-5 mt-6">
@@ -2170,7 +2334,7 @@ export default function StaffDashboard() {
                     <Text className="text-white text-4xl font-bold mt-2">₱{completedEarnings.toLocaleString()}</Text>
                     <Text className="text-white opacity-75 text-xs mt-2">
                       {staffCommissionRate > 0
-                        ? `${(staffCommissionRate * 100).toFixed(0)}% commission from completed & no-show services`
+                        ? `${(staffCommissionRate * 100).toFixed(0)}% commission from completed & no-show services and finished walk-ins`
                         : 'No commission rate set'}
                     </Text>
                     {staffCommissionRate > 0 && (
@@ -2306,34 +2470,66 @@ export default function StaffDashboard() {
                 </View>
               </View>
 
-              <Text className="text-lg font-bold text-gray-800 mb-3">Your Assigned Days</Text>
-              {staffAssignments.filter(a => a.staff_id === user?.id).length === 0 ? (
-                <View className="bg-white rounded-2xl p-8 items-center">
-                  <Ionicons name="calendar-outline" size={40} color="#d1d5db" />
-                  <Text className="text-gray-400 mt-2 text-center">No assigned work days yet</Text>
-                  <Text className="text-gray-400 text-xs text-center mt-1">Check back later for your schedule</Text>
-                </View>
-              ) : (
-                staffAssignments
-                  .filter(a => a.staff_id === user?.id)
-                  .map((assignment) => (
-                    <View key={assignment.id} className="bg-white rounded-2xl p-4 mb-3 shadow-sm border border-gray-100">
-                      <View className="flex-row items-center gap-3">
-                        <View className="bg-pink-100 p-2 rounded-full">
-                          <Ionicons name="checkmark-circle" size={20} color="#ec4899" />
-                        </View>
-                        <View>
-                          <Text className="text-gray-800 font-semibold">
-                            {formatFullDate(assignment.business_schedules?.business_date || '')}
-                          </Text>
-                          <Text className="text-gray-500 text-xs">
-                            {assignment.business_schedules?.open_time?.substring(0, 5)} - {assignment.business_schedules?.close_time?.substring(0, 5)}
-                          </Text>
+              <View className="flex-row items-center justify-between mb-3">
+              <Text className="text-lg font-bold text-gray-800">Your Assigned Days</Text>
+              <Text className="text-xs text-gray-400">Next 7 upcoming</Text>
+            </View>
+
+            {(() => {
+              const upcoming = getUpcomingAssignedDays();
+              const visible = upcoming.slice(0, 7);
+              const todayStr = getLocalDateStr(new Date());
+
+              if (visible.length === 0) {
+                return (
+                  <View className="bg-white rounded-2xl p-8 items-center">
+                    <Ionicons name="calendar-outline" size={40} color="#d1d5db" />
+                    <Text className="text-gray-400 mt-2 text-center">No upcoming assigned work days</Text>
+                    <Text className="text-gray-400 text-xs text-center mt-1">Check back later for your schedule</Text>
+                  </View>
+                );
+              }
+
+              return (
+                <>
+                  {visible.map(({ assignment, schedule, dateStr }) => {
+                    const isTodayAssignment = dateStr === todayStr;
+                    return (
+                      <View
+                        key={assignment.id}
+                        className={`bg-white rounded-2xl p-4 mb-3 shadow-sm border ${
+                          isTodayAssignment ? 'border-pink-300' : 'border-gray-100'
+                        }`}
+                      >
+                        <View className="flex-row items-center gap-3">
+                          <View className="bg-pink-100 p-2 rounded-full">
+                            <Ionicons name="checkmark-circle" size={20} color="#ec4899" />
+                          </View>
+                          <View className="flex-1">
+                            <Text className="text-gray-800 font-semibold">{formatFullDate(dateStr)}</Text>
+                            {/* ✅ 12-hour format */}
+                            <Text className="text-gray-500 text-xs">
+                              {format12Hour(schedule?.open_time)} - {format12Hour(schedule?.close_time)}
+                            </Text>
+                          </View>
+                          {isTodayAssignment && (
+                            <View className="bg-pink-500 px-2 py-0.5 rounded-full">
+                              <Text className="text-white text-[10px] font-semibold">Today</Text>
+                            </View>
+                          )}
                         </View>
                       </View>
-                    </View>
-                  ))
-              )}
+                    );
+                  })}
+
+                  {upcoming.length > visible.length && (
+                    <Text className="text-gray-400 text-xs text-center mb-2">
+                      + {upcoming.length - visible.length} more upcoming day{upcoming.length - visible.length === 1 ? '' : 's'}
+                    </Text>
+                  )}
+                </>
+              );
+            })()}
             </View>
           </ScrollView>
         );
@@ -2428,7 +2624,7 @@ export default function StaffDashboard() {
 
         <TouchableOpacity className="items-center py-1 px-5" onPress={() => { setShowReportPage(false); setActiveTab('walkin'); }}>
           <Ionicons name={activeTab === 'walkin' ? "person-add" : "person-add-outline"} size={24} color={activeTab === 'walkin' ? "#ec4899" : "#9ca3af"} />
-          <Text className={`text-xs mt-1 ${activeTab === 'walkin' ? 'text-pink-500 font-semibold' : 'text-gray-400'}`}>Walk-in</Text>
+          <Text className={`text-xs mt-1 ${activeTab === 'walkin' ? 'text-pink-500 font-semibold' : 'text-gray-400'}`}>All Appointments</Text>
         </TouchableOpacity>
 
         <TouchableOpacity className="items-center py-1 px-5" onPress={() => { setShowReportPage(false); setActiveTab('settings'); }}>

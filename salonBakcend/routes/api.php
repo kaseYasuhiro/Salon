@@ -63,6 +63,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/employees/update/{id}', [UserController::class, 'updateEmployee']);
     Route::post('/employees/delete/{id}', [UserController::class, 'deleteEmployee']);
     Route::post('/employees/specialty/add', [StaffSpecialtiesController::class, 'addStaffSpecialty']);
+    Route::delete('/employees/specialty/{id}', [JoinedController::class, 'removeSpecialty']);
     Route::get('/employee/specialties', [JoinedController::class, 'staffWithSpecialties']);
     Route::get('/feedbacks', [JoinedController::class, 'viewFeedbacks']);
     route::get('/feedbacks/staff', [JoinedController::class, 'displayStaffReviews']);
@@ -108,6 +109,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/appointment/{id}', [JoinedController::class, 'getAppointmentDetails']);
     Route::get('/expenses', [JoinedController::class, 'displayExpenses']);
     Route::post('/expenses/add', [ExpensesController::class, 'addExpense']);
+    Route::delete('/services/specialties/remove', [JoinedController::class, 'removeServiceSpecialty']);
 
     Route::post('/services/update-all', [JoinedController::class, 'updateService']);
     Route::post('/employees/update-all', [JoinedController::class, 'updateEmployeeDetails']);
@@ -149,7 +151,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/user/appointment/requests/submit', [AppointmentRequestsController::class, 'submitAppointmentRequest']);
     Route::get('/user/appointment/requests', [JoinedController::class, 'userRequests']);
     Route::post('/user/appointment/request/cancel/{id}', [AppointmentRequestsController::class, 'cancelRequest']);
+    Route::get('/walk-in/customer', [WalkInController::class, 'getCustomerWalkIns']);
         
+    
     
 
 
@@ -172,6 +176,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/report/add', [IncidentReportsController::class, 'submitIncidentReport']);
     Route::post('/profile/add/{id}', [UserController::class, 'addProfileImage']);
     Route::post('/appointment/settle-balance', [JoinedController::class, 'settleBalance']);
+    Route::get('/customer/accounts', [UserController::class, 'getCustomerAccounts']);
 
 
     

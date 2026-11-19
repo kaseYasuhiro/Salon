@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from "../contexts/auth-context";
 import ROHSLogo from "/src/assets/ROHS Logo.png";
+import LoginBG from "/src/assets/login BG2.jpg";
 
 function Toast({ message, type = 'info', onClose }) {
   useEffect(() => {
@@ -123,9 +124,20 @@ function App() {
         />
       )}
 
-      {/* ── Left Panel (desktop) — Logo hero ── */}
-      <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-pink-600 to-pink-800 relative overflow-hidden">
-        {/* Soft decorative glow behind the logo */}
+      {/* ── Left Panel (desktop) — Logo hero with background image ── */}
+      <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden">
+        {/* ✅ Background image */}
+        <img
+          src={LoginBG}
+          alt=""
+          aria-hidden="true"
+          className="absolute inset-0 w-full h-full object-cover"
+        />
+
+        {/* ✅ Pink gradient overlay on top of the image for brand consistency */}
+        <div className="absolute inset-0 bg-gradient-to-br from-pink-600/85 via-pink-700/75 to-pink-900/90" />
+
+        {/* Optional soft decorative glow */}
         <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[520px] h-[520px] bg-white/10 rounded-full blur-3xl" />
 
         <div className="relative z-10 flex flex-col justify-center items-center text-white p-12 w-full">
@@ -141,15 +153,15 @@ function App() {
               </div>
             </div>
 
-            <h1 className="text-4xl font-bold mb-3 tracking-tight">
+            <h1 className="text-4xl font-bold mb-3 tracking-tight drop-shadow-lg">
               Owner Portal
             </h1>
-            <p className="text-pink-100 text-lg mb-6">
+            <p className="text-pink-100 text-lg mb-6 drop-shadow">
               Reshel Oco Hair Salon
             </p>
 
             <div className="border-t border-white/20 pt-6 mt-6">
-              <p className="text-pink-100 text-sm">
+              <p className="text-pink-100 text-sm drop-shadow">
                 Secure access for salon administrators only
               </p>
               <div className="flex items-center justify-center mt-4 space-x-2">

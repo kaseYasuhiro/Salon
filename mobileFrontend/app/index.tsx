@@ -1,12 +1,17 @@
 import { Ionicons } from '@expo/vector-icons';
 import Checkbox from "expo-checkbox";
 import { router } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Alert, Text, TextInput, TouchableOpacity, View, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, Image } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from "@/contexts/auth-context";
 import { LinearGradient } from 'expo-linear-gradient';
 import api from '@/api/axios';
+import LandingPage from '../app/Landingpage';
+
+// The landing page is shown once per install. Bump the version (v1 → v2) to show it again to everyone.
+const LANDING_SEEN_KEY = 'rohs_landing_seen_v1';
 
 export default function Login() {
   const { login } = useAuth();
@@ -15,6 +20,42 @@ export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLocalLoading, setIsLocalLoading] = useState(false);
+
+  // null = still checking, true = show landing page, false = go straight to login
+  const [showLanding, setShowLanding] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const seen = await AsyncStorage.getItem(LANDING_SEEN_KEY);
+        setShowLanding(seen !== 'true');
+      } catch {
+        // If storage fails, don't block the customer — just show the login screen
+        setShowLanding(false);
+      }
+    })();
+  }, []);
+
+  const markLandingSeen = async () => {
+    try {
+      await AsyncStorage.setItem(LANDING_SEEN_KEY, 'true');
+    } catch {
+      // ignore — worst case the landing page shows again next launch
+    }
+  };
+
+  // "Get Started" and "Skip": continue to the login screen
+  const handleLandingContinue = async () => {
+    setShowLanding(false);
+    await markLandingSeen();
+  };
+
+  // "Create an account": go straight to registration
+  const handleLandingSignUp = async () => {
+    setShowLanding(false);
+    await markLandingSeen();
+    router.push("../registraion");
+  };
 
   const handleLogin = async () => {
     if (!email || !password) {
@@ -132,6 +173,25 @@ export default function Login() {
       setIsLocalLoading(false);
     }
   };
+
+  // While we check whether the landing page was already seen, show a plain branded background
+  if (showLanding === null) {
+    return (
+      <View className="flex-1 bg-[#fdf2f7] items-center justify-center">
+        <ActivityIndicator size="small" color="#ec4899" />
+      </View>
+    );
+  }
+
+  if (showLanding) {
+    return (
+      <LandingPage
+        onGetStarted={handleLandingContinue}
+        onSkip={handleLandingContinue}
+        onCreateAccount={handleLandingSignUp}
+      />
+    );
+  }
 
   return (
     <SafeAreaView className="flex-1 bg-[#fdf2f7]">

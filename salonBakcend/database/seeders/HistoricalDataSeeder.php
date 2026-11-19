@@ -42,7 +42,7 @@ class HistoricalDataSeeder extends Seeder
             $transactions = $this->seedTransactions($appointments, $services, $users);
             $billings     = $this->seedBillings($appointments);
             $payments     = $this->seedPayments($billings);
-            $this->seedEmployeeCommissions($transactions, $users);
+            $this->seedEmployeeCommissions($users); // ✅ Only needs $users now
             $this->seedInventoryTransactions($inventories, $transactions);
             $this->seedFeedback($users, $appointments);
             $this->seedStaffFeedback($users);
@@ -149,7 +149,7 @@ class HistoricalDataSeeder extends Seeder
      ============================================================ */
     protected function seedSpecialties(): array
     {
-        $names = ['Haircut', 'Hair Coloring', 'Rebond', 'Perm', 'Treatment', 'Styling', 'Nails', 'Makeup'];
+        $names = ['Stylist', 'Barber'];
         $ids = [];
         foreach ($names as $name) {
             $ids[] = DB::table('specialties')->insertGetId([
@@ -165,8 +165,8 @@ class HistoricalDataSeeder extends Seeder
     {
         $pivotIds = [];
         foreach ($users['staff'] as $staffId) {
-            // each staff gets 2-4 random specialties
-            $picked = collect($specialties)->random(rand(2, 4));
+            // Each staff gets 1 or 2 specialties (Stylist and/or Barber)
+            $picked = collect($specialties)->random(rand(1, 2));
             foreach ($picked as $specId) {
                 $pivotIds[] = DB::table('staff_specialties')->insertGetId([
                     'staff_id'     => $staffId,
@@ -185,6 +185,7 @@ class HistoricalDataSeeder extends Seeder
      ============================================================ */
     protected function seedServices(): array
     {
+        // ✅ Only Hair-related services
         $services = [
             ['Haircut - Basic',         'Standard haircut for all lengths',           150,  30,  false, false],
             ['Haircut - Premium',       'Premium haircut with wash and blowdry',      350,  45,  false, false],
@@ -195,8 +196,8 @@ class HistoricalDataSeeder extends Seeder
             ['Perm - Digital',          'Digital perm service',                       3000, 180, false, false],
             ['Hair Spa Treatment',      'Deep conditioning hair spa',                 600,  60,  false, false],
             ['Blowdry & Style',         'Blowdry and styling service',                250,  30,  false, false],
-            ['Manicure',                'Basic manicure service',                     200,  45,  false, false],
-            ['Pedicure',                'Basic pedicure service',                     250,  45,  false, false],
+            ['Hair Extension',          'Premium hair extension application',         3500, 180, false, false],
+            ['Keratin Treatment',       'Smoothing keratin treatment',                2000, 150, false, false],
         ];
 
         $ids = [];
@@ -267,14 +268,14 @@ class HistoricalDataSeeder extends Seeder
     protected function seedServiceSpecialties(array $services, array $specialties): void
     {
         foreach ($services as $serviceId) {
-            foreach (collect($specialties)->random(rand(1, 2)) as $specId) {
-                DB::table('service_specialties')->insert([
-                    'service_id'   => $serviceId,
-                    'specialty_id' => $specId,
-                    'created_at'   => $this->startDate,
-                    'updated_at'   => $this->startDate,
-                ]);
-            }
+            // Pick 1 specialty from the available list (Stylist or Barber)
+            $specId = collect($specialties)->random();
+            DB::table('service_specialties')->insert([
+                'service_id'   => $serviceId,
+                'specialty_id' => $specId,
+                'created_at'   => $this->startDate,
+                'updated_at'   => $this->startDate,
+            ]);
         }
     }
 
@@ -574,18 +575,15 @@ class HistoricalDataSeeder extends Seeder
     /* ============================================================
      |  EMPLOYEE COMMISSIONS
      ============================================================ */
-    protected function seedEmployeeCommissions(array $transactions, array $users): void
+    protected function seedEmployeeCommissions(array $users): void
     {
-        foreach ($transactions as $txn) {
-            // 10% commission on service
-            $servicePrice = DB::table('services')->where('id', $txn['service_id'])->value('price');
-            $commission = round($servicePrice * 0.10, 2);
-
+        // ✅ Insert ONE rate row per staff member (0.40 = 40%)
+        foreach ($users['staff'] as $staffId) {
             DB::table('employee_commissions')->insert([
-                'employee_id'       => $txn['staff_id'],
-                'commission_amount' => $commission,
-                'created_at'        => $txn['date'],
-                'updated_at'        => $txn['date'],
+                'employee_id'       => $staffId,
+                'commission_amount' => 0.40,
+                'created_at'        => $this->startDate,
+                'updated_at'        => $this->startDate,
             ]);
         }
     }
@@ -722,29 +720,33 @@ class HistoricalDataSeeder extends Seeder
     }
 
     /* ============================================================
-     |  EXPENSES
+     |  EXPENSES (RESTOCKS ONLY)
      ============================================================ */
     protected function seedExpenses(array $users): void
     {
-        $expenses = [
-            ['Electricity Bill',  0,  2500],
-            ['Water Bill',        0,  800],
-            ['Rent',              0,  15000],
-            ['Shampoo Restock',   50, 3500],
-            ['Color Supplies',    30, 5000],
-            ['Cleaning Supplies', 0,  500],
+        // ✅ Only restock-related expenses
+        $restockOptions = [
+            ['Shampoo Professional Restock',  50, 3500],
+            ['Conditioner Pro Restock',       50, 3200],
+            ['Hair Color Restock',            30, 5000],
+            ['Rebond Cream Restock',          20, 4500],
+            ['Neutralizer Restock',           20, 2800],
+            ['Hair Spa Mask Restock',         15, 2500],
+            ['Developer Restock',             40, 1800],
+            ['Salon Supplies Restock',        100, 1200],
         ];
 
         $cursor = $this->startDate->copy();
         while ($cursor->lte($this->endDate)) {
+            // ~15% chance per day to have a restock
             if (rand(1, 100) <= 15) {
-                [$name, $stock, $amount] = collect($expenses)->random();
+                [$name, $stock, $amount] = collect($restockOptions)->random();
                 DB::table('expenses')->insert([
                     'expense_name' => $name,
                     'stock_amount' => $stock,
                     'amount'       => $amount,
                     'expense_date' => $cursor->toDateString(),
-                    'description'  => 'Auto-generated expense',
+                    'description'  => 'Inventory restock',
                     'recorded_by'  => $users['owner'],
                     'created_at'   => $cursor->copy(),
                     'updated_at'   => $cursor->copy(),

@@ -144,4 +144,9 @@ class User extends Authenticatable
         return $this->hasMany(Remittance::class, 'user_id', 'id');
     }
 
+    public function walkIns()
+    {
+        return $this->hasMany(WalkIn::class, 'customer_id');
+    }
+
 }

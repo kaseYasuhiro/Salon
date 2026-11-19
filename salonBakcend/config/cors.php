@@ -24,6 +24,7 @@ return [
         'http://localhost:5173',
         'http://192.168.100.73:8000',
         'http://192.168.100.73:5173',
+        'http://localhost:8081'
     ],
 
     'allowed_origins_patterns' => [],

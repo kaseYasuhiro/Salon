@@ -309,4 +309,14 @@ class UserController extends Controller
             'user'    => $owner->fresh(),
         ], 200);
     }
+
+    public function getCustomerAccounts()
+    {
+        $customers = \App\Models\User::where('role', 'customer')
+            ->select('id', 'first_name', 'last_name', 'email', 'phone_number')
+            ->orderBy('first_name', 'asc')
+            ->get();
+
+        return response()->json($customers, 200);
+    }
 }
