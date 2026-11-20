@@ -557,7 +557,7 @@ function Employees() {
         <StatCard
           label="Authorized for Receptionist"
           value={stats.authorizedCount}
-          sub="With walk-in access"
+          sub="With Access to all Appointments"
           icon={UserCheck}
           color="from-blue-500 to-blue-600"
         />
@@ -669,7 +669,7 @@ function Employees() {
                             <span className="text-[10px] font-bold text-slate-700">{employee.staff_specialties.length}</span>
                           </div>
                         )}
-                        <div className="bg-white rounded-full px-1.5 py-0.5">
+                        <div className="rounded-full px-1.5 py-0.5">
                           {!isActive ? (
                             <StatusPill status="inactive" label="Inactive" />
                           ) : isAuthorized ? (
@@ -1005,33 +1005,35 @@ function Employees() {
                 />
               </div>
 
-              {!editingEmployee && (
-                <>
-                  <div>
-                    <label className={labelClass}>Password <span className="text-pink-500">*</span></label>
-                    <input
-                      type="password"
-                      name="password"
-                      value={formData.password}
-                      onChange={handleInputChange}
-                      placeholder="Minimum 6 characters"
-                      className={inputClass}
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className={labelClass}>Confirm Password <span className="text-pink-500">*</span></label>
-                    <input
-                      type="password"
-                      name="password_confirmation"
-                      value={formData.password_confirmation}
-                      onChange={handleInputChange}
-                      className={inputClass}
-                      required
-                    />
-                  </div>
-                </>
-              )}
+              {/* Password fields now always render, but are optional during edit */}
+              <div>
+                <label className={labelClass}>
+                  Password {!editingEmployee && <span className="text-pink-500">*</span>}
+                  {editingEmployee && <span className="text-xs text-slate-400 font-normal ml-1">(Leave blank to keep current)</span>}
+                </label>
+                <input
+                  type="password"
+                  name="password"
+                  value={formData.password}
+                  onChange={handleInputChange}
+                  placeholder={editingEmployee ? "Leave blank to keep current" : "Minimum 6 characters"}
+                  className={inputClass}
+                  required={!editingEmployee} 
+                />
+              </div>
+              <div>
+                <label className={labelClass}>
+                  Confirm Password {!editingEmployee && <span className="text-pink-500">*</span>}
+                </label>
+                <input
+                  type="password"
+                  name="password_confirmation"
+                  value={formData.password_confirmation}
+                  onChange={handleInputChange}
+                  className={inputClass}
+                  required={!editingEmployee}
+                />
+              </div>
 
               <div className="flex gap-2 justify-end pt-2">
                 <button

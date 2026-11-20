@@ -2795,16 +2795,6 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                                       )}
                                     </View>
 
-                                    <TouchableOpacity
-                                      onPress={() => setDetailsTarget({ staffId: staffMember.id, groupKey: group.key })}
-                                      className="mt-2"
-                                      hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-                                    >
-                                      <Text className="text-pink-600 text-xs font-semibold">
-                                        Ratings & reviews ›
-                                      </Text>
-                                    </TouchableOpacity>
-
                                     <View className={`mt-3 rounded-full py-2 items-center ${isChosen ? 'bg-pink-500' : 'bg-pink-100'}`}>
                                       <Text className={`font-semibold text-xs ${isChosen ? 'text-white' : 'text-pink-600'}`}>
                                         {isChosen ? 'Selected ✓' : 'Select Stylist'}

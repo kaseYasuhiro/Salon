@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { View, Text, TouchableOpacity, ScrollView, Alert, Modal, ActivityIndicator, Image, TextInput } from "react-native";
+import { View, Text, TouchableOpacity, ScrollView, Alert, Modal, ActivityIndicator, Image, TextInput, SafeAreaView } from "react-native";
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from "@/contexts/auth-context";
 import api from '@/api/axios';
@@ -150,9 +150,6 @@ interface StaffWalkInProps {
   onSuccess?: () => void;
 }
 
-// ✅ New landing screen is the default view now, so neither sub-screen mounts until
-// the user explicitly picks one. That delay is what stabilizes the navigation
-// context and stops the "Couldn't find a navigation context" error.
 type MainTab = 'landing' | 'appointments' | 'walk-ins';
 
 type BookingStep = 'customer' | 'services' | 'stylist' | 'confirm';
@@ -160,7 +157,6 @@ type BookingStep = 'customer' | 'services' | 'stylist' | 'confirm';
 const DEFAULT_GROUP_KEY = 'stylist';
 
 export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
-  // ✅ Start on the landing screen, not directly in "appointments"
   const [mainTab, setMainTab] = useState<MainTab>('landing');
 
   // Booking state
@@ -202,7 +198,6 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
   const [localBusinessSchedules, setLocalBusinessSchedules] = useState<BusinessSchedule[]>([]);
   const [localStaffAssignments, setLocalStaffAssignments] = useState<StaffAssignment[]>([]);
 
-  // Mounted flag so async fetches don't call setState or Alert after unmount
   const isMountedRef = useRef(true);
   useEffect(() => {
     isMountedRef.current = true;
@@ -703,6 +698,11 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
     setBookingStep('stylist');
   };
 
+  const handleBackToLanding = () => {
+    startNewWalkIn();      
+    setMainTab('landing'); 
+  };
+
   const handleConfirmWalkIn = async () => {
     const currentGroups = getSelectedGroups();
 
@@ -1108,8 +1108,7 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
     });
 
   // ─────────────────────────────────────────────────────────────
-  // Landing screen — two big buttons. Nothing below this mounts until the
-  // user picks one, which stabilizes the navigation context on mount.
+  // Landing screen
   // ─────────────────────────────────────────────────────────────
   const renderLandingSection = () => {
     return (
@@ -1301,37 +1300,23 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
     return (
       <ScrollView showsVerticalScrollIndicator={false} className="flex-1">
         <View className="px-5 pt-4">
-          <View className="flex-row items-center mb-4">
-            <TouchableOpacity
-              className="flex-row items-center"
-              onPress={() => {
-                if (bookingStep === 'customer') {
-                  setMainTab('landing');
-                } else {
-                  startNewWalkIn();
-                }
-              }}>
-              <Ionicons name="arrow-back" size={24} color="#ec4899" />
-              <Text className="text-pink-600 font-semibold ml-2">
-                {bookingStep === 'customer' ? 'Back' : 'Restart'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          {(bookingStep === 'services' || bookingStep === 'stylist' || bookingStep === 'confirm') && (
+          {/* Back button – always visible inside walk-ins flow */}
+          {(bookingStep === 'customer' || bookingStep === 'services' || bookingStep === 'stylist' || bookingStep === 'confirm') && (
             <TouchableOpacity
               className="flex-row items-center mb-4"
               onPress={
                 bookingStep === 'confirm' ? handleBackToStylist :
                 bookingStep === 'stylist' ? handleBackToServices :
-                handleBackToCustomer
+                bookingStep === 'services' ? handleBackToCustomer :
+                handleBackToLanding // ← from customer step, go back to landing
               }
               disabled={isProcessing}>
               <Ionicons name="arrow-back" size={20} color="#9ca3af" />
               <Text className="text-gray-500 font-medium ml-2 text-sm">
                 {bookingStep === 'confirm' ? 'Back to Stylists' :
                  bookingStep === 'stylist' ? 'Back to Services' :
-                 'Back to Customers'}
+                 bookingStep === 'services' ? 'Back to Customers' :
+                 'Back to Selection'}
               </Text>
             </TouchableOpacity>
           )}
@@ -1726,12 +1711,11 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
   // Render
   // ─────────────────────────────────────────────────────────────
   return (
-    <View className="flex-1 bg-gray-50">
+    <View className="flex-1 bg-gray-50 pt-12">
       {mainTab === 'landing' && renderLandingSection()}
       {mainTab === 'appointments' && renderAppointmentsSection()}
       {mainTab === 'walk-ins' && renderWalkInsSection()}
 
-      {/* Modals only mount when they actually have data. */}
       {showAppointmentModal && selectedAppointment && <AppointmentDetailsModal />}
       {showPaymentProofModal && selectedPaymentData && <PaymentProofModal />}
     </View>

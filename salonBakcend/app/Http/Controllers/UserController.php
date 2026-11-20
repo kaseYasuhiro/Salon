@@ -129,24 +129,33 @@ class UserController extends Controller
             'last_name' => ['required', 'string'],
             'email' => ['required', 'string', 'email', 'unique:users,email,' . $id],
             'phone_number' => ['required', 'string'],
+            'password' => ['nullable', 'confirmed', Password::defaults()],
             'role' => ['required', 'string']
         ]);
 
-        // Fix: Find employee by ID, not by role
+        //Find employee by ID, not by role
         $employee = User::findOrFail($id);
         
-        // Optional: Only allow updating employees (not admins/owners)
+        //Only allow updating employees (not admins/owners)
         if (in_array($employee->role, ['customer', 'owner'])) {
             return response()->json(['message' => 'Cannot update customer or owner'], 403);
         }
 
-        $employee->update([
+        // Prepare data for update
+        $updateData = [
             'first_name' => $request->first_name,
             'last_name' => $request->last_name,
             'email' => $request->email,
             'phone_number' => $request->phone_number,
             'role' => $request->role,
-        ]);
+        ];
+
+        //Only update password if a new one was actually provided
+        if ($request->filled('password')) {
+            $updateData['password'] = Hash::make($request->password);
+        }
+
+        $employee->update($updateData);
 
         return response()->json([
             'message' => 'Employee Updated Successfully',

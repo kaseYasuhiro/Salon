@@ -1153,8 +1153,7 @@ function Dashboard() {
             </InfoCard>
 
             <InfoCard icon={null} title="Payment">
-              <div className="-mt-9 mb-0" />
-              <div className="space-y-2 text-sm">
+              <div className="space-y-2 text-sm mt-1">
                 <p className="flex justify-between"><span className="font-medium text-slate-500">Total Amount</span><span className="text-pink-600 font-bold">₱{grandTotal.toLocaleString()}</span></p>
                 <p className="flex justify-between"><span className="font-medium text-slate-500">Paid</span><span className="text-emerald-600 font-semibold">₱{paidAmount.toLocaleString()}</span></p>
                 <p className="flex justify-between"><span className="font-medium text-slate-500">Balance</span><span className={`font-semibold ${balance > 0 ? 'text-orange-600' : 'text-emerald-600'}`}>{balance > 0 ? `₱${balance.toLocaleString()}` : 'Paid in Full'}</span></p>

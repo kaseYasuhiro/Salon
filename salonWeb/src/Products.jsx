@@ -456,12 +456,7 @@ function Products() {
                       </div>
                     )}
                     <div className="flex flex-col items-end gap-1">
-                      {product.created_at && (
-                        <span className="bg-white/90 text-pink-600 text-[10px] font-bold px-2 py-0.5 rounded-full">
-                          New
-                        </span>
-                      )}
-                      <div className="bg-white rounded-full px-1.5 py-0.5">
+                      <div className="rounded-full px-1.5 py-0.5">
                         <StatusPill status={isInactive ? 'inactive' : 'active'} label={isInactive ? 'Inactive' : 'Active'} />
                       </div>
                     </div>
