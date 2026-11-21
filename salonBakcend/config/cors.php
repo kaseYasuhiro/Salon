@@ -20,11 +20,12 @@ return [
     'allowed_methods' => ['*'],
 
     'allowed_origins' => [
-        'https://salon-owner-portal.up.railway.app', // <-- Your exact frontend URL
+        'https://rohs.up.railway.app', // <-- Your exact frontend URL
         'http://localhost:5173',
         'http://192.168.100.73:8000',
         'http://192.168.100.73:5173',
-        'http://localhost:8081'
+        'http://localhost:8081',
+        'https://salon-portal.up.railway.app'
     ],
 
     'allowed_origins_patterns' => [],
