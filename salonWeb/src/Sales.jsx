@@ -3,6 +3,7 @@ import {
   BarChart3, TrendingUp, TrendingDown, Download, Printer, RefreshCw,
   AlertTriangle, CheckCircle, FileText, Users, Scissors, X,
   Filter, ChevronLeft, ChevronRight, Footprints,
+  Banknote, Smartphone,
 } from 'lucide-react';
 import api from '../api/axios';
 
@@ -86,6 +87,23 @@ function Sales() {
     totalWalkInCommissions: 0,
   });
 
+  // Counts of completed appointments + walk-ins. A visit paid with both
+  // methods (e.g. GCash downpayment + cash balance) counts once under each.
+  const [paymentBreakdown, setPaymentBreakdown] = useState({
+    cash: 0,
+    gcash: 0,
+    other: 0, // no payment record / unrecognized method
+    total: 0, // completed appointments + walk-ins in the current filter
+    apptTotal: 0,
+    walkInTotal: 0,
+    walkInCash: 0,
+    walkInGcash: 0,
+    walkInOther: 0,
+  });
+
+  const [paymentRows, setPaymentRows] = useState([]);
+  const [paymentPage, setPaymentPage] = useState(1);
+
   const [profitFilter, setProfitFilter] = useState('weekly');
   const [isLoadingSales, setIsLoadingSales] = useState(false);
   const [isLoadingProfit, setIsLoadingProfit] = useState(false);
@@ -108,6 +126,9 @@ function Sales() {
   const expensesRef = useRef([]);
   const reportsRef = useRef([]);
   const walkInsRef = useRef([]);
+  const servicesRef = useRef([]); // mirrors services for the same reason
+  const staffRef = useRef([]); // mirrors staffList so async fetchers never read a stale copy
+  const paymentsRef = useRef(new Map()); // appointment_id -> Set of payment methods
 
   const showToast = (message, type = 'success') => {
     setToast({ show: true, message, type });
@@ -269,14 +290,20 @@ function Sales() {
   const fetchStaffList = async () => {
     try {
       const response = await api.get('/staff-list');
-      if (Array.isArray(response.data)) setStaffList(response.data);
+      if (Array.isArray(response.data)) {
+        staffRef.current = response.data;
+        setStaffList(response.data);
+      }
     } catch {}
   };
 
   const fetchServices = async () => {
     try {
       const response = await api.get('/services');
-      if (Array.isArray(response.data)) setServices(response.data);
+      if (Array.isArray(response.data)) {
+        servicesRef.current = response.data;
+        setServices(response.data);
+      }
     } catch {}
   };
 
@@ -307,13 +334,162 @@ function Sales() {
   const fetchWalkIns = async () => {
     try {
       const response = await api.get('/walk-in');
-      const data = Array.isArray(response.data) ? response.data : [];
+      const data = Array.isArray(response.data) ? response.data : (response.data?.data ?? []);
       walkInsRef.current = data;
       setWalkIns(data);
     } catch {
       walkInsRef.current = [];
       setWalkIns([]);
     }
+  };
+
+  // ============================================================
+  // PAYMENT METHOD HELPERS (appointments + walk-ins)
+  // ============================================================
+
+  const normalizePaymentMethod = (m) => {
+    const v = String(m || '').toLowerCase().replace(/\s+/g, '');
+    if (v.includes('gcash')) return 'gcash';
+    if (v.includes('cash')) return 'cash';
+    return 'other';
+  };
+
+  const fetchPayments = async () => {
+    try {
+      const response = await api.get('/appointment/payment');
+      const rows = Array.isArray(response.data) ? response.data : (response.data?.data ?? []);
+      const map = new Map();
+      rows.forEach(r => {
+        const apptId = r.billing?.appointment_id ?? r.appointment_id;
+        if (apptId == null || !r.payment_method) return;
+        const key = String(apptId);
+        if (!map.has(key)) map.set(key, new Set());
+        map.get(key).add(normalizePaymentMethod(r.payment_method));
+      });
+      paymentsRef.current = map;
+    } catch {
+      paymentsRef.current = new Map();
+    }
+  };
+
+  // Walk-ins carry their payment method on the walk-in record itself.
+  // Supports a single `payment_method` / `mode_of_payment` string, a
+  // `payment_methods` array, or a `payments` relation array.
+  const getWalkInPaymentMethods = (w) => {
+    const set = new Set();
+    const add = (v) => { if (v) set.add(normalizePaymentMethod(v)); };
+    add(w.walkin_payment_method);
+    add(w.payment_method);
+    add(w.mode_of_payment);
+    if (Array.isArray(w.payment_methods)) w.payment_methods.forEach(add);
+    if (Array.isArray(w.payments)) w.payments.forEach(p => add(p?.payment_method));
+    return set;
+  };
+
+  const getAppointmentPaymentMethods = (appt) =>
+    paymentsRef.current.get(String(appt.appointment_id)) || null;
+
+  const tallyMethods = (methods, bucket) => {
+    const hasCash = !!methods && methods.has('cash');
+    const hasGcash = !!methods && methods.has('gcash');
+    if (hasCash) bucket.cash += 1;
+    if (hasGcash) bucket.gcash += 1;
+    if (!hasCash && !hasGcash) bucket.other += 1;
+  };
+
+  const calculatePaymentBreakdown = (appointments, walkInList = []) => {
+    const appt = { cash: 0, gcash: 0, other: 0 };
+    const walk = { cash: 0, gcash: 0, other: 0 };
+
+    appointments.forEach(a => tallyMethods(getAppointmentPaymentMethods(a), appt));
+    walkInList.forEach(w => tallyMethods(getWalkInPaymentMethods(w), walk));
+
+    return {
+      cash: appt.cash + walk.cash,
+      gcash: appt.gcash + walk.gcash,
+      other: appt.other + walk.other,
+      total: appointments.length + walkInList.length,
+      apptTotal: appointments.length,
+      walkInTotal: walkInList.length,
+      walkInCash: walk.cash,
+      walkInGcash: walk.gcash,
+      walkInOther: walk.other,
+    };
+  };
+
+  // ---------- Name helpers (services + user relations from the walk-in endpoint) ----------
+
+  const getUserFullName = (u) =>
+    u ? [u.first_name, u.last_name].filter(Boolean).join(' ').trim() : '';
+
+  const getStaffNameById = (id) => {
+    if (id == null) return '';
+    const s = staffRef.current.find(s => parseInt(s.id, 10) === parseInt(id, 10));
+    return s?.name || '';
+  };
+
+  const getWalkInServiceNames = (w) => {
+    // `services` is loaded via walk_ins.service_id, so it is normally ONE object,
+    // but an array is also handled in case the relation is ever changed to many.
+    const rel = w.services ?? w.service;
+    if (Array.isArray(rel)) {
+      const names = rel.map(s => s?.service_name || s?.name).filter(Boolean);
+      if (names.length > 0) return names;
+    } else if (rel && (rel.service_name || rel.name)) {
+      return [rel.service_name || rel.name];
+    }
+    if (w.service_name) return [w.service_name];
+    if (w.service_id != null) {
+      const svc = servicesRef.current.find(s => String(s.id) === String(w.service_id));
+      if (svc?.service_name) return [svc.service_name];
+    }
+    return [];
+  };
+
+  const getWalkInStaffName = (w) =>
+    getUserFullName(w.user) || getUserFullName(w.stylist) || getStaffNameById(w.stylist_id);
+
+  const getWalkInCustomerName = (w) =>
+    w.customer_name || w.client_name || w.name || 'Walk-in Customer';
+
+  const buildPaymentRows = (appointments, walkInList = []) => {
+    const apptRows = appointments.map(appt => {
+      const methods = getAppointmentPaymentMethods(appt);
+      return {
+        key: `appt-${appt.appointment_id}`,
+        type: 'appointment',
+        refLabel: `#${appt.appointment_id}`,
+        sortId: Number(appt.appointment_id) || 0,
+        date: normalizeDateStr(appt.appointment_date),
+        customer: appt.customer_name || 'N/A',
+        services: appt.services.map(s => s.service_name).filter(Boolean),
+        staff: getStaffNameById(appt.assigned_employee_id),
+        methods: methods ? ['cash', 'gcash', 'other'].filter(x => methods.has(x)) : [],
+        amount: appt.billing_paid_amount != null
+          ? appt.billing_paid_amount
+          : getAppointmentRevenue(appt),
+      };
+    });
+
+    const walkInRows = walkInList.map(w => {
+      const methods = getWalkInPaymentMethods(w);
+      return {
+        key: `walkin-${w.id}`,
+        type: 'walk-in',
+        refLabel: `Walk-in #${w.id}`,
+        sortId: Number(w.id) || 0,
+        date: getWalkInDate(w),
+        customer: getWalkInCustomerName(w),
+        services: getWalkInServiceNames(w),
+        staff: getWalkInStaffName(w),
+        methods: ['cash', 'gcash', 'other'].filter(x => methods.has(x)),
+        amount: getWalkInRevenue(w),
+      };
+    });
+
+    return [...apptRows, ...walkInRows].sort((a, b) =>
+      (b.date || '').localeCompare(a.date || '') || b.sortId - a.sortId
+    );
   };
 
   // ============================================================
@@ -753,6 +929,11 @@ function Sales() {
           activeStaff
         );
 
+        // Payment methods + payment details now cover appointments AND walk-ins
+        setPaymentBreakdown(calculatePaymentBreakdown(filtered, scopedWalkIns));
+        setPaymentRows(buildPaymentRows(filtered, scopedWalkIns));
+        setPaymentPage(1);
+
         const apptRevenue = filtered.reduce((s, a) => s + getAppointmentRevenue(a), 0);
         const walkInRevenue = scopedWalkIns.reduce((s, w) => s + getWalkInRevenue(w), 0);
         const totalRevenue = apptRevenue + walkInRevenue;
@@ -859,6 +1040,11 @@ function Sales() {
   const totalPages = Math.ceil(allProfitData.length / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
   const paginatedData = allProfitData.slice(startIndex, startIndex + itemsPerPage);
+
+  const paymentTotalPages = Math.ceil(paymentRows.length / itemsPerPage);
+  const paymentStartIndex = (paymentPage - 1) * itemsPerPage;
+  const paginatedPayments = paymentRows.slice(paymentStartIndex, paymentStartIndex + itemsPerPage);
+  const paymentTotalAmount = paymentRows.reduce((sum, r) => sum + r.amount, 0);
 
   const handleNextPage = () => { if (currentPage < totalPages) setCurrentPage(prev => prev + 1); };
   const handlePrevPage = () => { if (currentPage > 1) setCurrentPage(prev => prev - 1); };
@@ -999,7 +1185,7 @@ function Sales() {
     csv += `"Period:",${profitFilter.charAt(0).toUpperCase() + profitFilter.slice(1)}\n`;
     csv += `"Staff:",${getSelectedStaffName()}\n`;
     csv += `\n`;
-    csv += `"=== SUMMARY ===\n"`;
+    csv += `"=== SUMMARY ==="\n`;
     csv += `"Total Revenue","₱${formatCurrency(salesData.totalRevenue)}"\n`;
     csv += `"Total Appointments","${formatNumber(salesData.totalAppointments)}"\n`;
     csv += `"Total Walk-ins","${formatNumber(salesData.totalWalkInCount)} (₱${formatCurrency(salesData.totalWalkInRevenue)})"\n`;
@@ -1008,7 +1194,7 @@ function Sales() {
     csv += `"Commissions","₱${formatCurrency(salesData.totalCommissions)}"\n`;
     csv += `"Net Profit","₱${formatCurrency(salesData.netProfit)}"\n`;
     csv += `\n`;
-    csv += `"=== PROFIT REPORT (${profitFilter.charAt(0).toUpperCase() + profitFilter.slice(1)}) ===\n"`;
+    csv += `"=== PROFIT REPORT (${profitFilter.charAt(0).toUpperCase() + profitFilter.slice(1)}) ==="\n`;
     csv += `"Period","Revenue","Appointments","Walk-ins (#)","Incidents","Expenses","Commissions","Net Profit"\n`;
     profitData.forEach(item => {
       const label = item.weekRange || item.month || item.label || item.date || item.week;
@@ -1044,6 +1230,7 @@ function Sales() {
         fetchExpenses(),
         fetchCommissions(),
         fetchWalkIns(),
+        fetchPayments(),
       ]);
       await Promise.all([fetchSalesData(), fetchProfitData()]);
     })();
@@ -1052,9 +1239,11 @@ function Sales() {
   const handleRefresh = async () => {
     await Promise.all([
       fetchReports(),
+      fetchStaffList(),
       fetchExpenses(),
       fetchCommissions(),
       fetchWalkIns(),
+      fetchPayments(),
     ]);
     await Promise.all([fetchSalesData(), fetchProfitData()]);
     showToast('Data refreshed successfully!', 'success');
@@ -1214,6 +1403,69 @@ function Sales() {
         />
       </div>
 
+      {/* Payment Methods (appointments + walk-ins, counts) */}
+      {(() => {
+        const { cash, gcash, other, total, apptTotal, walkInTotal, walkInCash, walkInGcash, walkInOther } = paymentBreakdown;
+        const pct = (v) => (total > 0 ? (v / total) * 100 : 0);
+
+        const rows = [
+          { key: 'cash',  label: 'Paid with Cash',  icon: Banknote,   count: cash,  walkInCount: walkInCash,  grad: 'from-emerald-500 to-emerald-600', bar: 'bg-emerald-500' },
+          { key: 'gcash', label: 'Paid with GCash', icon: Smartphone, count: gcash, walkInCount: walkInGcash, grad: 'from-blue-500 to-indigo-600',     bar: 'bg-blue-500' },
+        ];
+        if (other > 0) {
+          rows.push({ key: 'other', label: 'No payment record', icon: FileText, count: other, walkInCount: walkInOther, grad: 'from-slate-400 to-slate-500', bar: 'bg-slate-400' });
+        }
+        const hasOverlap = cash + gcash + other > total;
+
+        return (
+          <section className="bg-white rounded-2xl border border-slate-200/70 shadow-sm p-5">
+            <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
+              <div>
+                <h3 className="text-sm font-semibold text-slate-800">Payment Methods</h3>
+                <p className="text-[11px] text-slate-500">Completed appointments + walk-ins</p>
+              </div>
+              <p className="text-xs text-slate-500">
+                Total visits: <span className="font-bold text-slate-800">{formatNumber(total)}</span>
+                <span className="text-slate-400"> ({formatNumber(apptTotal)} appts · {formatNumber(walkInTotal)} walk-ins)</span>
+              </p>
+            </div>
+
+            <div className={`grid grid-cols-1 gap-4 ${rows.length === 3 ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
+              {rows.map(({ key, label, icon: Icon, count, walkInCount, grad, bar }) => (
+                <div key={key} className="p-4 rounded-xl border border-slate-100 bg-slate-50/50">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-11 h-11 rounded-xl bg-gradient-to-br ${grad} flex items-center justify-center shadow-md flex-shrink-0`}>
+                      <Icon size={20} className="text-white" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium text-slate-500">{label}</p>
+                      <p className="text-2xl font-bold text-slate-800 tracking-tight">
+                        {formatNumber(count)}
+                        <span className="text-xs font-medium text-slate-400 ml-1.5">
+                          visit{count === 1 ? '' : 's'}
+                        </span>
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-3 h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                    <div className={`h-full ${bar}`} style={{ width: `${pct(count)}%` }} />
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-1.5">
+                    {pct(count).toFixed(1)}% of visits · {formatNumber(count - walkInCount)} appt{count - walkInCount === 1 ? '' : 's'} + {formatNumber(walkInCount)} walk-in{walkInCount === 1 ? '' : 's'}
+                  </p>
+                </div>
+              ))}
+            </div>
+
+            {hasOverlap && (
+              <p className="text-[11px] text-slate-400 mt-3">
+                Visits paid with both methods (e.g. GCash downpayment + cash balance) are counted under each.
+              </p>
+            )}
+          </section>
+        );
+      })()}
+
       <div id="sales-report-content">
         {/* Profit Report Panel */}
         <section className="bg-white rounded-2xl border border-slate-200/70 shadow-sm overflow-hidden">
@@ -1364,9 +1616,147 @@ function Sales() {
             )}
           </div>
         </section>
+
+        {/* Payment Details Table (appointments + walk-ins) */}
+        <section className="mt-6 bg-white rounded-2xl border border-slate-200/70 shadow-sm overflow-hidden">
+          <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-emerald-50 flex items-center justify-center">
+              <Banknote size={17} className="text-emerald-500" />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-slate-800">Payment Details</h3>
+              <p className="text-[11px] text-slate-500">
+                Completed appointments + walk-ins · {paymentRows.length} entries
+              </p>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            {isLoadingProfit ? (
+              <div className="flex items-center justify-center h-48">
+                <div className="w-8 h-8 border-[3px] border-pink-500 border-t-transparent rounded-full animate-spin" />
+              </div>
+            ) : paymentRows.length === 0 ? (
+              <EmptyState
+                icon={Banknote}
+                title="No payments to show"
+                subtitle="Try adjusting the date range or filters"
+              />
+            ) : (
+              <>
+                <table className="w-full">
+                  <thead className="bg-slate-50/80">
+                    <tr>
+                      {['Type', 'Customer', 'Service', 'Staff', 'Payment Method', 'Amount (₱)'].map((h, i) => (
+                        <th
+                          key={h}
+                          className={`px-4 py-3 text-[10px] font-semibold text-slate-500 uppercase tracking-wider ${i === 5 ? 'text-right' : 'text-left'}`}
+                        >
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {paginatedPayments.map((row) => (
+                      <tr key={row.key} className="hover:bg-pink-50/40 transition-colors">
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          {row.type === 'walk-in' ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-cyan-50 text-cyan-700">
+                              <Footprints size={11} />
+                              Walk-in
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-50 text-indigo-700">
+                              <Scissors size={11} />
+                              Appointment
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-xs font-semibold text-black">{row.customer}</td>
+                        <td className="px-4 py-3 text-xs text-slate-600 max-w-[220px]">
+                          {row.services.length === 0 ? (
+                            <span className="text-[11px] text-slate-400">—</span>
+                          ) : (
+                            <span className="line-clamp-2" title={row.services.join(', ')}>
+                              {row.services.join(', ')}
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-xs text-slate-600 whitespace-nowrap">
+                          {row.staff || <span className="text-[11px] text-slate-400">—</span>}
+                        </td>
+                        <td className="px-4 py-3">
+                          {row.methods.length === 0 ? (
+                            <span className="text-[11px] text-slate-400">No record</span>
+                          ) : (
+                            <div className="flex items-center gap-1 flex-wrap">
+                              {row.methods.map((m) => (
+                                <span
+                                  key={m}
+                                  className={`inline-flex px-2 py-0.5 rounded-full text-[11px] font-semibold ${
+                                    m === 'cash'
+                                      ? 'bg-emerald-50 text-emerald-700'
+                                      : m === 'gcash'
+                                      ? 'bg-blue-50 text-blue-700'
+                                      : 'bg-slate-100 text-slate-600'
+                                  }`}
+                                >
+                                  {m === 'cash' ? 'Cash' : m === 'gcash' ? 'GCash' : 'Other'}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-xs font-bold text-black text-right tabular-nums">
+                          {formatCurrency(row.amount)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot className="bg-slate-50 border-t border-slate-200">
+                    <tr>
+                      <td colSpan={5} className="px-4 py-3 text-xs font-bold text-black uppercase tracking-wider">Total</td>
+                      <td className="px-4 py-3 text-xs font-bold text-black text-right tabular-nums">
+                        {formatCurrency(paymentTotalAmount)}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+
+                <div className="flex items-center justify-between px-4 py-3 bg-white border-t border-slate-100 flex-wrap gap-3">
+                  <div className="text-[11px] text-slate-500">
+                    Showing <span className="font-semibold text-slate-700">{paymentStartIndex + 1}</span> to{' '}
+                    <span className="font-semibold text-slate-700">{Math.min(paymentStartIndex + itemsPerPage, paymentRows.length)}</span> of{' '}
+                    <span className="font-semibold text-slate-700">{paymentRows.length}</span> entries
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setPaymentPage(p => Math.max(1, p - 1))}
+                      disabled={paymentPage === 1}
+                      className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      <ChevronLeft size={16} />
+                    </button>
+                    <span className="text-xs text-slate-600 px-3 font-semibold">
+                      Page {paymentPage} of {paymentTotalPages || 1}
+                    </span>
+                    <button
+                      onClick={() => setPaymentPage(p => Math.min(paymentTotalPages, p + 1))}
+                      disabled={paymentPage >= paymentTotalPages}
+                      className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      <ChevronRight size={16} />
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </section>
       </div>
     </div>
   );
 }
 
-export default Sales;
+export default Sales; 

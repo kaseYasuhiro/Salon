@@ -29,6 +29,15 @@ const getImageUrl = (imagePath: string | null | undefined) => {
 };
 
 // ─────────────────────────────────────────────────────────────
+// Walk-in payment methods
+// Values must match what walk_ins.walkin_payment_method stores
+// ─────────────────────────────────────────────────────────────
+const WALKIN_PAYMENT_METHODS = [
+  { value: "cash", label: "Cash", icon: "cash-outline" },
+  { value: "GCash", label: "GCash", icon: "phone-portrait-outline" },
+] as const;
+
+// ─────────────────────────────────────────────────────────────
 // Price adjustments helpers
 // ─────────────────────────────────────────────────────────────
 interface PriceAdjustment {
@@ -178,6 +187,8 @@ interface WalkIn {
   is_finished: number;
   created_at: string;
   updated_at: string;
+  // ✅ How the customer paid: "cash" | "GCash" (null until the walk-in is completed)
+  walkin_payment_method?: string | null;
   services?: {
     id: number;
     service_name: string;
@@ -291,6 +302,7 @@ export default function StaffAppointments({
   const [walkInUpdateData, setWalkInUpdateData] = useState({
     customer_name: "",
     amount_paid: 0,
+    walkin_payment_method: "", // "cash" | "GCash"
   });
 
   const [walkInProductUsages, setWalkInProductUsages] = useState<ProductUsage[]>([]);
@@ -333,10 +345,13 @@ export default function StaffAppointments({
     }
   };
 
-  // ✅ Settle remaining balance — updates billing directly, no payment row
-  const settleRemainingBalance = async (appointmentId: number) => {
+  // ✅ Settle remaining balance — the backend updates the billing AND records the
+  //    remaining amount as a CASH payment
+  const settleRemainingBalance = async (appointmentId: number, amount: number) => {
     const response = await api.post("/appointment/settle-balance", {
       appointment_id: appointmentId,
+      payment_method: "cash",
+      amount,
     });
     return response.data;
   };
@@ -593,6 +608,8 @@ export default function StaffAppointments({
           hair_length: item.hair_length || "",
           hair_thickness: item.hair_thickness || "",
           preferred_color: item.preferred_color || "",
+          // ✅ Payment method chosen when the walk-in was completed
+          walkin_payment_method: item.walkin_payment_method ?? null,
         }));
       }
       setWalkIns(walkInsData);
@@ -611,6 +628,7 @@ export default function StaffAppointments({
         service_id: data.service_id,
         stylist_id: data.stylist_id,
         amount_paid: data.amount_paid,
+        walkin_payment_method: data.walkin_payment_method,
         is_finished: data.is_finished,
       });
       return response.data;
@@ -707,14 +725,33 @@ export default function StaffAppointments({
         return;
       }
 
-      const latestPayment = [...filtered].sort((a, b) => {
+      // Newest first
+      const sorted = [...filtered].sort((a, b) => {
         const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
         const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
         if (aTime !== bTime) return bTime - aTime;
         return (b.id || 0) - (a.id || 0);
-      })[0];
+      });
 
-      setSelectedPaymentData(latestPayment);
+      const latestPayment = sorted[0];
+
+      // ✅ A settled balance adds a cash row with no screenshot, so keep showing the
+      //    most recent proof (e.g. the GCash downpayment) and list every method used
+      const proofRow = sorted.find((p: any) => p.payment_proof);
+      const methods = Array.from(
+        new Set(
+          [...sorted]
+            .reverse()
+            .map((p: any) => p.payment_method)
+            .filter(Boolean)
+        )
+      );
+
+      setSelectedPaymentData({
+        ...latestPayment,
+        payment_method: methods.join(" + ") || latestPayment.payment_method,
+        payment_proof: latestPayment.payment_proof || proofRow?.payment_proof || null,
+      });
       setShowPaymentProofModal(true);
     } catch (error: any) {
       Alert.alert("Error", error.response?.data?.message || "Failed to fetch payment data");
@@ -879,6 +916,7 @@ export default function StaffAppointments({
       setWalkInUpdateData({
         customer_name: item.customer_name,
         amount_paid: item.walk_in_data.amount_paid || 0,
+        walkin_payment_method: item.walk_in_data.walkin_payment_method || "",
       });
 
       if (item.walk_in_data.service_id) {
@@ -972,8 +1010,9 @@ export default function StaffAppointments({
   // ─────────────────────────────────────────────
   // handleUpdateSubmit:
   //   1) Update appointment (status, notes, product usages)
-  //   2) If completing from a downpayment → update the billing row
-  //      (paid_amount = total, balance = 0, payment_type = 'full')
+  //   2) If completing with a remaining balance → settle it automatically.
+  //      The backend updates the billing (paid_amount = total, balance = 0,
+  //      payment_type = 'full') and records the remaining amount as a CASH payment.
   // ─────────────────────────────────────────────
   const handleUpdateSubmit = async () => {
     if (!selectedAppointment) return;
@@ -999,22 +1038,20 @@ export default function StaffAppointments({
       selectedAppointment.status !== "completed";
 
     const cachedBilling = billingMap.get(selectedAppointment.id);
-    const isDownpayment = cachedBilling?.payment_type === "downpayment";
     const remainingBalance = cachedBilling
       ? Math.max(0, cachedBilling.balance)
       : 0;
 
-    const shouldSettleRemaining =
-      isMarkingCompleted && isDownpayment && remainingBalance > 0;
+    const shouldSettleRemaining = isMarkingCompleted && remainingBalance > 0;
 
     // Confirm dialog
     if (shouldSettleRemaining) {
       const confirmed = await new Promise<boolean>((resolve) => {
         Alert.alert(
           "Settle Remaining Balance",
-          `This appointment used a downpayment.\n\n` +
+          `The customer still has a remaining balance.\n\n` +
             `Remaining balance: ₱${remainingBalance.toLocaleString()}\n\n` +
-            `Proceeding will mark the appointment as completed and update the billing to reflect the full payment.`,
+            `Completing will record this as a CASH payment and mark the billing as fully paid.`,
           [
             { text: "Cancel", style: "cancel", onPress: () => resolve(false) },
             { text: "Confirm", onPress: () => resolve(true) },
@@ -1040,14 +1077,14 @@ export default function StaffAppointments({
       // 1) Update the appointment
       await updateAppointmentServices(selectedAppointment.id, updateData);
 
-      // 2) Update the billing row (no new payment row created)
+      // 2) Settle the remaining balance (billing update + cash payment row)
       if (shouldSettleRemaining) {
         try {
-          await settleRemainingBalance(selectedAppointment.id);
+          await settleRemainingBalance(selectedAppointment.id, remainingBalance);
         } catch (settleError: any) {
           Alert.alert(
             "Appointment Updated",
-            `The appointment was marked as completed, but the billing could not be updated.\n\n` +
+            `The appointment was marked as completed, but the remaining balance could not be recorded.\n\n` +
               `Reason: ${settleError?.response?.data?.message || settleError?.message || "Unknown error"}\n\n` +
               `Please update the billing manually.`
           );
@@ -1060,7 +1097,7 @@ export default function StaffAppointments({
         Alert.alert(
           "Success",
           `Appointment completed!\n\n` +
-            `Billing updated: paid ₱${remainingBalance.toLocaleString()} remaining balance.`
+            `Billing updated: ₱${remainingBalance.toLocaleString()} remaining balance recorded as cash.`
         );
       } else {
         Alert.alert("Success", "Appointment updated successfully!");
@@ -1094,6 +1131,15 @@ export default function StaffAppointments({
       return;
     }
 
+    // ✅ ...and so must the payment method
+    if (!walkInUpdateData.walkin_payment_method) {
+      Alert.alert(
+        "Payment Method Required",
+        "Please select the customer's payment method (Cash or GCash) before completing this walk-in."
+      );
+      return;
+    }
+
     for (const product of walkInProductUsages) {
       if (product.quantity_change > 0 && product.inventory_id) {
         const availableUsages =
@@ -1117,6 +1163,7 @@ export default function StaffAppointments({
         service_id: selectedWalkIn.service_id,
         stylist_id: selectedWalkIn.stylist_id,
         amount_paid: walkInUpdateData.amount_paid,
+        walkin_payment_method: walkInUpdateData.walkin_payment_method,
         is_finished: 1,
       };
 
@@ -1438,6 +1485,9 @@ export default function StaffAppointments({
                   item.walk_in_data?.amount_paid !== null && (
                     <Text className="text-green-600 text-xs">
                       Paid: ₱{item.walk_in_data.amount_paid.toLocaleString()}
+                      {item.walk_in_data.walkin_payment_method
+                        ? ` • ${item.walk_in_data.walkin_payment_method}`
+                        : ""}
                     </Text>
                   )}
               </View>
@@ -2038,15 +2088,12 @@ export default function StaffAppointments({
     if (!selectedAppointment) return null;
 
     const cachedBilling = billingMap.get(selectedAppointment.id);
-    const appointmentIsDownpayment =
-      cachedBilling?.payment_type === "downpayment";
     const remainingBalance = cachedBilling
       ? Math.max(0, cachedBilling.balance)
       : 0;
     const willSettleRemaining =
       updateFormData.status === "completed" &&
       selectedAppointment.status !== "completed" &&
-      appointmentIsDownpayment &&
       remainingBalance > 0;
 
     return (
@@ -2188,12 +2235,12 @@ export default function StaffAppointments({
                   <Ionicons name="cash-outline" size={16} color="#2563eb" />
                   <View className="flex-1">
                     <Text className="text-blue-800 font-semibold text-xs">
-                      Remaining balance will be settled
+                      Remaining balance will be paid in cash
                     </Text>
                     <Text className="text-blue-700 text-[11px] mt-1">
-                      Marking this as completed will update the billing:
-                      paid will become ₱{cachedBilling?.total_amount.toLocaleString()},
-                      balance ₱0, and payment type will flip to full.
+                      Marking this as completed will record the ₱
+                      {remainingBalance.toLocaleString()} remaining balance as a cash
+                      payment. Billing will become fully paid with a ₱0 balance.
                     </Text>
                   </View>
                 </View>
@@ -2324,6 +2371,9 @@ export default function StaffAppointments({
     const stylistName = selectedWalkIn.user
       ? `${selectedWalkIn.user.first_name || ""} ${selectedWalkIn.user.last_name || ""}`.trim()
       : "Unknown Stylist";
+
+    const canComplete =
+      walkInUpdateData.amount_paid > 0 && !!walkInUpdateData.walkin_payment_method;
 
     return (
       <View className="flex-1 bg-gray-50">
@@ -2495,6 +2545,56 @@ export default function StaffAppointments({
                 </View>
               )}
 
+              {/* ✅ Payment method */}
+              <View className="mt-4">
+                <Text className="text-gray-700 font-semibold mb-2">Payment Method *</Text>
+                <View className="flex-row gap-3">
+                  {WALKIN_PAYMENT_METHODS.map((m) => {
+                    const selected = walkInUpdateData.walkin_payment_method === m.value;
+                    return (
+                      <TouchableOpacity
+                        key={m.value}
+                        onPress={() =>
+                          setWalkInUpdateData((prev) => ({
+                            ...prev,
+                            walkin_payment_method: m.value,
+                          }))
+                        }
+                        className={`flex-1 flex-row items-center justify-center gap-2 py-3 rounded-xl border ${
+                          selected
+                            ? "bg-pink-50 border-pink-500"
+                            : "bg-gray-50 border-gray-200"
+                        }`}
+                      >
+                        <Ionicons
+                          name={m.icon}
+                          size={18}
+                          color={selected ? "#ec4899" : "#9ca3af"}
+                        />
+                        <Text
+                          className={`font-semibold ${
+                            selected ? "text-pink-600" : "text-gray-500"
+                          }`}
+                        >
+                          {m.label}
+                        </Text>
+                        {selected && (
+                          <Ionicons name="checkmark-circle" size={16} color="#ec4899" />
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+                {!walkInUpdateData.walkin_payment_method && (
+                  <View className="flex-row items-center gap-1 mt-1">
+                    <Ionicons name="alert-circle" size={12} color="#dc2626" />
+                    <Text className="text-red-600 text-xs flex-1">
+                      Select how the customer paid
+                    </Text>
+                  </View>
+                )}
+              </View>
+
               {/* ✅ Show the e-wallet QR code if the customer pays digitally */}
               <TouchableOpacity
                 onPress={handleShowQrCode}
@@ -2585,6 +2685,9 @@ export default function StaffAppointments({
             <Text className="text-gray-600 text-sm">
               Amount Paid: ₱{walkInUpdateData.amount_paid.toLocaleString()}
             </Text>
+            <Text className="text-gray-600 text-sm">
+              Payment Method: {walkInUpdateData.walkin_payment_method || "Not set"}
+            </Text>
             <Text className="text-gray-600 text-sm">Status: ✅ Will be marked as Completed</Text>
           </View>
 
@@ -2601,7 +2704,7 @@ export default function StaffAppointments({
             onPress={handleWalkInUpdate}
             disabled={isUpdatingWalkIn}
             className={`py-4 rounded-xl mb-3 ${
-              walkInUpdateData.amount_paid > 0 ? "bg-green-600" : "bg-gray-400"
+              canComplete ? "bg-green-600" : "bg-gray-400"
             }`}
           >
             <Text className="text-white text-center font-semibold text-base">

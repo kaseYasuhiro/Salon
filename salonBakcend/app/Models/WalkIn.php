@@ -17,7 +17,8 @@ class WalkIn extends Model
         'service_id',
         'stylist_id',
         'is_finished',
-        'amount_paid'
+        'amount_paid',
+        'walkin_payment_method'
     ];
 
     public function services()

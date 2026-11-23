@@ -159,6 +159,11 @@ class JoinedController extends Controller
         return Expenses::With('user')->get();
     }
 
+    public function billWithPayment()
+    {
+        return Payments::with('billing')->get();
+    }
+
     public function getServicePriceAdjustments($serviceId)
     {
         $adjustments = ServicePriceAdjustments::where('service_id', $serviceId)->get();
@@ -235,37 +240,52 @@ class JoinedController extends Controller
             'appointment_id' => 'required|exists:appointments,id',
         ]);
 
-        $billing = Billing::where('appointment_id', $request->appointment_id)->first();
+        return DB::transaction(function () use ($request) {
+            // Lock the row so a double-tap can't create two cash payments
+            $billing = Billing::where('appointment_id', $request->appointment_id)
+                ->lockForUpdate()
+                ->first();
 
-        if (!$billing) {
-            return response()->json([
-                'message' => 'No billing record found for this appointment.',
-            ], 404);
-        }
+            if (!$billing) {
+                return response()->json([
+                    'message' => 'No billing record found for this appointment.',
+                ], 404);
+            }
 
-        // Idempotent guard
-        if ((float) $billing->balance <= 0) {
+            // Idempotent guard
+            if ((float) $billing->balance <= 0) {
+                return response()->json([
+                    'message'      => 'Billing already fully paid.',
+                    'paid_amount'  => (float) $billing->paid_amount,
+                    'balance'      => (float) $billing->balance,
+                    'payment_type' => $billing->payment_type,
+                ], 200);
+            }
+
+            $remaining = (float) $billing->balance;
+
+            // 1) Settle the billing
+            $billing->update([
+                'paid_amount'  => $billing->total_amount,
+                'balance'      => 0,
+                'payment_type' => 'full',
+            ]);
+
+            // 2) Record the remaining balance as a cash payment
+            Payments::create([
+                'billing_id'     => $billing->id,
+                'payment_method' => 'cash',
+                'payment_proof'  => null,
+                // 'amount'      => $remaining,   // enable once the column exists (see below)
+            ]);
+
             return response()->json([
-                'message'      => 'Billing already fully paid.',
+                'message'      => 'Remaining balance settled and recorded as cash.',
                 'paid_amount'  => (float) $billing->paid_amount,
                 'balance'      => (float) $billing->balance,
                 'payment_type' => $billing->payment_type,
             ], 200);
-        }
-
-        // Update the billing row directly — no payment row created
-        $billing->update([
-            'paid_amount'  => $billing->total_amount,
-            'balance'      => 0,
-            'payment_type' => 'full',
-        ]);
-
-        return response()->json([
-            'message'      => 'Remaining balance settled.',
-            'paid_amount'  => (float) $billing->paid_amount,
-            'balance'      => (float) $billing->balance,
-            'payment_type' => $billing->payment_type,
-        ], 200);
+        });
     }
 
     public function deleteProductsFromInventory($id)
@@ -359,11 +379,6 @@ class JoinedController extends Controller
     }
 
 
-
-    public function billWithPayment()
-    {
-        return Payments::with('billing')->get();
-    }
 
     
     public function completeBooking(Request $request)

@@ -16,6 +16,7 @@ class WalkInController extends Controller
             'is_finished'   => ['required', 'boolean'],
             'amount_paid'   => ['nullable', 'numeric'],
             'customer_id'   => ['nullable', 'numeric', 'exists:users,id'],
+            'walkin_payment_method' => ['nullable', 'string']
         ]);
 
         WalkIn::create([
@@ -25,6 +26,7 @@ class WalkInController extends Controller
             'stylist_id'    => $request->stylist_id,
             'is_finished'   => $request->is_finished,
             'amount_paid'   => $request->amount_paid,
+            'walkin_payment_method' => $request->walkin_payment_method
         ]);
 
         return response()->json([
@@ -41,6 +43,7 @@ class WalkInController extends Controller
             'is_finished'   => ['required', 'boolean'],
             'amount_paid'   => ['required', 'numeric'],
             'customer_id'   => ['nullable', 'numeric', 'exists:users,id'],
+            'walkin_payment_method' => ['nullable', 'string']
         ]);
 
         $walkin = WalkIn::findOrFail($id);
@@ -52,6 +55,7 @@ class WalkInController extends Controller
             'stylist_id'    => $request->stylist_id,
             'is_finished'   => $request->is_finished,
             'amount_paid'   => $request->amount_paid,
+            'walkin_payment_method' => $request->walkin_payment_method
         ]);
 
         return response()->json([
