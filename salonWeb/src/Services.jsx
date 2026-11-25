@@ -9,25 +9,6 @@ import {
 import api from '../api/axios';
 
 // ─────────────────────────────────────────────────────────────
-// Service categories
-// ─────────────────────────────────────────────────────────────
-const SERVICE_CATEGORIES = [
-  { value: 'hair', label: 'Hair', icon: Scissors },
-  { value: 'nails', label: 'Nails', icon: Hand },
-  { value: 'skincare', label: 'Skin Care', icon: Sparkles },
-  { value: 'massage', label: 'Massage', icon: Activity },
-  { value: 'makeup', label: 'Makeup', icon: Star },
-];
-
-const DEFAULT_CATEGORY = 'hair';
-
-const normalizeCategory = (value) =>
-  (value || DEFAULT_CATEGORY).toString().trim().toLowerCase();
-
-const getCategory = (value) =>
-  SERVICE_CATEGORIES.find((c) => c.value === normalizeCategory(value)) || SERVICE_CATEGORIES[0];
-
-// ─────────────────────────────────────────────────────────────
 // Stat card icons config (gradient-driven)
 // ─────────────────────────────────────────────────────────────
 const STAT_META = [
@@ -56,7 +37,6 @@ function Services() {
   const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
   const [isSavingAll, setIsSavingAll] = useState(false);
   const [statusFilter, setStatusFilter] = useState('all');
-  const [categoryFilter, setCategoryFilter] = useState('all');
 
   const [isRemovingSpecialty, setIsRemovingSpecialty] = useState(false);
 
@@ -87,8 +67,6 @@ function Services() {
 
   const [formData, setFormData] = useState({
     service_name: '',
-    description: '',
-    category: DEFAULT_CATEGORY,
     price: '',
     duration_minutes: '',
     service_status: 'active',
@@ -98,8 +76,6 @@ function Services() {
       { hair_length: 'short', hair_thickness: 'thin', additional_price: '0' }
     ]
   });
-
-  const isHairCategory = normalizeCategory(formData.category) === 'hair';
 
   const hairLengthOptions = [
     { value: 'short', label: 'Short' },
@@ -405,8 +381,6 @@ function Services() {
     setSelectedHairColorIds([]);
     setFormData({
       service_name: '',
-      description: '',
-      category: categoryFilter !== 'all' ? categoryFilter : DEFAULT_CATEGORY,
       price: '',
       duration_minutes: '',
       service_status: 'active',
@@ -449,8 +423,6 @@ function Services() {
 
     setFormData({
       service_name: service.service_name,
-      description: service.description,
-      category: normalizeCategory(service.category),
       price: service.price,
       duration_minutes: service.duration_minutes,
       service_status: service.service_status,
@@ -520,74 +492,148 @@ function Services() {
   const handleSaveAllChanges = async () => {
     setFormError('');
 
-    if (!formData.service_name || !formData.description || !formData.price || !formData.duration_minutes) {
+    if (!formData.service_name || !formData.price || !formData.duration_minutes) {
       setFormError('Please fill in all required service fields.');
       return;
     }
 
-    if (!formData.category) {
-      setFormError('Please select a category for this service.');
-      return;
-    }
-
-    const isHair = normalizeCategory(formData.category) === 'hair';
-
-    if (isHair) {
-      for (const adj of formData.price_adjustments) {
-        if (!adj.hair_length || !adj.hair_thickness || parseFloat(adj.additional_price) < 0) {
-          setFormError('Please fill in all price adjustment fields correctly.');
-          return;
-        }
+    for (const adj of formData.price_adjustments) {
+      if (!adj.hair_length || !adj.hair_thickness || parseFloat(adj.additional_price) < 0) {
+        setFormError('Please fill in all price adjustment fields correctly.');
+        return;
       }
     }
 
     setIsSavingAll(true);
     try {
-      const payload = {
-        service_id: isCreatingNew ? null : selectedService?.id || null,
+      if (isCreatingNew) {
+        // ── CREATE: POST /service/add ──
+        const createPayload = {
+          service_name: formData.service_name.trim(),
+          description: `${formData.service_name.trim()} service.`,
+          price: parseFloat(formData.price),
+          duration_minutes: parseInt(formData.duration_minutes),
+          is_multitaskable: !!formData.is_multitaskable,
+          reqHairColor: !!formData.reqHairColor,
+          service_status: formData.service_status,
+          price_adjustments: formData.price_adjustments.map(adj => ({
+            hair_length: adj.hair_length,
+            hair_thickness: adj.hair_thickness,
+            additional_price: parseFloat(adj.additional_price) || 0
+          })),
+        };
 
-        service_name: formData.service_name.trim(),
-        description: formData.description.trim(),
-        category: normalizeCategory(formData.category),
-        price: parseFloat(formData.price),
-        duration_minutes: parseInt(formData.duration_minutes),
-        service_status: formData.service_status,
-        is_multitaskable: !!formData.is_multitaskable,
-        reqHairColor: isHair ? !!formData.reqHairColor : false,
+        const createRes = await api.post('/service/add', createPayload);
+        const newServiceId = createRes.data?.service?.id;
 
-        price_adjustments: isHair
-          ? formData.price_adjustments.map(adj => ({
-              hair_length: adj.hair_length,
-              hair_thickness: adj.hair_thickness,
-              additional_price: parseFloat(adj.additional_price) || 0
-            }))
-          : [],
-      };
+        if (newServiceId) {
+          const followUps = [];
 
-      if (serviceSpecialtyFormData.specialty_id) {
-        payload.specialty_id = parseInt(serviceSpecialtyFormData.specialty_id);
-      }
+          followUps.push(
+            api.post('/services/update-all', {
+              service_id: newServiceId,
+              service_name: createPayload.service_name,
+              description: createPayload.description,
+              price: createPayload.price,
+              duration_minutes: createPayload.duration_minutes,
+              is_multitaskable: createPayload.is_multitaskable,
+              reqHairColor: createPayload.reqHairColor,
+              service_status: createPayload.service_status,
+              price_adjustments: createPayload.price_adjustments,
+            }).catch(() => {})
+          );
 
-      if (usageFormData.product_id && usageFormData.estimated_usage) {
-        payload.product_id = parseInt(usageFormData.product_id);
-        payload.estimated_usage = parseFloat(usageFormData.estimated_usage);
-      }
+          if (serviceSpecialtyFormData.specialty_id) {
+            followUps.push(
+              api.post('/services/update-all', {
+                service_id: newServiceId,
+                service_name: createPayload.service_name,
+                description: createPayload.description,
+                price: createPayload.price,
+                duration_minutes: createPayload.duration_minutes,
+                is_multitaskable: createPayload.is_multitaskable,
+                reqHairColor: createPayload.reqHairColor,
+                service_status: createPayload.service_status,
+                specialty_id: parseInt(serviceSpecialtyFormData.specialty_id),
+              }).catch(() => {})
+            );
+          }
 
-      if (isHair && formData.reqHairColor) {
-        payload.hair_color_ids = selectedHairColorIds;
-      }
+          if (usageFormData.product_id && usageFormData.estimated_usage) {
+            followUps.push(
+              api.post('/services/update-all', {
+                service_id: newServiceId,
+                service_name: createPayload.service_name,
+                description: createPayload.description,
+                price: createPayload.price,
+                duration_minutes: createPayload.duration_minutes,
+                is_multitaskable: createPayload.is_multitaskable,
+                reqHairColor: createPayload.reqHairColor,
+                service_status: createPayload.service_status,
+                product_id: parseInt(usageFormData.product_id),
+                estimated_usage: parseFloat(usageFormData.estimated_usage),
+              }).catch(() => {})
+            );
+          }
 
-      const response = await api.post('/services/update-all', payload);
+          if (formData.reqHairColor) {
+            followUps.push(
+              api.post('/services/update-all', {
+                service_id: newServiceId,
+                service_name: createPayload.service_name,
+                description: createPayload.description,
+                price: createPayload.price,
+                duration_minutes: createPayload.duration_minutes,
+                is_multitaskable: createPayload.is_multitaskable,
+                reqHairColor: createPayload.reqHairColor,
+                service_status: createPayload.service_status,
+                hair_color_ids: selectedHairColorIds,
+              }).catch(() => {})
+            );
+          }
 
-      if (response.data.success === false) {
-        showToast(response.data.message || 'Some changes could not be saved.', 'warning');
+          await Promise.all(followUps);
+        }
+
+        showToast('Service created successfully!', 'success');
       } else {
-        showToast(
-          isCreatingNew
-            ? 'Service created successfully!'
-            : 'Service updated successfully!',
-          'success'
-        );
+        // ── UPDATE: POST /services/update-all ──
+        const existingDescription =
+          selectedService?.description ||
+          `${formData.service_name.trim()} service.`;
+
+        const updatePayload = {
+          service_id: selectedService?.id,
+          service_name: formData.service_name.trim(),
+          description: existingDescription,
+          price: parseFloat(formData.price),
+          duration_minutes: parseInt(formData.duration_minutes),
+          service_status: formData.service_status,
+          is_multitaskable: !!formData.is_multitaskable,
+          reqHairColor: !!formData.reqHairColor,
+          price_adjustments: formData.price_adjustments.map(adj => ({
+            hair_length: adj.hair_length,
+            hair_thickness: adj.hair_thickness,
+            additional_price: parseFloat(adj.additional_price) || 0
+          })),
+        };
+
+        if (serviceSpecialtyFormData.specialty_id) {
+          updatePayload.specialty_id = parseInt(serviceSpecialtyFormData.specialty_id);
+        }
+
+        if (usageFormData.product_id && usageFormData.estimated_usage) {
+          updatePayload.product_id = parseInt(usageFormData.product_id);
+          updatePayload.estimated_usage = parseFloat(usageFormData.estimated_usage);
+        }
+
+        const updateRes = await api.post('/services/update-all', updatePayload);
+
+        if (updateRes.data.success === false) {
+          showToast(updateRes.data.message || 'Some changes could not be saved.', 'warning');
+        } else {
+          showToast('Service updated successfully!', 'success');
+        }
       }
 
       setShowModal(false);
@@ -613,14 +659,8 @@ function Services() {
     if (searchTerm && !service.service_name.toLowerCase().includes(searchTerm.toLowerCase())) return false;
     if (statusFilter === 'active' && service.service_status !== 'active') return false;
     if (statusFilter === 'inactive' && service.service_status !== 'inactive') return false;
-    if (categoryFilter !== 'all' && normalizeCategory(service.category) !== categoryFilter) return false;
     return true;
   });
-
-  const getCategoryCount = (value) =>
-    value === 'all'
-      ? services.length
-      : services.filter(s => normalizeCategory(s.category) === value).length;
 
   const formatSpecialtyName = (specialtyName) => {
     if (!specialtyName) return '';
@@ -665,8 +705,6 @@ function Services() {
       </div>
     );
   }
-
-  const selectedCategoryLabel = categoryFilter !== 'all' ? getCategory(categoryFilter).label : '';
 
   return (
     <div className="space-y-6">
@@ -713,36 +751,6 @@ function Services() {
                 <div className={`h-full w-2/3 rounded-full bg-gradient-to-r ${meta.color}`} />
               </div>
             </div>
-          );
-        })}
-      </div>
-
-      {/* Category tabs */}
-      <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
-        {[{ value: 'all', label: 'All', icon: null }, ...SERVICE_CATEGORIES].map((cat) => {
-          const isActive = categoryFilter === cat.value;
-          const CategoryIcon = cat.icon;
-          return (
-            <button
-              key={cat.value}
-              type="button"
-              onClick={() => setCategoryFilter(cat.value)}
-              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all duration-200 border ${
-                isActive
-                  ? 'bg-gradient-to-r from-pink-500 to-pink-600 text-white border-pink-500 shadow-md shadow-pink-500/25'
-                  : 'bg-white text-slate-600 border-slate-200 hover:border-pink-300 hover:text-pink-600'
-              }`}
-            >
-              {CategoryIcon && <CategoryIcon size={13} />}
-              <span>{cat.label}</span>
-              <span
-                className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
-                  isActive ? 'bg-white/25 text-white' : 'bg-slate-100 text-slate-500'
-                }`}
-              >
-                {getCategoryCount(cat.value)}
-              </span>
-            </button>
           );
         })}
       </div>
@@ -806,8 +814,6 @@ function Services() {
           {filteredServices.map((service) => {
             const isInactive = service.service_status === 'inactive';
             const hasHairColor = service.reqHairColor === true || service.reqHairColor === 1;
-            const category = getCategory(service.category);
-            const CategoryIcon = category.icon;
 
             return (
               <div
@@ -823,19 +829,13 @@ function Services() {
                   <div className={`w-12 h-12 rounded-xl flex items-center justify-center shadow-lg ${
                     isInactive ? 'bg-slate-400' : 'bg-gradient-to-br from-pink-500 to-fuchsia-600'
                   }`}>
-                    <CategoryIcon size={22} className="text-white" />
+                    <Scissors size={22} className="text-white" />
                   </div>
                   {isInactive && (
                     <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
                       <span className="bg-red-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">Inactive</span>
                     </div>
                   )}
-                  <div className="absolute top-2 left-2 bg-white/95 backdrop-blur-sm rounded-full px-2 py-0.5 shadow-sm border border-white">
-                    <div className="flex items-center gap-1">
-                      <CategoryIcon size={10} className="text-pink-500" />
-                      <span className="text-[10px] font-semibold text-slate-700">{category.label}</span>
-                    </div>
-                  </div>
                   {service.service_specialties && service.service_specialties.length > 0 && (
                     <div className="absolute bottom-2 left-2 bg-white/95 backdrop-blur-sm rounded-full px-2 py-0.5 shadow-sm border border-white">
                       <div className="flex items-center gap-1">
@@ -861,9 +861,6 @@ function Services() {
                     <h3 className={`text-sm font-bold truncate ${isInactive ? 'text-slate-500' : 'text-slate-800'}`}>
                       {service.service_name}
                     </h3>
-                    <p className={`text-[11px] mt-0.5 line-clamp-2 ${isInactive ? 'text-slate-400' : 'text-slate-500'}`}>
-                      {service.description}
-                    </p>
                   </div>
 
                   <div className="mb-2 min-h-[28px]">
@@ -932,8 +929,6 @@ function Services() {
               <thead className="bg-slate-50/80 border-b border-slate-100">
                 <tr>
                   <th className="px-4 py-3 text-left text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Service</th>
-                  <th className="px-4 py-3 text-left text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Category</th>
-                  <th className="px-4 py-3 text-left text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Description</th>
                   <th className="px-4 py-3 text-left text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Specialties</th>
                   <th className="px-4 py-3 text-left text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Duration</th>
                   <th className="px-4 py-3 text-left text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Price</th>
@@ -945,8 +940,6 @@ function Services() {
                 {filteredServices.map((service) => {
                   const isInactive = service.service_status === 'inactive';
                   const hasHairColor = service.reqHairColor === true || service.reqHairColor === 1;
-                  const category = getCategory(service.category);
-                  const CategoryIcon = category.icon;
 
                   return (
                     <tr
@@ -959,7 +952,7 @@ function Services() {
                           <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${
                             isInactive ? 'bg-slate-400' : 'bg-gradient-to-br from-pink-500 to-fuchsia-600'
                           }`}>
-                            <CategoryIcon size={15} className="text-white" />
+                            <Scissors size={15} className="text-white" />
                           </div>
                           <span className={`text-sm font-semibold ${isInactive ? 'text-slate-500' : 'text-slate-900'}`}>
                             {service.service_name}
@@ -971,19 +964,6 @@ function Services() {
                             </span>
                           )}
                         </div>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold ${
-                          isInactive ? 'bg-slate-200 text-slate-600' : 'bg-pink-50 text-pink-700 border border-pink-100'
-                        }`}>
-                          <CategoryIcon size={10} />
-                          {category.label}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <p className={`text-xs max-w-xs truncate ${isInactive ? 'text-slate-400' : 'text-slate-600'}`}>
-                          {service.description}
-                        </p>
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex flex-wrap gap-1">
@@ -1106,18 +1086,6 @@ function Services() {
                     />
                   </div>
 
-                  <div>
-                    <label className="block text-slate-700 text-xs font-semibold mb-1.5">Description <span className="text-pink-500">*</span></label>
-                    <textarea
-                      name="description"
-                      value={formData.description}
-                      onChange={handleInputChange}
-                      rows="2"
-                      className="w-full px-3.5 py-2.5 text-sm bg-slate-50/60 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-pink-500 focus:bg-white focus:border-transparent resize-none transition-all"
-                      required
-                    />
-                  </div>
-
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-slate-700 text-xs font-semibold mb-1.5">Price (₱) <span className="text-pink-500">*</span></label>
@@ -1149,19 +1117,6 @@ function Services() {
 
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-slate-700 text-xs font-semibold mb-1.5">Category <span className="text-pink-500">*</span></label>
-                      <select
-                        name="category"
-                        value={normalizeCategory(formData.category)}
-                        onChange={handleInputChange}
-                        className="w-full px-3.5 py-2.5 text-sm bg-slate-50/60 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-pink-500 focus:bg-white focus:border-transparent transition-all"
-                      >
-                        {SERVICE_CATEGORIES.map((cat) => (
-                          <option key={cat.value} value={cat.value}>{cat.label}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
                       <label className="block text-slate-700 text-xs font-semibold mb-1.5">Status</label>
                       <select
                         name="service_status"
@@ -1173,104 +1128,91 @@ function Services() {
                         <option value="inactive">Inactive</option>
                       </select>
                     </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3 pt-2">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        name="is_multitaskable"
-                        checked={formData.is_multitaskable}
-                        onChange={(e) => setFormData(prev => ({ ...prev, is_multitaskable: e.target.checked }))}
-                        className="w-4 h-4 text-pink-500 border-slate-300 rounded focus:ring-pink-500"
-                      />
-                      <span className="text-slate-700 text-xs font-semibold">Multi-tasking</span>
-                    </label>
-                    {isHairCategory && (
+                    <div className="flex flex-col justify-end gap-2 pb-1">
                       <label className="flex items-center gap-2 cursor-pointer">
                         <input
                           type="checkbox"
-                          name="reqHairColor"
-                          checked={formData.reqHairColor}
-                          onChange={(e) => setFormData(prev => ({ ...prev, reqHairColor: e.target.checked }))}
-                          className="w-4 h-4 text-purple-500 border-slate-300 rounded focus:ring-purple-500"
+                          name="is_multitaskable"
+                          checked={formData.is_multitaskable}
+                          onChange={(e) => setFormData(prev => ({ ...prev, is_multitaskable: e.target.checked }))}
+                          className="w-4 h-4 text-pink-500 border-slate-300 rounded focus:ring-pink-500"
                         />
-                        <span className="text-slate-700 text-xs font-semibold">Requires Hair Color</span>
+                        <span className="text-slate-700 text-xs font-semibold">Multi-tasking</span>
                       </label>
-                    )}
+                      {isCreatingNew && (
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            name="reqHairColor"
+                            checked={formData.reqHairColor}
+                            onChange={(e) => setFormData(prev => ({ ...prev, reqHairColor: e.target.checked }))}
+                            className="w-4 h-4 text-purple-500 border-slate-300 rounded focus:ring-purple-500"
+                          />
+                          <span className="text-slate-700 text-xs font-semibold">Requires Hair Color</span>
+                        </label>
+                      )}
+                    </div>
                   </div>
 
-                  {isHairCategory ? (
-                    <div className="border-t border-slate-100 pt-4">
-                      <div className="flex items-center justify-between mb-3">
-                        <h3 className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Price Adjustments</h3>
-                        <button
-                          type="button"
-                          onClick={addPriceAdjustment}
-                          className="flex items-center gap-1 px-2.5 py-1 bg-pink-50 text-pink-600 rounded-lg hover:bg-pink-100 transition-colors text-xs font-semibold border border-pink-100"
-                        >
-                          <Plus size={12} />
-                          Add Row
-                        </button>
-                      </div>
+                  <div className="border-t border-slate-100 pt-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Price Adjustments</h3>
+                      <button
+                        type="button"
+                        onClick={addPriceAdjustment}
+                        className="flex items-center gap-1 px-2.5 py-1 bg-pink-50 text-pink-600 rounded-lg hover:bg-pink-100 transition-colors text-xs font-semibold border border-pink-100"
+                      >
+                        <Plus size={12} />
+                        Add Row
+                      </button>
+                    </div>
 
-                      <div className="space-y-2">
-                        {formData.price_adjustments.map((adjustment, index) => (
-                          <div key={index} className="flex items-center gap-2 bg-slate-50 rounded-xl p-2.5 border border-slate-200">
-                            <div className="flex-1 grid grid-cols-3 gap-2">
-                              <select
-                                value={adjustment.hair_length}
-                                onChange={(e) => updatePriceAdjustment(index, 'hair_length', e.target.value)}
-                                className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent"
-                              >
-                                {hairLengthOptions.map(option => (
-                                  <option key={option.value} value={option.value}>{option.label}</option>
-                                ))}
-                              </select>
-                              <select
-                                value={adjustment.hair_thickness}
-                                onChange={(e) => updatePriceAdjustment(index, 'hair_thickness', e.target.value)}
-                                className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent"
-                              >
-                                {hairThicknessOptions.map(option => (
-                                  <option key={option.value} value={option.value}>{option.label}</option>
-                                ))}
-                              </select>
-                              <div className="flex items-center gap-1">
-                                <span className="text-slate-500 text-xs font-semibold">₱</span>
-                                <input
-                                  type="number"
-                                  value={adjustment.additional_price}
-                                  onChange={(e) => updatePriceAdjustment(index, 'additional_price', e.target.value)}
-                                  step="0.01"
-                                  min="0"
-                                  className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent"
-                                  placeholder="0.00"
-                                />
-                              </div>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => removePriceAdjustment(index)}
-                              className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                    <div className="space-y-2">
+                      {formData.price_adjustments.map((adjustment, index) => (
+                        <div key={index} className="flex items-center gap-2 bg-slate-50 rounded-xl p-2.5 border border-slate-200">
+                          <div className="flex-1 grid grid-cols-3 gap-2">
+                            <select
+                              value={adjustment.hair_length}
+                              onChange={(e) => updatePriceAdjustment(index, 'hair_length', e.target.value)}
+                              className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent"
                             >
-                              <Trash size={14} />
-                            </button>
+                              {hairLengthOptions.map(option => (
+                                <option key={option.value} value={option.value}>{option.label}</option>
+                              ))}
+                            </select>
+                            <select
+                              value={adjustment.hair_thickness}
+                              onChange={(e) => updatePriceAdjustment(index, 'hair_thickness', e.target.value)}
+                              className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent"
+                            >
+                              {hairThicknessOptions.map(option => (
+                                <option key={option.value} value={option.value}>{option.label}</option>
+                              ))}
+                            </select>
+                            <div className="flex items-center gap-1">
+                              <span className="text-slate-500 text-xs font-semibold">₱</span>
+                              <input
+                                type="number"
+                                value={adjustment.additional_price}
+                                onChange={(e) => updatePriceAdjustment(index, 'additional_price', e.target.value)}
+                                step="0.01"
+                                min="0"
+                                className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent"
+                                placeholder="0.00"
+                              />
+                            </div>
                           </div>
-                        ))}
-                      </div>
+                          <button
+                            type="button"
+                            onClick={() => removePriceAdjustment(index)}
+                            className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                          >
+                            <Trash size={14} />
+                          </button>
+                        </div>
+                      ))}
                     </div>
-                  ) : (
-                    <div className="border-t border-slate-100 pt-4">
-                      <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 flex items-start gap-2">
-                        <AlertCircle size={14} className="text-slate-400 mt-0.5 flex-shrink-0" />
-                        <p className="text-[11px] text-slate-500">
-                          Hair length/thickness pricing and hair colors only apply to Hair services,
-                          so they're hidden for {getCategory(formData.category).label}.
-                        </p>
-                      </div>
-                    </div>
-                  )}
+                  </div>
                 </div>
 
                 {/* RIGHT COLUMN — Specialties, Products, Hair Colors */}
@@ -1422,7 +1364,8 @@ function Services() {
                     </div>
                   )}
 
-                  {isHairCategory && formData.reqHairColor && (
+                  {/* Hair Colors — only editable during creation, read-only when editing an existing service */}
+                  {formData.reqHairColor && (
                     <div className="border-t border-slate-100 pt-4">
                       <div className="flex items-center justify-between mb-3">
                         <div className="flex items-center gap-2">
@@ -1434,38 +1377,45 @@ function Services() {
                             ({selectedHairColorIds.length} selected)
                           </span>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => handleOpenHairColorModal()}
-                          className="flex items-center gap-1 px-2.5 py-1 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-md transition-all text-[10px] font-semibold shadow-sm shadow-pink-500/25"
-                        >
-                          <Plus size={12} />
-                          Add Color
-                        </button>
+                        {isCreatingNew && (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenHairColorModal()}
+                            className="flex items-center gap-1 px-2.5 py-1 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-md transition-all text-[10px] font-semibold shadow-sm shadow-pink-500/25"
+                          >
+                            <Plus size={12} />
+                            Add Color
+                          </button>
+                        )}
                       </div>
 
                       <p className="text-[11px] text-slate-500 mb-3">
-                        Select which hair colors customers can choose from for this service.
+                        {isCreatingNew
+                          ? 'Select which hair colors customers can choose from for this service.'
+                          : 'Hair colors linked to this service (set at creation).'}
                       </p>
 
                       {hairColors.length === 0 ? (
                         <div className="text-center py-6 bg-slate-50 rounded-xl border border-slate-100">
                           <Palette size={28} className="text-slate-300 mx-auto mb-1" />
                           <p className="text-xs text-slate-400">No hair colors yet</p>
-                          <button
-                            type="button"
-                            onClick={() => handleOpenHairColorModal()}
-                            className="mt-2 inline-flex items-center gap-1 px-2.5 py-1 bg-pink-500 text-white rounded-lg hover:bg-pink-600 text-xs font-semibold"
-                          >
-                            <Plus size={12} />
-                            Add Your First Color
-                          </button>
+                          {isCreatingNew && (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenHairColorModal()}
+                              className="mt-2 inline-flex items-center gap-1 px-2.5 py-1 bg-pink-500 text-white rounded-lg hover:bg-pink-600 text-xs font-semibold"
+                            >
+                              <Plus size={12} />
+                              Add Your First Color
+                            </button>
+                          )}
                         </div>
                       ) : (
                         <div className="grid grid-cols-2 gap-2 max-h-64 overflow-y-auto pr-1 scrollbar-hide">
                           {hairColors.map((color) => {
                             const isInactive = color.is_active === 0 || color.is_active === false;
                             const isSelected = selectedHairColorIds.includes(color.id);
+                            const isSelectable = isCreatingNew && !isInactive;
                             return (
                               <div
                                 key={color.id}
@@ -1480,11 +1430,11 @@ function Services() {
                                 <div className="flex items-center gap-2">
                                   <button
                                     type="button"
-                                    onClick={() => !isInactive && toggleHairColorSelection(color.id)}
-                                    disabled={isInactive}
+                                    onClick={() => isSelectable && toggleHairColorSelection(color.id)}
+                                    disabled={!isSelectable}
                                     className={`flex-shrink-0 w-7 h-7 rounded-full border-2 flex items-center justify-center transition-all ${
                                       isSelected ? 'border-pink-500' : 'border-slate-300'
-                                    } ${isInactive ? 'cursor-not-allowed' : 'cursor-pointer'}`}
+                                    } ${isSelectable ? 'cursor-pointer' : 'cursor-not-allowed'}`}
                                     style={{ backgroundColor: color.color_code || '#808080' }}
                                   >
                                     {isSelected && (
@@ -1501,14 +1451,16 @@ function Services() {
                                     </p>
                                   </div>
 
-                                  <button
-                                    type="button"
-                                    onClick={() => handleOpenHairColorModal(color)}
-                                    className="p-1 rounded-lg hover:bg-pink-100 transition-colors flex-shrink-0"
-                                    title="Edit color"
-                                  >
-                                    <Edit size={12} className="text-pink-500" />
-                                  </button>
+                                  {isCreatingNew && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenHairColorModal(color)}
+                                      className="p-1 rounded-lg hover:bg-pink-100 transition-colors flex-shrink-0"
+                                      title="Edit color"
+                                    >
+                                      <Edit size={12} className="text-pink-500" />
+                                    </button>
+                                  )}
                                 </div>
 
                                 {isInactive && (
@@ -1717,18 +1669,14 @@ function Services() {
               ? 'No inactive services found'
               : statusFilter === 'active'
                 ? 'No active services found'
-                : selectedCategoryLabel
-                  ? `No ${selectedCategoryLabel} services found`
-                  : 'No services found'}
+                : 'No services found'}
           </h3>
           <p className="text-sm text-slate-500 mb-3">
             {searchTerm
               ? 'Try adjusting your search terms'
               : statusFilter === 'inactive'
                 ? 'All services are currently active'
-                : selectedCategoryLabel
-                  ? `Click "Add Service" to create your first ${selectedCategoryLabel} service`
-                  : 'Click "Add Service" to create your first service'}
+                : 'Click "Add Service" to create your first service'}
           </p>
           {!searchTerm && statusFilter !== 'inactive' && (
             <button

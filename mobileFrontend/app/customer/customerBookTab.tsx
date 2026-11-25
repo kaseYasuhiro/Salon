@@ -141,11 +141,16 @@ interface Appointment {
 }
 
 /**
- * Selected services are split into "groups" by specialty.
+ * Selected services are split into "groups".
  * Each group becomes its own appointment: its own stylist and its own date/time.
+ *
+ * - Multitaskable services of the same specialty share ONE group (one appointment).
+ * - A non-multitaskable service always gets its OWN group, even if it shares a specialty
+ *   with other selected services.
  */
 interface ServiceGroup {
-  key: string;
+  key: string; // unique group id (a solo group looks like "stylist::solo-12")
+  specialtyKey: string; // the real specialty ("stylist", "barber", ...)
   label: string;
   services: Service[];
 }
@@ -291,7 +296,7 @@ const findStylistConflict = (
 
 export default function CustomerBooking({ onBookingSuccess }: CustomerBookingProps) {
   const [selectedServiceIds, setSelectedServiceIds] = useState<number[]>([]);
-  // Per-group (per-specialty) stylist and schedule, keyed by group key
+  // Per-group stylist and schedule, keyed by group key
   const [groupStaff, setGroupStaff] = useState<Record<string, number>>({});
   const [groupSchedule, setGroupSchedule] = useState<Record<string, GroupSchedule>>({});
   const [activeGroupKey, setActiveGroupKey] = useState<string | null>(null);
@@ -624,7 +629,7 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
   };
 
   /**
-   * A service belongs to ONE group, based on its first listed specialty.
+   * A service belongs to ONE specialty, based on its first listed specialty.
    * Returns null when the service has no specialty — such services are not bookable
    * because we can't determine which staff can perform them.
    */
@@ -642,18 +647,18 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     return { key, label: key === 'stylist' ? 'Stylist' : first.trim() };
   };
 
-  // Active staff who can perform a group's specialty
-  const getEligibleStaffForGroup = (groupKey: string): StaffMember[] => {
+  // Active staff who can perform a specialty (pass a group's specialtyKey, NOT its unique key)
+  const getEligibleStaffForGroup = (specialtyKey: string): StaffMember[] => {
     return getActiveStaff().filter((member) => {
       const keys = (member.staff_specialties || [])
         .filter(s => s.is_active === 1)
         .map(s => resolveSpecialtyKey(s.specialties?.specialty_name))
         .filter(Boolean);
 
-      if (keys.includes(groupKey)) return true;
+      if (keys.includes(specialtyKey)) return true;
       // Legacy rule: stylists may also take any non-barber service.
       // Delete this line if you want strict specialty matching only.
-      if (keys.includes('stylist') && groupKey !== 'barber') return true;
+      if (keys.includes('stylist') && specialtyKey !== 'barber') return true;
       return false;
     });
   };
@@ -667,13 +672,14 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     });
   };
 
+  // Sections shown on the services step (one per specialty)
   const getServiceSections = (): ServiceGroup[] => {
     const map = new Map<string, ServiceGroup>();
     getBookableServices().forEach((service) => {
       const info = getServiceGroupInfo(service.id);
       if (!info) return;
       const { key, label } = info;
-      if (!map.has(key)) map.set(key, { key, label, services: [] });
+      if (!map.has(key)) map.set(key, { key, specialtyKey: key, label, services: [] });
       map.get(key)!.services.push(service);
     });
     return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label));
@@ -682,13 +688,25 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
   const getSelectedServices = (): Service[] =>
     services.filter((s) => selectedServiceIds.includes(s.id));
 
+  /**
+   * Splits the selected services into appointments (groups).
+   * - Multitaskable services share ONE appointment per specialty.
+   * - A non-multitaskable service always gets its own appointment (its own stylist + time),
+   *   even when other selected services share its specialty.
+   */
   const getSelectedGroups = (): ServiceGroup[] => {
     const map = new Map<string, ServiceGroup>();
     getSelectedServices().forEach((service) => {
       const info = getServiceGroupInfo(service.id);
       if (!info) return;
-      const { key, label } = info;
-      if (!map.has(key)) map.set(key, { key, label, services: [] });
+
+      const isSolo = service.is_multitaskable !== 1;
+      const key = isSolo ? `${info.key}::solo-${service.id}` : info.key;
+      const label = isSolo ? `${info.label} · ${service.service_name}` : info.label;
+
+      if (!map.has(key)) {
+        map.set(key, { key, specialtyKey: info.key, label, services: [] });
+      }
       map.get(key)!.services.push(service);
     });
     return Array.from(map.values());
@@ -696,29 +714,13 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
 
   /**
    * Why a service can't be added right now (null = it can).
-   * Rule: within one specialty, every selected service must be multitaskable.
-   * A service from a different specialty is always allowed (it becomes its own appointment).
+   * Combining is no longer restricted: non-multitaskable services simply become
+   * their own appointment. The only blocker is a service with no specialty.
    */
   const getServiceBlockReason = (service: Service): string | null => {
     if (selectedServiceIds.includes(service.id)) return null;
-
     const info = getServiceGroupInfo(service.id);
     if (!info) return 'This service has no specialty assigned';
-
-    const { key, label } = info;
-    const sameGroup = getSelectedServices().filter((s) => {
-      const i = getServiceGroupInfo(s.id);
-      return i?.key === key;
-    });
-    if (sameGroup.length === 0) return null;
-
-    if (service.is_multitaskable !== 1) {
-      return `Can't be combined with other ${label} services`;
-    }
-    const blocker = sameGroup.find((s) => s.is_multitaskable !== 1);
-    if (blocker) {
-      return `${blocker.service_name} can't be combined with other ${label} services`;
-    }
     return null;
   };
 
@@ -911,9 +913,9 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
 
   // Barber appointments allow 1 booking per slot; every group must also avoid overlapping other groups
   const isSlotBlockedForGroup = (date: Date, time: string, groupKey: string): boolean => {
-    if (groupKey === 'barber' && isTimeSlotTakenByBarber(date, time)) return true;
-    // The chosen stylist already has an overlapping appointment
     const group = getSelectedGroups().find((g) => g.key === groupKey);
+    if (group?.specialtyKey === 'barber' && isTimeSlotTakenByBarber(date, time)) return true;
+    // The chosen stylist already has an overlapping appointment
     if (getStylistConflict(groupStaff[groupKey], date, time, group)) return true;
     return hasConflictWithOtherGroups(date, time, groupKey);
   };
@@ -1007,11 +1009,12 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     const schedule = getScheduleForDate(toDateStr(date));
     if (!schedule || schedule.is_open !== 1) return false;
 
-    const group = staffId ? getSelectedGroups().find((g) => g.key === groupKey) : null;
+    const group = getSelectedGroups().find((g) => g.key === groupKey) ?? null;
+    const isBarber = group?.specialtyKey === 'barber';
 
     return generateTimeSlots(schedule.open_time, schedule.close_time).some((t) => {
       if (isPastSlotOnToday(date, t)) return false;
-      if (groupKey === 'barber' && isTimeSlotTakenByBarber(date, t)) return false;
+      if (isBarber && isTimeSlotTakenByBarber(date, t)) return false;
       if (staffId && getStylistConflict(staffId, date, t, group)) return false;
       return true;
     });
@@ -1138,10 +1141,7 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
 
     const reason = getServiceBlockReason(service);
     if (reason) {
-      Alert.alert(
-        "Can't Combine Services",
-        `${reason}.\n\nYou can pick a service from a different specialty instead — it will be booked as a separate appointment with its own time.`
-      );
+      Alert.alert("Service Unavailable", `${reason}.`);
       return;
     }
 
@@ -1690,7 +1690,7 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
   // ── Time Picker Modal (for the active group) ──
   const TimePickerModal = () => {
     const rawTimeSlots = selectedDateForModal && activeGroup ? getTimeSlotsForDate(selectedDateForModal) : [];
-    const isBarberGroup = activeGroup?.key === 'barber';
+    const isBarberGroup = activeGroup?.specialtyKey === 'barber';
     const groupDuration = activeGroup ? getGroupDuration(activeGroup) : 0;
     const activeSched = activeGroup ? groupSchedule[activeGroup.key] : undefined;
 
@@ -2293,7 +2293,7 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
           return 'Select hair details for your service';
         case 'stylist':
           return hasMultipleGroups
-            ? 'Choose a stylist for each specialty'
+            ? 'Choose a stylist for each appointment'
             : 'Choose your preferred stylist';
         case 'datetime':
           return hasMultipleGroups
@@ -2332,8 +2332,8 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
             {bookingStep === 'services' && (
               <View className="bg-white rounded-2xl p-5 shadow-sm" style={{ elevation: 2 }}>
                 <Text className="text-gray-500 text-sm mb-4">
-                  Combine multitaskable services of the same specialty. You can also add a service from a
-                  different specialty — it will be booked as a separate appointment with its own time.
+                  Multitaskable services of the same specialty are booked together. Services that
+                  aren't multitaskable are booked as a separate appointment with their own time.
                 </Text>
 
                 {isLoading ? (
@@ -2393,8 +2393,8 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                                     </View>
                                   )}
                                   {!isMultitaskable && (
-                                    <View className="bg-red-100 px-2 py-0.5 rounded-full">
-                                      <Text className="text-red-600 text-xs">Single Only</Text>
+                                    <View className="bg-orange-100 px-2 py-0.5 rounded-full">
+                                      <Text className="text-orange-600 text-xs">Separate Appointment</Text>
                                     </View>
                                   )}
                                   {requiresHairColor && (
@@ -2643,18 +2643,19 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
               </View>
             )}
 
-            {/* Step 3: Stylist Selection (one stylist per specialty group) */}
+            {/* Step 3: Stylist Selection (one stylist per appointment group) */}
             {bookingStep === 'stylist' && (
               <View>
                 {groups.map((group, index) => {
-                  const eligible = getEligibleStaffForGroup(group.key);
+                  // Eligibility depends on the real specialty, not the unique group key
+                  const eligible = getEligibleStaffForGroup(group.specialtyKey);
                   const chosenId = groupStaff[group.key];
-                  // Which stylists could also handle the OTHER specialties the customer selected
+                  // Which stylists could also handle the OTHER appointments the customer selected
                   const otherCoverage = groups
                     .filter((g) => g.key !== group.key)
                     .map((g) => ({
                       group: g,
-                      ids: new Set(getEligibleStaffForGroup(g.key).map((m) => m.id)),
+                      ids: new Set(getEligibleStaffForGroup(g.specialtyKey).map((m) => m.id)),
                     }));
 
                   return (

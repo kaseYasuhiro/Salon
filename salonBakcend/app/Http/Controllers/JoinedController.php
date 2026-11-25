@@ -1729,7 +1729,7 @@ class JoinedController extends Controller
         $request->validate([
             'service_id'          => ['required', 'numeric'],
             'service_name'        => ['required', 'string'],
-            'description'         => ['required', 'string'],
+            'description'         => ['nullable', 'string'],
             'price'               => ['required', 'numeric'],
             'duration_minutes'    => ['required', 'numeric'],
             'is_multitaskable'    => ['required', 'boolean'],

@@ -40,7 +40,7 @@ class ServicesController extends Controller
         // First, create the service
         $service = Services::create([
             'service_name' => $request->service_name,
-            'description' => $request->description,
+            'description' => $request->description, // null when omitted
             'price' => $request->price,
             'duration_minutes' => $request->duration_minutes,
             'is_multitaskable' => $request->is_multitaskable,

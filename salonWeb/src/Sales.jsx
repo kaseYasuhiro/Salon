@@ -1362,28 +1362,14 @@ function Sales() {
         </div>
       )}
 
-      {/* KPI stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
+      {/* KPI stats — Walk-in Revenue and Avg per Visit removed */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
         <StatCard
           label="Total Revenue"
           value={`₱${formatCurrency(salesData.totalRevenue)}`}
           sub={`${formatNumber(salesData.totalAppointments)} appts · ${formatNumber(salesData.totalWalkInCount)} walk-ins`}
           icon={TrendingUp}
           color="from-emerald-500 to-emerald-600"
-        />
-        <StatCard
-          label="Walk-in Revenue"
-          value={`₱${formatCurrency(salesData.totalWalkInRevenue)}`}
-          sub={`${formatNumber(salesData.totalWalkInCount)} walk-in${salesData.totalWalkInCount === 1 ? '' : 's'}`}
-          icon={Footprints}
-          color="from-cyan-500 to-sky-600"
-        />
-        <StatCard
-          label="Avg per Visit"
-          value={`₱${formatCurrency(salesData.averageRevenue)}`}
-          sub="Appointments + walk-ins"
-          icon={Scissors}
-          color="from-blue-500 to-indigo-600"
         />
         <StatCard
           label="Incidents / Write-offs"
@@ -1759,4 +1745,4 @@ function Sales() {
   );
 }
 
-export default Sales; 
+export default Sales;

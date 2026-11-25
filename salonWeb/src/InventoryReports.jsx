@@ -642,68 +642,6 @@ function InventoryReports() {
         />
       </div>
 
-      {/* Stock movement summary */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="relative bg-white rounded-2xl border border-slate-200/70 shadow-sm p-5 overflow-hidden">
-          <div className="absolute -top-8 -right-8 w-24 h-24 rounded-full opacity-[0.08] bg-gradient-to-br from-emerald-500 to-emerald-600" />
-          <div className="relative flex items-center gap-3">
-            <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-600 flex items-center justify-center shadow-md">
-              <TrendingUp size={20} className="text-white" />
-            </div>
-            <div>
-              <p className="text-xs font-medium text-slate-500">Total Restocked</p>
-              <p className="text-2xl font-bold text-emerald-600 mt-0.5 tracking-tight">
-                +{summaryStats.totalRestocked}
-              </p>
-              <p className="text-[10px] text-slate-400 mt-0.5">units (all time)</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="relative bg-white rounded-2xl border border-slate-200/70 shadow-sm p-5 overflow-hidden">
-          <div className="absolute -top-8 -right-8 w-24 h-24 rounded-full opacity-[0.08] bg-gradient-to-br from-red-500 to-red-600" />
-          <div className="relative flex items-center gap-3">
-            <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-red-500 to-red-600 flex items-center justify-center shadow-md">
-              <TrendingDown size={20} className="text-white" />
-            </div>
-            <div>
-              <p className="text-xs font-medium text-slate-500">Total Used</p>
-              <p className="text-2xl font-bold text-red-600 mt-0.5 tracking-tight">
-                -{summaryStats.totalUsed}
-              </p>
-              <p className="text-[10px] text-slate-400 mt-0.5">units (all time)</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="relative bg-white rounded-2xl border border-slate-200/70 shadow-sm p-5 overflow-hidden">
-          <div className={`absolute -top-8 -right-8 w-24 h-24 rounded-full opacity-[0.08] bg-gradient-to-br ${
-            summaryStats.totalRestocked - summaryStats.totalUsed >= 0
-              ? 'from-pink-500 to-fuchsia-600'
-              : 'from-red-500 to-rose-600'
-          }`} />
-          <div className="relative flex items-center gap-3">
-            <div className={`w-11 h-11 rounded-xl bg-gradient-to-br flex items-center justify-center shadow-md ${
-              summaryStats.totalRestocked - summaryStats.totalUsed >= 0
-                ? 'from-pink-500 to-fuchsia-600'
-                : 'from-red-500 to-rose-600'
-            }`}>
-              <Activity size={20} className="text-white" />
-            </div>
-            <div>
-              <p className="text-xs font-medium text-slate-500">Net Movement</p>
-              <p className={`text-2xl font-bold mt-0.5 tracking-tight ${
-                summaryStats.totalRestocked - summaryStats.totalUsed >= 0 ? 'text-emerald-600' : 'text-red-600'
-              }`}>
-                {summaryStats.totalRestocked - summaryStats.totalUsed >= 0 ? '+' : ''}
-                {summaryStats.totalRestocked - summaryStats.totalUsed}
-              </p>
-              <p className="text-[10px] text-slate-400 mt-0.5">units net change</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
       {/* INVENTORY TABLE */}
       <Panel
         title="Inventory Stock"

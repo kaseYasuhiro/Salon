@@ -127,7 +127,6 @@ function Products() {
 
   const [formData, setFormData] = useState({
     product_name: '',
-    description: '',
     unit: '',
     unit_size: '',
     estimated_usages_per_unit: '',
@@ -202,6 +201,10 @@ function Products() {
     if (fileInput) fileInput.value = '';
   };
 
+  // Default description used whenever the UI doesn't collect one.
+  const buildDefaultDescription = (productName) =>
+    `${(productName || '').trim() || 'Product'} product.`;
+
   const handleAddProduct = async (e) => {
     e.preventDefault();
     if (!formData.product_name || !formData.unit || !formData.unit_size || !formData.estimated_usages_per_unit) {
@@ -211,7 +214,8 @@ function Products() {
     try {
       const fd = new FormData();
       fd.append('product_name', formData.product_name);
-      fd.append('description', formData.description || '');
+      // Default description — the UI no longer collects it.
+      fd.append('description', buildDefaultDescription(formData.product_name));
       fd.append('unit', formData.unit);
       fd.append('unit_size', parseFloat(formData.unit_size));
       fd.append('estimated_usages_per_unit', parseFloat(formData.estimated_usages_per_unit));
@@ -241,7 +245,14 @@ function Products() {
     try {
       const fd = new FormData();
       fd.append('product_name', formData.product_name);
-      fd.append('description', formData.description || '');
+      // Preserve the existing description; fall back to the default if the
+      // stored one is missing (e.g. products created before this change).
+      fd.append(
+        'description',
+        editingProduct?.description?.trim()
+          ? editingProduct.description
+          : buildDefaultDescription(formData.product_name)
+      );
       fd.append('unit', formData.unit);
       fd.append('unit_size', parseFloat(formData.unit_size));
       fd.append('estimated_usages_per_unit', parseFloat(formData.estimated_usages_per_unit));
@@ -265,7 +276,7 @@ function Products() {
 
   const resetForm = () => {
     setFormData({
-      product_name: '', description: '', unit: '', unit_size: '',
+      product_name: '', unit: '', unit_size: '',
       estimated_usages_per_unit: '', is_active: true,
     });
     setProductImage(null);
@@ -280,7 +291,6 @@ function Products() {
     setEditingProduct(product);
     setFormData({
       product_name: product.product_name || '',
-      description: product.description || '',
       unit: product.unit || '',
       unit_size: product.unit_size?.toString() || '',
       estimated_usages_per_unit: product.estimated_usages_per_unit?.toString() || '',
@@ -305,7 +315,6 @@ function Products() {
       const term = searchTerm.toLowerCase();
       filtered = filtered.filter(p =>
         p.product_name?.toLowerCase().includes(term) ||
-        p.description?.toLowerCase().includes(term) ||
         p.unit?.toLowerCase().includes(term)
       );
     }
@@ -468,11 +477,6 @@ function Products() {
                     <h3 className={`text-sm font-semibold truncate ${isInactive ? 'text-slate-500' : 'text-slate-800'}`}>
                       {product.product_name}
                     </h3>
-                    {product.description && (
-                      <p className={`text-[11px] mt-1 line-clamp-2 ${isInactive ? 'text-slate-400' : 'text-slate-500'}`}>
-                        {product.description}
-                      </p>
-                    )}
                   </div>
 
                   <div className="grid grid-cols-2 gap-2 mb-3">
@@ -620,18 +624,6 @@ function Products() {
                     <p className="text-[11px] text-slate-400 mt-1">Inactive products will not appear in the inventory</p>
                   </div>
                 </div>
-              </div>
-
-              <div>
-                <label className={labelClass}>Description</label>
-                <textarea
-                  name="description"
-                  value={formData.description}
-                  onChange={handleInputChange}
-                  rows="2"
-                  className={`${inputClass} resize-none`}
-                  placeholder="Optional description"
-                />
               </div>
 
               <div>

@@ -1547,19 +1547,21 @@ function Appointments() {
                 </button>
               </div>
               <div className="p-5 space-y-3">
-                <button
-                  onClick={handleViewAppointments}
-                  className="w-full flex items-center gap-3 px-4 py-3 bg-blue-50 text-blue-700 rounded-xl hover:bg-blue-100 transition-colors border border-blue-100"
-                >
-                  <div className="w-9 h-9 rounded-lg bg-white flex items-center justify-center">
-                    <Eye size={18} className="text-blue-600" />
-                  </div>
-                  <div className="text-left flex-1">
-                    <p className="font-semibold text-sm">View Appointments</p>
-                    <p className="text-[11px] text-slate-500 mt-0.5">See all appointments for this day</p>
-                  </div>
-                  <ChevronRight size={16} className="text-blue-400" />
-                </button>
+                {hasSchedule && (
+                  <button
+                    onClick={handleViewAppointments}
+                    className="w-full flex items-center gap-3 px-4 py-3 bg-blue-50 text-blue-700 rounded-xl hover:bg-blue-100 transition-colors border border-blue-100"
+                  >
+                    <div className="w-9 h-9 rounded-lg bg-white flex items-center justify-center">
+                      <Eye size={18} className="text-blue-600" />
+                    </div>
+                    <div className="text-left flex-1">
+                      <p className="font-semibold text-sm">View Appointments</p>
+                      <p className="text-[11px] text-slate-500 mt-0.5">See all appointments for this day</p>
+                    </div>
+                    <ChevronRight size={16} className="text-blue-400" />
+                  </button>
+                )}
 
                 {!hasSchedule && (
                   <button

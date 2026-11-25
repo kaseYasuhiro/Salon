@@ -98,6 +98,27 @@ interface CustomerAccount {
   phone_number: string;
 }
 
+// A row from the walk_ins table (GET /walk-in)
+interface WalkInRecord {
+  id: number;
+  customer_id: number | null; // null when the customer has no account
+  customer_name: string;
+  service_id: number;
+  stylist_id: number;
+  is_finished: number | boolean;
+  amount_paid?: number | string | null;
+  walkin_payment_method?: string | null;
+  created_at?: string;
+}
+
+// A walk-in customer without an account who has at least one completed walk-in
+interface SavedWalkInGuest {
+  key: string; // normalized name, used for de-duplication
+  name: string;
+  visitCount: number;
+  lastServiceName: string | null;
+}
+
 interface StaffAppointment {
   id: number;
   appointment_id: number;
@@ -140,8 +161,15 @@ interface PaymentData {
   };
 }
 
+/**
+ * Selected services are split into "groups". Each group gets its own stylist.
+ * - Multitaskable services of the same specialty share ONE group.
+ * - A non-multitaskable service always gets its OWN group, even if other selected
+ *   services share its specialty (so it can have a different stylist).
+ */
 interface ServiceGroup {
-  key: string;
+  key: string; // unique group id (a solo group looks like "stylist::solo-12")
+  specialtyKey: string; // the real specialty ("stylist", "barber", ...)
   label: string;
   services: Service[];
 }
@@ -155,6 +183,10 @@ type MainTab = 'landing' | 'appointments' | 'walk-ins';
 type BookingStep = 'customer' | 'services' | 'stylist' | 'confirm';
 
 const DEFAULT_GROUP_KEY = 'stylist';
+
+// "  Juan   Dela Cruz " and "juan dela cruz" are treated as the same guest
+const normalizeGuestName = (name: string | null | undefined): string =>
+  (name || '').trim().replace(/\s+/g, ' ').toLowerCase();
 
 export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
   const [mainTab, setMainTab] = useState<MainTab>('landing');
@@ -174,6 +206,10 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
   const [customerList, setCustomerList] = useState<CustomerAccount[]>([]);
   const [customerSearch, setCustomerSearch] = useState('');
   const [isLoadingCustomers, setIsLoadingCustomers] = useState(false);
+
+  // Past walk-ins (used to remember guests who don't have an account)
+  const [walkInRecords, setWalkInRecords] = useState<WalkInRecord[]>([]);
+  const [isLoadingWalkIns, setIsLoadingWalkIns] = useState(false);
 
   const [isAuthorized, setIsAuthorized] = useState<boolean | null>(null);
   const [isCheckingAuth, setIsCheckingAuth] = useState(false);
@@ -294,6 +330,41 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
       console.log('Failed to fetch customers', error);
     } finally {
       if (isMountedRef.current) setIsLoadingCustomers(false);
+    }
+  };
+
+  // All walk-in sessions. Used to build the list of returning guests without an account.
+  const fetchWalkIns = async () => {
+    if (isMountedRef.current) setIsLoadingWalkIns(true);
+    try {
+      const response = await api.get('/walk-in');
+
+      let rawData: any[] = [];
+      if (Array.isArray(response.data)) {
+        rawData = response.data;
+      } else if (response.data && Array.isArray(response.data.data)) {
+        rawData = response.data.data;
+      }
+
+      const records: WalkInRecord[] = rawData.map((item: any) => ({
+        id: item.id,
+        customer_id: item.customer_id ?? null,
+        customer_name: (item.customer_name ?? '').toString(),
+        service_id: item.service_id,
+        stylist_id: item.stylist_id,
+        is_finished: item.is_finished,
+        amount_paid: item.amount_paid ?? null,
+        walkin_payment_method: item.walkin_payment_method ?? null,
+        created_at: item.created_at,
+      }));
+
+      if (isMountedRef.current) setWalkInRecords(records);
+      return records;
+    } catch (error) {
+      console.log('[fetchWalkIns] error:', error);
+      return [];
+    } finally {
+      if (isMountedRef.current) setIsLoadingWalkIns(false);
     }
   };
 
@@ -541,9 +612,13 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
     });
   };
 
+  // Only show services that are active, have at least one specialty assigned,
+  // and can be handled by at least one stylist working today.
   const getBookableServices = (): Service[] => {
     return services
       .filter(s => s.service_status === 'active')
+      // A service with no specialty can't be routed to a stylist — hide it
+      .filter(s => getServiceSpecialties(s.id).length > 0)
       .filter(s => getEligibleStaffForGroup(getServiceGroupInfo(s.id).key).length > 0);
   };
 
@@ -551,7 +626,7 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
     const map = new Map<string, ServiceGroup>();
     getBookableServices().forEach((service) => {
       const { key, label } = getServiceGroupInfo(service.id);
-      if (!map.has(key)) map.set(key, { key, label, services: [] });
+      if (!map.has(key)) map.set(key, { key, specialtyKey: key, label, services: [] });
       map.get(key)!.services.push(service);
     });
     return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label));
@@ -560,30 +635,26 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
   const getSelectedServices = (): Service[] =>
     services.filter((s) => selectedServiceIds.includes(s.id));
 
+  /**
+   * Splits the selected services into groups (one stylist each).
+   * - Multitaskable services share ONE group per specialty.
+   * - A non-multitaskable service always gets its own group.
+   */
   const getSelectedGroups = (): ServiceGroup[] => {
     const map = new Map<string, ServiceGroup>();
     getSelectedServices().forEach((service) => {
-      const { key, label } = getServiceGroupInfo(service.id);
-      if (!map.has(key)) map.set(key, { key, label, services: [] });
+      const info = getServiceGroupInfo(service.id);
+
+      const isSolo = service.is_multitaskable !== 1;
+      const key = isSolo ? `${info.key}::solo-${service.id}` : info.key;
+      const label = isSolo ? `${info.label} · ${service.service_name}` : info.label;
+
+      if (!map.has(key)) {
+        map.set(key, { key, specialtyKey: info.key, label, services: [] });
+      }
       map.get(key)!.services.push(service);
     });
     return Array.from(map.values());
-  };
-
-  const getServiceBlockReason = (service: Service): string | null => {
-    if (selectedServiceIds.includes(service.id)) return null;
-    const { key, label } = getServiceGroupInfo(service.id);
-    const sameGroup = getSelectedServices().filter((s) => getServiceGroupInfo(s.id).key === key);
-    if (sameGroup.length === 0) return null;
-
-    if (service.is_multitaskable !== 1) {
-      return `Can't be combined with other ${label} services`;
-    }
-    const blocker = sameGroup.find((s) => s.is_multitaskable !== 1);
-    if (blocker) {
-      return `${blocker.service_name} can't be combined with other ${label} services`;
-    }
-    return null;
   };
 
   const getGroupTotal = (group: ServiceGroup): number =>
@@ -594,6 +665,55 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
 
   const getTotalDuration = (): number =>
     getSelectedServices().reduce((sum, s) => sum + s.duration_minutes, 0);
+
+  // ─────────────────────────────────────────────────────────────
+  // Saved walk-in guests (customers without an account)
+  // ─────────────────────────────────────────────────────────────
+  const isWalkInFinished = (record: WalkInRecord): boolean =>
+    record.is_finished === true || Number(record.is_finished) === 1;
+
+  /**
+   * Walk-in customers with NO account (customer_id is null) who have at least one
+   * completed walk-in. Each guest appears once, de-duplicated by name (case/space-insensitive).
+   * The most recent record decides the display name and "last service".
+   */
+  const getSavedWalkInGuests = (): SavedWalkInGuest[] => {
+    const map = new Map<string, { guest: SavedWalkInGuest; latestId: number }>();
+
+    walkInRecords.forEach((record) => {
+      if (record.customer_id != null) return; // has an account — shown in the accounts list
+      if (!isWalkInFinished(record)) return; // only completed sessions
+      const key = normalizeGuestName(record.customer_name);
+      if (!key) return;
+
+      const serviceName = services.find((s) => s.id === record.service_id)?.service_name ?? null;
+      const existing = map.get(key);
+
+      if (!existing) {
+        map.set(key, {
+          latestId: record.id,
+          guest: {
+            key,
+            name: record.customer_name.trim().replace(/\s+/g, ' '),
+            visitCount: 1,
+            lastServiceName: serviceName,
+          },
+        });
+        return;
+      }
+
+      existing.guest.visitCount += 1;
+      if (record.id > existing.latestId) {
+        existing.latestId = record.id;
+        existing.guest.name = record.customer_name.trim().replace(/\s+/g, ' ');
+        existing.guest.lastServiceName = serviceName;
+      }
+    });
+
+    return Array.from(map.values())
+      .map((entry) => entry.guest)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  };
 
   // ─────────────────────────────────────────────────────────────
   // Selection handlers
@@ -625,6 +745,17 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
     setBookingStep('services');
   };
 
+  // A returning guest without an account: the name is already known, so no need to type it again.
+  const handleSavedGuestSelect = (guest: SavedWalkInGuest) => {
+    setSelectedCustomerId(null); // still no account — customer_id stays null
+    setIsWalkInGuest(false); // name is prefilled, so hide the name input
+    setCustomerName(guest.name);
+    setCustomerSearch('');
+    setSelectedServiceIds([]);
+    setGroupStaff({});
+    setBookingStep('services');
+  };
+
   const handleServiceSelect = (serviceId: number) => {
     if (selectedServiceIds.includes(serviceId)) {
       setSelectedServiceIds(selectedServiceIds.filter(id => id !== serviceId));
@@ -633,15 +764,6 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
 
     const service = services.find(s => s.id === serviceId);
     if (!service) return;
-
-    const reason = getServiceBlockReason(service);
-    if (reason) {
-      Alert.alert(
-        "Can't Combine Services",
-        `${reason}.\n\nYou can pick a service from a different specialty instead — it will get its own stylist.`
-      );
-      return;
-    }
 
     setSelectedServiceIds([...selectedServiceIds, serviceId]);
   };
@@ -670,7 +792,7 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
         Alert.alert("Selection Required", `Please select a stylist for ${group.label}.`);
         return;
       }
-      const stillEligible = getEligibleStaffForGroup(group.key).some((m) => m.id === staffId);
+      const stillEligible = getEligibleStaffForGroup(group.specialtyKey).some((m) => m.id === staffId);
       if (!stillEligible) {
         Alert.alert("Stylist Unavailable", `The stylist for ${group.label} is no longer available today. Please choose another.`);
         setGroupStaff((prev) => {
@@ -751,6 +873,8 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
           : "Walk-in customer added successfully! You can manage it from My Appointments."
       );
       startNewWalkIn();
+      // Keep the saved-guest list in sync
+      fetchWalkIns();
       if (onSuccess) onSuccess();
     } catch (error: any) {
       const addedCount = selectedServiceIds.filter((id) => submitted.has(id)).length;
@@ -841,6 +965,12 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
     const term = customerSearch.toLowerCase();
     const fullName = `${c.first_name} ${c.last_name}`.toLowerCase();
     return fullName.includes(term) || c.email?.toLowerCase().includes(term) || c.phone_number?.includes(term);
+  });
+
+  // Returning guests (no account), filtered by the same search box
+  const filteredSavedGuests = getSavedWalkInGuests().filter((g) => {
+    if (!customerSearch.trim()) return true;
+    return g.name.toLowerCase().includes(customerSearch.trim().toLowerCase());
   });
 
   // ─────────────────────────────────────────────────────────────
@@ -1052,6 +1182,7 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
       fetchStaffFeedbacks(),
       fetchAllAppointments(),
       fetchCustomers(),
+      fetchWalkIns(),
     ]).finally(() => {
       if (isMountedRef.current) setIsLoading(false);
     });
@@ -1066,6 +1197,14 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
   useEffect(() => {
     if (mainTab === 'appointments' && user?.id) {
       fetchAllAppointments();
+    }
+  }, [mainTab, user?.id]);
+
+  // Refresh the saved-guest list whenever the staff opens the walk-ins flow,
+  // so sessions completed since the last visit show up.
+  useEffect(() => {
+    if (mainTab === 'walk-ins' && user?.id) {
+      fetchWalkIns();
     }
   }, [mainTab, user?.id]);
 
@@ -1296,6 +1435,8 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
     const totalDuration = getTotalDuration();
     const canContinueFromServices =
       selectedServiceIds.length > 0 && (!isWalkInGuest || customerName.trim().length > 0);
+    const isLoadingCustomerStep = isLoadingCustomers || isLoadingWalkIns;
+    const hasNoCustomerResults = filteredCustomers.length === 0 && filteredSavedGuests.length === 0;
 
     return (
       <ScrollView showsVerticalScrollIndicator={false} className="flex-1">
@@ -1328,9 +1469,9 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
              'Confirm Walk-in'}
           </Text>
           <Text className="text-gray-500 mb-6">
-            {bookingStep === 'customer' ? 'Search for an existing account or add a guest' :
+            {bookingStep === 'customer' ? 'Search for an existing account, a returning guest, or add a new guest' :
              bookingStep === 'services' ? `Customer: ${customerName || 'Walk-in Guest'}` :
-             bookingStep === 'stylist' ? (hasMultipleGroups ? 'Choose a stylist for each specialty' : 'Choose a stylist for this walk-in') :
+             bookingStep === 'stylist' ? (hasMultipleGroups ? 'Choose a stylist for each group' : 'Choose a stylist for this walk-in') :
              `Review walk-in details`}
           </Text>
 
@@ -1362,45 +1503,88 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
                   <Ionicons name="person-add" size={20} color="#ec4899" />
                 </View>
                 <View className="ml-3 flex-1">
-                  <Text className="text-gray-800 font-semibold">Walk-in Guest</Text>
+                  <Text className="text-gray-800 font-semibold">New Walk-in Guest</Text>
                   <Text className="text-gray-500 text-xs">Enter a custom name manually</Text>
                 </View>
                 <Ionicons name="chevron-forward" size={20} color="#ec4899" />
               </TouchableOpacity>
 
-              {isLoadingCustomers ? (
+              {isLoadingCustomerStep ? (
                 <View className="py-8 items-center">
                   <ActivityIndicator size="small" color="#ec4899" />
                   <Text className="text-gray-500 mt-2 text-sm">Loading customers...</Text>
                 </View>
-              ) : filteredCustomers.length === 0 ? (
+              ) : hasNoCustomerResults ? (
                 <View className="py-8 items-center">
                   <Ionicons name="people-outline" size={40} color="#d1d5db" />
                   <Text className="text-gray-500 text-sm mt-2">No customers found</Text>
                 </View>
               ) : (
                 <View>
-                  {filteredCustomers.map((customer) => (
-                    <TouchableOpacity
-                      key={customer.id}
-                      className="flex-row items-center p-3 mb-2 rounded-xl border border-gray-200 bg-white"
-                      onPress={() => handleCustomerSelect(customer)}
-                    >
-                      <View className="w-10 h-10 bg-gray-100 rounded-full items-center justify-center">
-                        <Text className="text-gray-600 font-bold">
-                          {customer.first_name?.charAt(0)}{customer.last_name?.charAt(0)}
+                  {/* Returning walk-in guests (no account, at least one completed walk-in) */}
+                  {filteredSavedGuests.length > 0 && (
+                    <View className="mb-2">
+                      <Text className="text-gray-500 text-xs font-semibold uppercase tracking-wider mb-2">
+                        Previous Walk-in Guests
+                      </Text>
+                      {filteredSavedGuests.map((guest) => (
+                        <TouchableOpacity
+                          key={`guest-${guest.key}`}
+                          className="flex-row items-center p-3 mb-2 rounded-xl border border-pink-200 bg-pink-50"
+                          onPress={() => handleSavedGuestSelect(guest)}
+                        >
+                          <View className="w-10 h-10 bg-pink-200 rounded-full items-center justify-center">
+                            <Text className="text-pink-700 font-bold">
+                              {guest.name.charAt(0).toUpperCase()}
+                            </Text>
+                          </View>
+                          <View className="ml-3 flex-1">
+                            <Text className="text-gray-800 font-semibold">{guest.name}</Text>
+                            <Text className="text-gray-500 text-xs">
+                              {guest.visitCount} completed walk-in{guest.visitCount === 1 ? '' : 's'}
+                              {guest.lastServiceName ? ` · Last: ${guest.lastServiceName}` : ''}
+                            </Text>
+                          </View>
+                          <View className="bg-pink-100 px-2 py-0.5 rounded-full mr-2">
+                            <Text className="text-pink-600 text-[10px] font-semibold">No account</Text>
+                          </View>
+                          <Ionicons name="chevron-forward" size={20} color="#ec4899" />
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
+
+                  {/* Customers with an account */}
+                  {filteredCustomers.length > 0 && (
+                    <View>
+                      {filteredSavedGuests.length > 0 && (
+                        <Text className="text-gray-500 text-xs font-semibold uppercase tracking-wider mb-2 mt-2">
+                          Registered Customers
                         </Text>
-                      </View>
-                      <View className="ml-3 flex-1">
-                        <Text className="text-gray-800 font-semibold">{customer.first_name} {customer.last_name}</Text>
-                        <Text className="text-gray-500 text-xs">{customer.email}</Text>
-                        {customer.phone_number && (
-                          <Text className="text-gray-400 text-xs">{customer.phone_number}</Text>
-                        )}
-                      </View>
-                      <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
-                    </TouchableOpacity>
-                  ))}
+                      )}
+                      {filteredCustomers.map((customer) => (
+                        <TouchableOpacity
+                          key={customer.id}
+                          className="flex-row items-center p-3 mb-2 rounded-xl border border-gray-200 bg-white"
+                          onPress={() => handleCustomerSelect(customer)}
+                        >
+                          <View className="w-10 h-10 bg-gray-100 rounded-full items-center justify-center">
+                            <Text className="text-gray-600 font-bold">
+                              {customer.first_name?.charAt(0)}{customer.last_name?.charAt(0)}
+                            </Text>
+                          </View>
+                          <View className="ml-3 flex-1">
+                            <Text className="text-gray-800 font-semibold">{customer.first_name} {customer.last_name}</Text>
+                            <Text className="text-gray-500 text-xs">{customer.email}</Text>
+                            {customer.phone_number && (
+                              <Text className="text-gray-400 text-xs">{customer.phone_number}</Text>
+                            )}
+                          </View>
+                          <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
                 </View>
               )}
             </View>
@@ -1422,8 +1606,8 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
               )}
 
               <Text className="text-gray-500 text-sm mb-4">
-                Combine multitaskable services of the same specialty. You can also add a service from a
-                different specialty — it will get its own stylist.
+                Multitaskable services of the same specialty are grouped together. Services that
+                aren't multitaskable get their own stylist.
               </Text>
 
               {isLoading ? (
@@ -1450,14 +1634,13 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
                     {section.services.map((service) => {
                       const isSelected = selectedServiceIds.includes(service.id);
                       const isMultitaskable = service.is_multitaskable === 1;
-                      const blockReason = getServiceBlockReason(service);
 
                       return (
                         <TouchableOpacity
                           key={service.id}
                           className={`rounded-2xl p-4 mb-3 border-2 ${
                             isSelected ? 'border-pink-500 bg-pink-50' : 'border-gray-200 bg-white'
-                          } ${blockReason ? 'opacity-50' : ''}`}
+                          }`}
                           onPress={() => handleServiceSelect(service.id)}
                           activeOpacity={0.7}
                           disabled={isProcessing}>
@@ -1476,14 +1659,11 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
                                     <Text className="text-green-600 text-xs">Multitaskable</Text>
                                   </View>
                                 ) : (
-                                  <View className="bg-red-100 px-2 py-0.5 rounded-full">
-                                    <Text className="text-red-600 text-xs">Single Only</Text>
+                                  <View className="bg-orange-100 px-2 py-0.5 rounded-full">
+                                    <Text className="text-orange-600 text-xs">Own Stylist</Text>
                                   </View>
                                 )}
                               </View>
-                              {blockReason && (
-                                <Text className="text-red-500 text-[11px] mt-1">{blockReason}</Text>
-                              )}
                             </View>
                             <Text className="text-pink-600 font-bold text-lg">₱{service.price.toLocaleString()}</Text>
                           </View>
@@ -1510,7 +1690,7 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
                   {hasMultipleGroups && (
                     <View className="bg-blue-50 rounded-lg p-2 mb-2">
                       <Text className="text-blue-700 text-xs">
-                        Your services span {groups.length} specialties. You'll choose a stylist for each.
+                        Your services are split into {groups.length} groups. You'll choose a stylist for each.
                       </Text>
                     </View>
                   )}
@@ -1535,7 +1715,8 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
           {bookingStep === 'stylist' && (
             <View>
               {groups.map((group, index) => {
-                const eligible = getEligibleStaffForGroup(group.key);
+                // Eligibility depends on the real specialty, not the unique group key
+                const eligible = getEligibleStaffForGroup(group.specialtyKey);
                 const chosenId = groupStaff[group.key];
 
                 return (

@@ -333,11 +333,16 @@ function Employees() {
 
     setIsSavingAll(true);
     try {
+      // Convert whole-number percentage to decimal for the backend
+      const commissionDecimal = hasCommission
+        ? parseFloat(employeeFormData.commission_amount) / 100
+        : null;
+
       const updateData = {
         employee_id: selectedEmployee.id,
         specialty_id: hasSpecialty ? parseInt(employeeFormData.specialty_id) : null,
         active_status: hasActiveStatus ? employeeFormData.active_status : null,
-        commission_amount: hasCommission ? parseFloat(employeeFormData.commission_amount) : null,
+        commission_amount: commissionDecimal,
         walk_in_authorized: hasWalkIn ? employeeFormData.walk_in_authorized : null,
       };
 
@@ -480,11 +485,13 @@ function Employees() {
 
   const handleEmployeeClick = (employee) => {
     setSelectedEmployee(employee);
+    // Display stored decimal commission as a whole-number percentage
+    const storedCommission = employeeCommissions[employee.id];
     setEmployeeFormData({
       employee_id: employee.id,
       specialty_id: '',
       active_status: getEmployeeActiveStatus(employee),
-      commission_amount: employeeCommissions[employee.id] || '',
+      commission_amount: storedCommission ? (storedCommission * 100).toString() : '',
       walk_in_authorized: walkInAuthorizations[employee.id] || false,
     });
     setShowEmployeeModal(true);
@@ -694,7 +701,7 @@ function Employees() {
                       {commission > 0 && (
                         <div className="inline-flex items-center justify-center gap-1 mt-1.5 px-2 py-0.5 bg-emerald-50 text-emerald-600 rounded-full border border-emerald-100">
                           <DollarSign size={10} />
-                          <span className="text-[10px] font-semibold">{commission * 100}% Commission</span>
+                          <span className="text-[10px] font-semibold">{(commission * 100).toFixed(0)}% Commission</span>
                         </div>
                       )}
                     </div>
@@ -854,7 +861,7 @@ function Employees() {
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap">
                           <span className={`text-xs font-semibold ${commission > 0 ? 'text-emerald-600' : 'text-slate-400'}`}>
-                            {commission > 0 ? `${commission * 100}%` : 'None'}
+                            {commission > 0 ? `${(commission * 100).toFixed(0)}%` : 'None'}
                           </span>
                         </td>
                         <td onClick={() => handleEmployeeClick(employee)} className="px-4 py-3 whitespace-nowrap cursor-pointer">
@@ -1163,7 +1170,7 @@ function Employees() {
                     <div className="bg-emerald-50/70 rounded-xl p-4 border border-emerald-100">
                       <p className="text-[11px] text-slate-500">Current Commission</p>
                       <p className="text-sm font-semibold text-emerald-700">
-                        {employeeCommissions[selectedEmployee.id] * 100}%
+                        {(employeeCommissions[selectedEmployee.id] * 100).toFixed(0)}%
                       </p>
                     </div>
                   )}
@@ -1236,22 +1243,22 @@ function Employees() {
                   <div className="border-t border-slate-100 pt-4">
                     <h3 className="text-sm font-semibold text-slate-800 mb-3">Commission</h3>
                     <div>
-                      <label className={labelClass}>Commission Amount (%)</label>
+                      <label className={labelClass}>Commission Rate (%)</label>
                       <div className="relative">
                         <input
                           type="number"
                           name="commission_amount"
                           value={employeeFormData.commission_amount}
                           onChange={handleEmployeeFormChange}
-                          step="0.01"
+                          step="1"
                           min="0"
                           max="100"
-                          placeholder="e.g., 10 for 10%"
+                          placeholder="e.g., 40 for 40%"
                           className={`${inputClass} pr-8`}
                         />
                         <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">%</span>
                       </div>
-                      <p className="text-[11px] text-slate-400 mt-1">Enter the commission percentage (e.g., 10 = 10%)</p>
+                      <p className="text-[11px] text-slate-400 mt-1">Enter the whole number percentage (e.g., 40 for 40%)</p>
                     </div>
                   </div>
 
