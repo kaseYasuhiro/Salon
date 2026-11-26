@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import {
   Users, UserPlus, Search, Edit, Mail, Phone, Star, Award,
   Activity, Briefcase, CheckCircle, XCircle, Scissors, X, AlertCircle,
-  Tag, UserCheck, UserX, Save, DollarSign, Settings
+  Tag, UserCheck, UserX, Save, Settings
 } from 'lucide-react';
 import api from '../api/axios';
 import { useAuth } from '../contexts/auth-context';
@@ -749,7 +749,7 @@ function Employees() {
                       </div>
                       {commission > 0 && (
                         <div className="inline-flex items-center justify-center gap-1 mt-1.5 px-2 py-0.5 bg-emerald-50 text-emerald-600 rounded-full border border-emerald-100">
-                          <DollarSign size={10} />
+                          <span className="text-[10px] font-bold">₱</span>
                           <span className="text-[10px] font-semibold">{(commission * 100).toFixed(0)}% Commission</span>
                         </div>
                       )}

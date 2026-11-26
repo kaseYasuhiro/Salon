@@ -449,7 +449,7 @@ function Remittances() {
       </div>
 
       {/* Summary stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <StatCard
           label="Total Remitted"
           value={formatCurrencyWithSymbol(summaryStats.totalRemitted)}
@@ -463,20 +463,6 @@ function Remittances() {
           sub={`${summaryStats.totalServices} services`}
           icon={Users}
           color="from-blue-500 to-indigo-600"
-        />
-        <StatCard
-          label="Total Commission"
-          value={formatCurrencyWithSymbol(summaryStats.totalCommission)}
-          sub="Paid to staff"
-          icon={User}
-          color="from-purple-500 to-fuchsia-600"
-        />
-        <StatCard
-          label="Total Expenses"
-          value={formatCurrencyWithSymbol(summaryStats.totalExpenses)}
-          sub="From remittances"
-          icon={AlertCircle}
-          color="from-red-500 to-rose-600"
         />
       </div>
 

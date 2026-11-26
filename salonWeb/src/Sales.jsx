@@ -87,13 +87,11 @@ function Sales() {
     totalWalkInCommissions: 0,
   });
 
-  // Counts of completed appointments + walk-ins. A visit paid with both
-  // methods (e.g. GCash downpayment + cash balance) counts once under each.
   const [paymentBreakdown, setPaymentBreakdown] = useState({
     cash: 0,
     gcash: 0,
-    other: 0, // no payment record / unrecognized method
-    total: 0, // completed appointments + walk-ins in the current filter
+    other: 0,
+    total: 0,
     apptTotal: 0,
     walkInTotal: 0,
     walkInCash: 0,
@@ -126,9 +124,9 @@ function Sales() {
   const expensesRef = useRef([]);
   const reportsRef = useRef([]);
   const walkInsRef = useRef([]);
-  const servicesRef = useRef([]); // mirrors services for the same reason
-  const staffRef = useRef([]); // mirrors staffList so async fetchers never read a stale copy
-  const paymentsRef = useRef(new Map()); // appointment_id -> Set of payment methods
+  const servicesRef = useRef([]);
+  const staffRef = useRef([]);
+  const paymentsRef = useRef(new Map());
 
   const showToast = (message, type = 'success') => {
     setToast({ show: true, message, type });
@@ -372,9 +370,6 @@ function Sales() {
     }
   };
 
-  // Walk-ins carry their payment method on the walk-in record itself.
-  // Supports a single `payment_method` / `mode_of_payment` string, a
-  // `payment_methods` array, or a `payments` relation array.
   const getWalkInPaymentMethods = (w) => {
     const set = new Set();
     const add = (v) => { if (v) set.add(normalizePaymentMethod(v)); };
@@ -417,7 +412,7 @@ function Sales() {
     };
   };
 
-  // ---------- Name helpers (services + user relations from the walk-in endpoint) ----------
+  // ---------- Name helpers ----------
 
   const getUserFullName = (u) =>
     u ? [u.first_name, u.last_name].filter(Boolean).join(' ').trim() : '';
@@ -429,8 +424,6 @@ function Sales() {
   };
 
   const getWalkInServiceNames = (w) => {
-    // `services` is loaded via walk_ins.service_id, so it is normally ONE object,
-    // but an array is also handled in case the relation is ever changed to many.
     const rel = w.services ?? w.service;
     if (Array.isArray(rel)) {
       const names = rel.map(s => s?.service_name || s?.name).filter(Boolean);
@@ -563,7 +556,7 @@ function Sales() {
   };
 
   // ============================================================
-  // BUCKET BUILDERS (walk-in revenue/commission folded in)
+  // BUCKET BUILDERS
   // ============================================================
 
   const buildDailyBuckets = (appointments, walkInList = [], daysBack = 30, isAllStaff = true) => {
@@ -929,7 +922,6 @@ function Sales() {
           activeStaff
         );
 
-        // Payment methods + payment details now cover appointments AND walk-ins
         setPaymentBreakdown(calculatePaymentBreakdown(filtered, scopedWalkIns));
         setPaymentRows(buildPaymentRows(filtered, scopedWalkIns));
         setPaymentPage(1);
@@ -1050,6 +1042,22 @@ function Sales() {
   const handlePrevPage = () => { if (currentPage > 1) setCurrentPage(prev => prev - 1); };
 
   // ============================================================
+  // FOOTER TOTALS (computed from the CURRENTLY DISPLAYED bucket set)
+  // ============================================================
+  // These make the "Total" row match whatever filter (daily/weekly/monthly)
+  // is active, instead of always showing the all-time global totals.
+  const profitTotals = allProfitData.reduce((acc, item) => {
+    acc.revenue += item.revenue || 0;
+    acc.count += item.count || 0;
+    acc.walkInCount += item.walkInCount || 0;
+    acc.writtenOff += item.writtenOff || 0;
+    acc.expenses += item.expenses || 0;
+    acc.commissions += item.commissions || 0;
+    acc.netProfit += item.netProfit || 0;
+    return acc;
+  }, { revenue: 0, count: 0, walkInCount: 0, writtenOff: 0, expenses: 0, commissions: 0, netProfit: 0 });
+
+  // ============================================================
   // EXPORTS
   // ============================================================
 
@@ -1118,13 +1126,13 @@ function Sales() {
               <p>Staff: ${getSelectedStaffName()}</p>
             </div>
             <div class="summary-box">
-              <div class="summary-item"><div class="label">Total Revenue</div><div class="value">₱${formatCurrency(salesData.totalRevenue)}</div></div>
-              <div class="summary-item"><div class="label">Appointments</div><div class="value">${formatNumber(salesData.totalAppointments)}</div></div>
-              <div class="summary-item"><div class="label">Walk-ins</div><div class="value">${formatNumber(salesData.totalWalkInCount)} (₱${formatCurrency(salesData.totalWalkInRevenue)})</div></div>
-              <div class="summary-item"><div class="label">Incidents</div><div class="value">₱${formatCurrency(salesData.totalWrittenOff)}</div></div>
-              <div class="summary-item"><div class="label">Total Expenses</div><div class="value">₱${formatCurrency(salesData.totalExpenses)}</div></div>
-              <div class="summary-item"><div class="label">Commissions</div><div class="value">₱${formatCurrency(salesData.totalCommissions)}</div></div>
-              <div class="summary-item"><div class="label">Net Profit</div><div class="value">₱${formatCurrency(salesData.netProfit)}</div></div>
+              <div class="summary-item"><div class="label">Total Revenue</div><div class="value">₱${formatCurrency(profitTotals.revenue)}</div></div>
+              <div class="summary-item"><div class="label">Appointments</div><div class="value">${formatNumber(profitTotals.count)}</div></div>
+              <div class="summary-item"><div class="label">Walk-ins</div><div class="value">${formatNumber(profitTotals.walkInCount)}</div></div>
+              <div class="summary-item"><div class="label">Incidents</div><div class="value">₱${formatCurrency(profitTotals.writtenOff)}</div></div>
+              <div class="summary-item"><div class="label">Total Expenses</div><div class="value">₱${formatCurrency(profitTotals.expenses)}</div></div>
+              <div class="summary-item"><div class="label">Commissions</div><div class="value">₱${formatCurrency(profitTotals.commissions)}</div></div>
+              <div class="summary-item"><div class="label">Net Profit</div><div class="value">₱${formatCurrency(profitTotals.netProfit)}</div></div>
             </div>
             <div class="section">
               <h2>Profit Report (${profitFilter.charAt(0).toUpperCase() + profitFilter.slice(1)})</h2>
@@ -1147,13 +1155,13 @@ function Sales() {
                 <tfoot>
                   <tr class="total-row">
                     <td>Total</td>
-                    <td class="currency">₱${formatCurrency(salesData.totalRevenue)}</td>
-                    <td class="currency">${formatNumber(salesData.totalAppointments)}</td>
-                    <td class="currency">${formatNumber(salesData.totalWalkInCount)}</td>
-                    <td class="currency">₱${formatCurrency(salesData.totalWrittenOff)}</td>
-                    <td class="currency">₱${formatCurrency(salesData.totalExpenses)}</td>
-                    <td class="currency">₱${formatCurrency(salesData.totalCommissions)}</td>
-                    <td class="currency">₱${formatCurrency(salesData.netProfit)}</td>
+                    <td class="currency">₱${formatCurrency(profitTotals.revenue)}</td>
+                    <td class="currency">${formatNumber(profitTotals.count)}</td>
+                    <td class="currency">${formatNumber(profitTotals.walkInCount)}</td>
+                    <td class="currency">₱${formatCurrency(profitTotals.writtenOff)}</td>
+                    <td class="currency">₱${formatCurrency(profitTotals.expenses)}</td>
+                    <td class="currency">₱${formatCurrency(profitTotals.commissions)}</td>
+                    <td class="currency">₱${formatCurrency(profitTotals.netProfit)}</td>
                   </tr>
                 </tfoot>
               </table>
@@ -1186,13 +1194,13 @@ function Sales() {
     csv += `"Staff:",${getSelectedStaffName()}\n`;
     csv += `\n`;
     csv += `"=== SUMMARY ==="\n`;
-    csv += `"Total Revenue","₱${formatCurrency(salesData.totalRevenue)}"\n`;
-    csv += `"Total Appointments","${formatNumber(salesData.totalAppointments)}"\n`;
-    csv += `"Total Walk-ins","${formatNumber(salesData.totalWalkInCount)} (₱${formatCurrency(salesData.totalWalkInRevenue)})"\n`;
-    csv += `"Total Incidents","₱${formatCurrency(salesData.totalWrittenOff)}"\n`;
-    csv += `"Total Expenses","₱${formatCurrency(salesData.totalExpenses)}"\n`;
-    csv += `"Commissions","₱${formatCurrency(salesData.totalCommissions)}"\n`;
-    csv += `"Net Profit","₱${formatCurrency(salesData.netProfit)}"\n`;
+    csv += `"Total Revenue","₱${formatCurrency(profitTotals.revenue)}"\n`;
+    csv += `"Total Appointments","${formatNumber(profitTotals.count)}"\n`;
+    csv += `"Total Walk-ins","${formatNumber(profitTotals.walkInCount)}"\n`;
+    csv += `"Total Incidents","₱${formatCurrency(profitTotals.writtenOff)}"\n`;
+    csv += `"Total Expenses","₱${formatCurrency(profitTotals.expenses)}"\n`;
+    csv += `"Commissions","₱${formatCurrency(profitTotals.commissions)}"\n`;
+    csv += `"Net Profit","₱${formatCurrency(profitTotals.netProfit)}"\n`;
     csv += `\n`;
     csv += `"=== PROFIT REPORT (${profitFilter.charAt(0).toUpperCase() + profitFilter.slice(1)}) ==="\n`;
     csv += `"Period","Revenue","Appointments","Walk-ins (#)","Incidents","Expenses","Commissions","Net Profit"\n`;
@@ -1200,7 +1208,7 @@ function Sales() {
       const label = item.weekRange || item.month || item.label || item.date || item.week;
       csv += `"${label}","${item.revenue}","${item.count}","${item.walkInCount || 0}","${item.writtenOff || 0}","${item.expenses || 0}","${item.commissions || 0}","${item.netProfit || 0}"\n`;
     });
-    csv += `"TOTAL","${salesData.totalRevenue}","${formatNumber(salesData.totalAppointments)}","${formatNumber(salesData.totalWalkInCount)}","${salesData.totalWrittenOff}","${salesData.totalExpenses}","${salesData.totalCommissions}","${salesData.netProfit}"\n`;
+    csv += `"TOTAL","${profitTotals.revenue}","${formatNumber(profitTotals.count)}","${formatNumber(profitTotals.walkInCount)}","${profitTotals.writtenOff}","${profitTotals.expenses}","${profitTotals.commissions}","${profitTotals.netProfit}"\n`;
     csv += `\n\n`;
     csv += `"Report generated on:",${new Date().toLocaleString()}\n`;
     csv += `"All amounts are in Philippine Pesos (₱)"\n`;
@@ -1362,7 +1370,7 @@ function Sales() {
         </div>
       )}
 
-      {/* KPI stats — Walk-in Revenue and Avg per Visit removed */}
+      {/* KPI stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
         <StatCard
           label="Total Revenue"
@@ -1389,7 +1397,7 @@ function Sales() {
         />
       </div>
 
-      {/* Payment Methods (appointments + walk-ins, counts) */}
+      {/* Payment Methods */}
       {(() => {
         const { cash, gcash, other, total, apptTotal, walkInTotal, walkInCash, walkInGcash, walkInOther } = paymentBreakdown;
         const pct = (v) => (total > 0 ? (v / total) * 100 : 0);
@@ -1558,14 +1566,14 @@ function Sales() {
                   <tfoot className="bg-slate-50 border-t border-slate-200">
                     <tr>
                       <td className="px-4 py-3 text-xs font-bold text-black uppercase tracking-wider">Total</td>
-                      <td className="px-4 py-3 text-xs font-bold text-black text-right tabular-nums">{formatCurrency(salesData.totalRevenue)}</td>
-                      <td className="px-4 py-3 text-xs font-bold text-black text-right tabular-nums">{formatNumber(salesData.totalAppointments)}</td>
-                      <td className="px-4 py-3 text-xs font-bold text-black text-right tabular-nums">{formatNumber(salesData.totalWalkInCount)}</td>
-                      <td className="px-4 py-3 text-xs font-bold text-black text-right tabular-nums">{formatCurrency(salesData.totalWrittenOff)}</td>
-                      <td className="px-4 py-3 text-xs font-bold text-black text-right tabular-nums">{formatCurrency(salesData.totalExpenses)}</td>
-                      <td className="px-4 py-3 text-xs font-bold text-black text-right tabular-nums">{formatCurrency(salesData.totalCommissions)}</td>
-                      <td className={`px-4 py-3 text-xs font-bold text-right tabular-nums ${salesData.netProfit >= 0 ? 'text-black' : 'text-red-600'}`}>
-                        {formatCurrency(salesData.netProfit)}
+                      <td className="px-4 py-3 text-xs font-bold text-black text-right tabular-nums">{formatCurrency(profitTotals.revenue)}</td>
+                      <td className="px-4 py-3 text-xs font-bold text-black text-right tabular-nums">{formatNumber(profitTotals.count)}</td>
+                      <td className="px-4 py-3 text-xs font-bold text-black text-right tabular-nums">{formatNumber(profitTotals.walkInCount)}</td>
+                      <td className="px-4 py-3 text-xs font-bold text-black text-right tabular-nums">{formatCurrency(profitTotals.writtenOff)}</td>
+                      <td className="px-4 py-3 text-xs font-bold text-black text-right tabular-nums">{formatCurrency(profitTotals.expenses)}</td>
+                      <td className="px-4 py-3 text-xs font-bold text-black text-right tabular-nums">{formatCurrency(profitTotals.commissions)}</td>
+                      <td className={`px-4 py-3 text-xs font-bold text-right tabular-nums ${profitTotals.netProfit >= 0 ? 'text-black' : 'text-red-600'}`}>
+                        {formatCurrency(profitTotals.netProfit)}
                       </td>
                     </tr>
                   </tfoot>
@@ -1603,7 +1611,7 @@ function Sales() {
           </div>
         </section>
 
-        {/* Payment Details Table (appointments + walk-ins) */}
+        {/* Payment Details Table */}
         <section className="mt-6 bg-white rounded-2xl border border-slate-200/70 shadow-sm overflow-hidden">
           <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-emerald-50 flex items-center justify-center">
