@@ -28,6 +28,13 @@ const inputClass = (hasError) =>
     hasError ? 'border-red-300 focus:ring-red-400' : 'border-slate-200 focus:ring-pink-500'
   }`;
 
+// Same rule as Employees.jsx: 1 / true = active, missing = active
+const isStaffActive = (staff) => {
+  const status = staff?.active_status ?? staff?.user?.active_status;
+  if (status == null) return true;
+  return status === 1 || status === true || status === '1';
+};
+
 // ─────────────────────────────────────────────────────────────
 // Toast
 // ─────────────────────────────────────────────────────────────
@@ -657,6 +664,10 @@ function Appointments() {
   const [businessSchedules, setBusinessSchedules] = useState([]);
   const [assignedStaff, setAssignedStaff] = useState([]);
 
+  // Only active staff can be assigned to a schedule.
+  // (staffList itself keeps everyone so appointment staff names still resolve.)
+  const activeStaffList = staffList.filter(isStaffActive);
+
   const [cancelFormData, setCancelFormData] = useState({
     appointment_id: '',
     payment_id: '',
@@ -810,12 +821,15 @@ function Appointments() {
     e.preventDefault();
     setIsSavingSchedule(true);
     try {
+      // Safety net: never send inactive staff, even if they were selected earlier
+      const activeSelectedIds = selectedStaffIds.filter(id => activeStaffList.some(s => s.id === id));
+
       await api.post('/daysched-staff/add', {
         business_date: scheduleFormData.business_date,
         open_time: scheduleFormData.open_time,
         close_time: scheduleFormData.close_time,
         is_open: scheduleFormData.is_open ? 1 : 0,
-        staff_ids: selectedStaffIds,
+        staff_ids: activeSelectedIds,
       });
       showToast('Schedule and staff saved successfully!', 'success');
       setShowScheduleModal(false);
@@ -1209,8 +1223,13 @@ function Appointments() {
   const handleEditSchedule = () => {
     const schedule = getScheduleForDate(selectedDateSchedule.date);
     const businessScheduleId = selectedDateSchedule.businessScheduleId;
+
+    // Pre-select only staff who are still active
     const alreadyAssigned = businessScheduleId
-      ? assignedStaff.filter(a => a.business_date_id === businessScheduleId).map(a => a.staff_id)
+      ? assignedStaff
+          .filter(a => a.business_date_id === businessScheduleId)
+          .map(a => a.staff_id)
+          .filter(id => activeStaffList.some(s => s.id === id))
       : [];
 
     setScheduleFormData({
@@ -1235,7 +1254,7 @@ function Appointments() {
     );
   };
 
-  const selectAllStaff = () => setSelectedStaffIds(staffList.map(s => s.id));
+  const selectAllStaff = () => setSelectedStaffIds(activeStaffList.map(s => s.id));
   const clearAllStaff = () => setSelectedStaffIds([]);
 
   const handleUpdateAppointmentStatus = async (appointmentId, newStatus) => {
@@ -1661,14 +1680,14 @@ function Appointments() {
                       <button type="button" onClick={clearAllStaff} className="text-[10px] font-semibold text-slate-500 hover:text-slate-700">Clear</button>
                     </div>
                   </div>
-                  {staffList.length === 0 ? (
+                  {activeStaffList.length === 0 ? (
                     <div className="bg-slate-50 rounded-xl p-4 text-center">
                       <UsersIcon size={24} className="text-slate-300 mx-auto mb-1" />
-                      <p className="text-xs text-slate-500">No staff members available</p>
+                      <p className="text-xs text-slate-500">No active staff members available</p>
                     </div>
                   ) : (
                     <div className="space-y-1.5 max-h-64 overflow-y-auto scrollbar-hide">
-                      {staffList.map((staff) => {
+                      {activeStaffList.map((staff) => {
                         const isSelected = selectedStaffIds.includes(staff.id);
                         return (
                           <button

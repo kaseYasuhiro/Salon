@@ -119,6 +119,7 @@ function Employees() {
   const { user: currentUser } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
   const [viewMode, setViewMode] = useState('grid');
+  const [statusFilter, setStatusFilter] = useState('all'); // 'all' | 'active' | 'inactive'
   const [employees, setEmployees] = useState([]);
   const [specialtiesList, setSpecialtiesList] = useState([]);
   const [staffFeedbacks, setStaffFeedbacks] = useState([]);
@@ -504,8 +505,18 @@ function Employees() {
 
   const filteredEmployees = employees.filter(emp => {
     if (searchTerm && !`${emp.first_name} ${emp.last_name}`.toLowerCase().includes(searchTerm.toLowerCase())) return false;
+
+    const isActive = getEmployeeActiveStatus(emp);
+    if (statusFilter === 'active' && !isActive) return false;
+    if (statusFilter === 'inactive' && isActive) return false;
+
     return true;
   });
+
+  const emptyStateSubtitle =
+    searchTerm || statusFilter !== 'all'
+      ? 'Try changing your search or status filter'
+      : 'Click "Add Staff" to add your first team member';
 
   const getSpecialtyIcon = (specialtyName) => {
     const name = specialtyName?.toLowerCase();
@@ -587,6 +598,30 @@ function Employees() {
         </div>
 
         <div className="flex flex-wrap gap-2">
+          {/* Status filter */}
+          <div className="inline-flex bg-slate-100 rounded-xl p-1">
+            {[
+              { key: 'all', label: 'All', count: stats.totalStaff },
+              { key: 'active', label: 'Active', count: stats.activeStaff },
+              { key: 'inactive', label: 'Inactive', count: stats.totalStaff - stats.activeStaff },
+            ].map(({ key, label, count }) => (
+              <button
+                key={key}
+                onClick={() => setStatusFilter(key)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                  statusFilter === key ? 'bg-white text-pink-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                {label}
+                <span className={`text-[10px] px-1.5 rounded-full ${
+                  statusFilter === key ? 'bg-pink-50 text-pink-600' : 'bg-slate-200 text-slate-500'
+                }`}>
+                  {count}
+                </span>
+              </button>
+            ))}
+          </div>
+
           <div className="relative">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
@@ -615,7 +650,7 @@ function Employees() {
               <EmptyState
                 icon={Users}
                 title="No staff members found"
-                subtitle={'Click "Add Staff" to add your first team member'}
+                subtitle={emptyStateSubtitle}
                 action={
                   <button
                     onClick={() => { resetForm(); setShowModal(true); }}
@@ -797,7 +832,7 @@ function Employees() {
                 {filteredEmployees.length === 0 ? (
                   <tr>
                     <td colSpan="9" className="px-5 py-10">
-                      <EmptyState icon={Users} title="No staff members found" subtitle={'Click "Add Staff" to add your first team member'} />
+                      <EmptyState icon={Users} title="No staff members found" subtitle={emptyStateSubtitle} />
                     </td>
                   </tr>
                 ) : (
@@ -1025,7 +1060,7 @@ function Employees() {
                   onChange={handleInputChange}
                   placeholder={editingEmployee ? "Leave blank to keep current" : "Minimum 6 characters"}
                   className={inputClass}
-                  required={!editingEmployee} 
+                  required={!editingEmployee}
                 />
               </div>
               <div>

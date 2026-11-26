@@ -682,12 +682,13 @@ class JoinedController extends Controller
     public function staffList()
     {
         return User::where('role', 'staff')
-            ->select('id', 'first_name', 'last_name')
+            ->select('id', 'first_name', 'last_name', 'active_status')
             ->get()
-            ->map(function($staff) {
+            ->map(function ($staff) {
                 return [
-                    'id' => $staff->id,
-                    'name' => $staff->first_name . ' ' . $staff->last_name
+                    'id'            => $staff->id,
+                    'name'          => $staff->first_name . ' ' . $staff->last_name,
+                    'active_status' => (int) $staff->active_status,
                 ];
             });
     }
