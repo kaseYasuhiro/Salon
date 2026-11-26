@@ -752,9 +752,20 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
    * their own appointment. The only blocker is a service with no specialty.
    */
   const getServiceBlockReason = (service: Service): string | null => {
-    if (selectedServiceIds.includes(service.id)) return null;
+    if (selectedServiceIds.includes(service.id)) return null; // always allow deselecting
+
     const info = getServiceGroupInfo(service.id);
     if (!info) return 'This service has no specialty assigned';
+
+    if (service.is_multitaskable !== 1) {
+      const hasOtherSolo = services.some(
+        (s) => selectedServiceIds.includes(s.id) && s.is_multitaskable !== 1
+      );
+      if (hasOtherSolo) {
+        return 'Only one non-multitaskable service can be booked at a time';
+      }
+    }
+
     return null;
   };
 
@@ -2367,8 +2378,8 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
             {bookingStep === 'services' && (
               <View className="bg-white rounded-2xl p-5 shadow-sm" style={{ elevation: 2 }}>
                 <Text className="text-gray-500 text-sm mb-4">
-                  Multitaskable services of the same specialty are booked together. Services that
-                  aren't multitaskable are booked as a separate appointment with their own time.
+                  You can choose as many multitaskable services as you like, but only one non-multitaskable service per booking. A non-multitaskable service is booked as
+                  its own appointment with its own time.
                 </Text>
 
                 {isLoading ? (
