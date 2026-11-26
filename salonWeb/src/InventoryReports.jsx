@@ -3,7 +3,7 @@ import {
   Package, Search, Download, Printer, RefreshCw,
   TrendingUp, TrendingDown, AlertTriangle, CheckCircle,
   Clock, History, X, Calendar, ArrowUpDown,
-  BarChart3, Activity, Receipt,
+  BarChart3, Activity,
   ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import api from '../api/axios';
@@ -15,6 +15,36 @@ const STATUS_STYLES = {
   in_stock:  { pill: 'bg-emerald-50 text-emerald-700 border-emerald-200', dot: 'bg-emerald-500' },
   low_stock: { pill: 'bg-amber-50 text-amber-700 border-amber-200', dot: 'bg-amber-500' },
   critical:  { pill: 'bg-red-50 text-red-700 border-red-200', dot: 'bg-red-500' },
+};
+
+// Custom Receipt icon with a Peso sign (replaces the default dollar sign)
+const ReceiptPeso = ({ size = 24, className = '' }) => {
+  return (
+    <div className={`relative inline-flex items-center justify-center ${className}`} style={{ width: size, height: size }}>
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        width={size}
+        height={size}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1-2-1Z" />
+        <path d="M8 7h8" />
+        <path d="M8 12h8" />
+        <path d="M8 17h8" />
+      </svg>
+      <span
+        className="absolute font-bold pointer-events-none"
+        style={{ fontSize: size * 0.45, lineHeight: 1 }}
+      >
+        ₱
+      </span>
+    </div>
+  );
 };
 
 function StatusPill({ status, label }) {
@@ -396,8 +426,9 @@ function InventoryReports() {
     );
   };
 
+  // Removed the peso sign here; the column header handles it now
   const formatCurrency = (amount) =>
-    `${parseFloat(amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₱`;
+    `${parseFloat(amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
@@ -490,7 +521,7 @@ function InventoryReports() {
       expenseRows += `
         <tr>
           <td>${e.expense_name}</td>
-          <td class="currency">${formatCurrency(e.amount)}</td>
+          <td class="currency">₱${formatCurrency(e.amount)}</td>
           <td>${e.expense_date ? formatDate(e.expense_date) : 'N/A'}</td>
           <td>${e.description}</td>
           <td>${e.recorded_by}</td>
@@ -513,6 +544,7 @@ function InventoryReports() {
             .section h2 { background: #f3f4f6; padding: 10px; margin: 0; font-size: 16px; border: 1px solid #d1d5db; border-bottom: none; color: #000; }
             table { width: 100%; border-collapse: collapse; }
             th { background-color: #f3f4f6; font-weight: bold; padding: 8px 10px; border: 1px solid #d1d5db; text-align: left; font-size: 12px; color: #000; }
+            th.currency { text-align: right; }
             td { padding: 6px 10px; border: 1px solid #d1d5db; font-size: 12px; color: #000; }
             .currency { text-align: right; color: #000; }
             .total-row { background-color: #f9fafb; font-weight: bold; }
@@ -530,7 +562,7 @@ function InventoryReports() {
             <h2>Inventory Stock (${filteredInventory.length} products)</h2>
             <table>
               <thead>
-                <tr><th>Product</th><th>Unit</th><th>Quantity</th><th>Usage Left</th><th>Reorder Level</th><th>Status</th></tr>
+                <tr><th>Product</th><th>Unit</th><th class="currency">Quantity</th><th class="currency">Usage Left</th><th class="currency">Reorder Level</th><th>Status</th></tr>
               </thead>
               <tbody>${inventoryRows || '<tr><td colspan="6" style="text-align:center;color:#999;">No inventory data available</td></tr>'}</tbody>
             </table>
@@ -540,13 +572,13 @@ function InventoryReports() {
             <h2>Costs / Expenses (${filteredExpenses.length} entries)</h2>
             <table>
               <thead>
-                <tr><th>Expense Name</th><th>Amount</th><th>Expense Date</th><th>Description</th><th>Recorded By</th><th>Stock Amount</th></tr>
+                <tr><th>Expense Name</th><th class="currency">Amount (₱)</th><th>Expense Date</th><th>Description</th><th>Recorded By</th><th class="currency">Stock Amount</th></tr>
               </thead>
               <tbody>${expenseRows || '<tr><td colspan="6" style="text-align:center;color:#999;">No expense data available</td></tr>'}</tbody>
               <tfoot>
                 <tr class="total-row">
                   <td>Total</td>
-                  <td class="currency">${formatCurrency(filteredExpensesTotal)}</td>
+                  <td class="currency">₱${formatCurrency(filteredExpensesTotal)}</td>
                   <td colspan="4"></td>
                 </tr>
               </tfoot>
@@ -687,9 +719,11 @@ function InventoryReports() {
             <thead className="bg-slate-50/80">
               <tr>
                 {['Product', 'Unit', 'Quantity', 'Usage Left', 'Reorder Level', 'Status', 'Actions'].map((h) => (
-                  <th key={h} className="px-4 py-3 text-left text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
+                  <th key={h} className={`px-4 py-3 text-left text-[10px] font-semibold text-slate-500 uppercase tracking-wider ${
+                    ['Quantity', 'Usage Left', 'Reorder Level'].includes(h) ? 'text-right' : ''
+                  }`}>
                     {h === 'Quantity' ? (
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center justify-end gap-1">
                         {h}
                         <ArrowUpDown size={10} className="text-slate-400" />
                       </div>
@@ -743,13 +777,13 @@ function InventoryReports() {
                         {item.unit !== 'N/A' ? `${item.unit} (${item.unit_size})` : 'N/A'}
                       </span>
                     </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
+                    <td className="px-4 py-3 whitespace-nowrap text-right">
                       <span className="text-xs font-semibold text-slate-800">{item.product_quantity}</span>
                     </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
+                    <td className="px-4 py-3 whitespace-nowrap text-right">
                       <span className="text-xs font-semibold text-slate-800">{getRemainingUsages(item)}</span>
                     </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
+                    <td className="px-4 py-3 whitespace-nowrap text-right">
                       <span className="text-xs text-slate-600">{item.reorder_level}</span>
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">{getStatusBadge(item.status)}</td>
@@ -770,10 +804,10 @@ function InventoryReports() {
             {filteredInventory.length > 0 && (
               <tfoot className="bg-slate-50 border-t border-slate-200">
                 <tr>
-                  <td colSpan="2" className="px-4 py-3 text-xs font-bold text-slate-800 uppercase tracking-wider">
+                  <td colSpan="2" className="px-4 py-3 text-right text-xs font-bold text-slate-800 uppercase tracking-wider">
                     Total ({filteredInventory.length} products)
                   </td>
-                  <td className="px-4 py-3 text-xs font-bold text-slate-800">
+                  <td className="px-4 py-3 text-right text-xs font-bold text-slate-800">
                     {filteredInventory.reduce((sum, i) => sum + (i.product_quantity || 0), 0)}
                   </td>
                   <td colSpan="4" className="px-4 py-3"></td>
@@ -818,7 +852,7 @@ function InventoryReports() {
       <Panel
         title="Costs"
         subtitle={`${filteredExpenses.length} of ${expenses.length} expenses`}
-        icon={Receipt}
+        icon={ReceiptPeso}
         iconClass="bg-red-50 text-red-500"
         bodyClassName=""
         action={
@@ -883,8 +917,10 @@ function InventoryReports() {
           <table className="w-full">
             <thead className="bg-slate-50/80">
               <tr>
-                {['Expense Name', 'Amount', 'Expense Date', 'Description', 'Recorded By', 'Stock Amount'].map((h) => (
-                  <th key={h} className="px-4 py-3 text-left text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
+                {['Expense Name', 'Amount (₱)', 'Expense Date', 'Description', 'Recorded By', 'Stock Amount (₱)'].map((h) => (
+                  <th key={h} className={`px-4 py-3 text-left text-[10px] font-semibold text-slate-500 uppercase tracking-wider ${
+                    ['Amount (₱)', 'Stock Amount (₱)'].includes(h) ? 'text-right' : ''
+                  }`}>
                     {h}
                   </th>
                 ))}
@@ -904,7 +940,7 @@ function InventoryReports() {
                 <tr>
                   <td colSpan="6" className="px-4 py-10">
                     <EmptyState
-                      icon={Receipt}
+                      icon={ReceiptPeso}
                       title="No expense records found"
                       subtitle={
                         expenses.length === 0
@@ -920,14 +956,14 @@ function InventoryReports() {
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-3">
                         <div className="w-8 h-8 bg-red-50 rounded-full flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform">
-                          <Receipt size={14} className="text-red-500" />
+                          <ReceiptPeso size={14} className="text-red-500" />
                         </div>
                         <span className="text-xs font-semibold text-slate-800 truncate max-w-[220px]">
                           {expense.expense_name}
                         </span>
                       </div>
                     </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
+                    <td className="px-4 py-3 whitespace-nowrap text-right">
                       <span className="text-xs font-bold text-red-600">{formatCurrency(expense.amount)}</span>
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">
@@ -944,7 +980,7 @@ function InventoryReports() {
                     <td className="px-4 py-3 whitespace-nowrap">
                       <span className="text-xs text-slate-600">{expense.recorded_by}</span>
                     </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
+                    <td className="px-4 py-3 whitespace-nowrap text-right">
                       <span className="text-xs font-semibold text-slate-800">{expense.stock_amount || 0}</span>
                     </td>
                   </tr>
@@ -954,10 +990,10 @@ function InventoryReports() {
             {filteredExpenses.length > 0 && (
               <tfoot className="bg-slate-50 border-t border-slate-200">
                 <tr>
-                  <td className="px-4 py-3 text-xs font-bold text-slate-800 uppercase tracking-wider">
+                  <td className="px-4 py-3 text-right text-xs font-bold text-slate-800 uppercase tracking-wider">
                     Total ({filteredExpenses.length} entries)
                   </td>
-                  <td className="px-4 py-3 text-xs font-bold text-red-600">
+                  <td className="px-4 py-3 text-right text-xs font-bold text-red-600">
                     {formatCurrency(filteredExpensesTotal)}
                   </td>
                   <td colSpan="4" className="px-4 py-3"></td>
@@ -1047,7 +1083,9 @@ function InventoryReports() {
                     <thead className="bg-slate-50/80">
                       <tr>
                         {['Type', 'Quantity', 'Transaction ID', 'Date'].map((h) => (
-                          <th key={h} className="px-4 py-2.5 text-left text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
+                          <th key={h} className={`px-4 py-2.5 text-left text-[10px] font-semibold text-slate-500 uppercase tracking-wider ${
+                            h === 'Quantity' ? 'text-right' : ''
+                          }`}>
                             {h}
                           </th>
                         ))}
@@ -1070,7 +1108,7 @@ function InventoryReports() {
                             <td className="px-4 py-2.5 whitespace-nowrap">
                               {getTransactionTypeBadge(transaction)}
                             </td>
-                            <td className="px-4 py-2.5 whitespace-nowrap">
+                            <td className="px-4 py-2.5 whitespace-nowrap text-right">
                               <span className={`text-xs font-semibold ${
                                 transaction.quantity_change < 0 ? 'text-red-600' : 'text-emerald-600'
                               }`}>

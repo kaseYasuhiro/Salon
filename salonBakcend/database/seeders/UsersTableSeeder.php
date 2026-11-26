@@ -25,27 +25,27 @@ class UsersTableSeeder extends Seeder
             'email_verified_at' => '2026-09-10 07:34:58'
         ]);
 
-        User::create([
-            'first_name' => 'Jerwin',
-            'last_name' => 'Buray',
-            'email' => 'jerwin@gmail.com',
-            'password' => Hash::make('jerwin123'),
-            'phone_number' => '09123456789',
-            'role' => 'staff',
-            'active_status' => true,
-            'email_verified_at' => '2026-09-10 07:34:58'
-        ]);
+        // User::create([
+        //     'first_name' => 'Jerwin',
+        //     'last_name' => 'Buray',
+        //     'email' => 'jerwin@gmail.com',
+        //     'password' => Hash::make('jerwin123'),
+        //     'phone_number' => '09123456789',
+        //     'role' => 'staff',
+        //     'active_status' => true,
+        //     'email_verified_at' => '2026-09-10 07:34:58'
+        // ]);
 
-        User::create([
-            'first_name' => 'Lorievel Anne',
-            'last_name' => 'Anadon',
-            'email' => 'lorievel@gmail.com',
-            'password' => Hash::make('lorievel'),
-            'phone_number' => '09123456789',
-            'role' => 'staff',
-            'active_status' => true,
-            'email_verified_at' => '2026-09-10 07:34:58'
-        ]);
+        // User::create([
+        //     'first_name' => 'Lorievel Anne',
+        //     'last_name' => 'Anadon',
+        //     'email' => 'lorievel@gmail.com',
+        //     'password' => Hash::make('lorievel'),
+        //     'phone_number' => '09123456789',
+        //     'role' => 'staff',
+        //     'active_status' => true,
+        //     'email_verified_at' => '2026-09-10 07:34:58'
+        // ]);
 
         User::create([
             'first_name' => 'Nestor',

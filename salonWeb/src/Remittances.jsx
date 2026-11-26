@@ -270,8 +270,13 @@ function Remittances() {
     return true;
   });
 
-  const formatCurrency = (amount) =>
+  // Use this for cards and detail modal (includes the Peso sign)
+  const formatCurrencyWithSymbol = (amount) =>
     `₱${parseFloat(amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  // Use this for table cells (no Peso sign, as the column header shows it)
+  const formatCurrency = (amount) =>
+    `${parseFloat(amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
@@ -363,25 +368,25 @@ function Remittances() {
                 <div className="flex justify-between items-center py-1.5 border-b border-slate-200/70">
                   <span className="text-xs text-slate-600">Total Earnings</span>
                   <span className="text-sm font-semibold text-slate-800">
-                    {formatCurrency(selectedRemittance.total_earnings)}
+                    {formatCurrencyWithSymbol(selectedRemittance.total_earnings)}
                   </span>
                 </div>
                 <div className="flex justify-between items-center py-1.5 border-b border-slate-200/70">
                   <span className="text-xs text-slate-600">Commission</span>
                   <span className="text-sm font-semibold text-pink-600">
-                    -{formatCurrency(selectedRemittance.commission)}
+                    -{formatCurrencyWithSymbol(selectedRemittance.commission)}
                   </span>
                 </div>
                 <div className="flex justify-between items-center py-1.5 border-b border-slate-200/70">
                   <span className="text-xs text-slate-600">Expenses</span>
                   <span className="text-sm font-semibold text-red-600">
-                    -{formatCurrency(selectedRemittance.expenses)}
+                    -{formatCurrencyWithSymbol(selectedRemittance.expenses)}
                   </span>
                 </div>
                 <div className="flex justify-between items-center py-2 bg-pink-50/80 border border-pink-100 rounded-lg px-3 mt-2">
                   <span className="text-xs font-semibold text-slate-700">Amount Remitted</span>
                   <span className="text-base font-bold text-pink-700">
-                    {formatCurrency(selectedRemittance.amount_remitted)}
+                    {formatCurrencyWithSymbol(selectedRemittance.amount_remitted)}
                   </span>
                 </div>
               </div>
@@ -447,28 +452,28 @@ function Remittances() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           label="Total Remitted"
-          value={formatCurrency(summaryStats.totalRemitted)}
+          value={formatCurrencyWithSymbol(summaryStats.totalRemitted)}
           sub={periodLabel}
           icon={CheckCircle}
           color="from-pink-500 to-fuchsia-600"
         />
         <StatCard
           label="Total Earnings"
-          value={formatCurrency(summaryStats.totalEarnings)}
+          value={formatCurrencyWithSymbol(summaryStats.totalEarnings)}
           sub={`${summaryStats.totalServices} services`}
           icon={Users}
           color="from-blue-500 to-indigo-600"
         />
         <StatCard
           label="Total Commission"
-          value={formatCurrency(summaryStats.totalCommission)}
+          value={formatCurrencyWithSymbol(summaryStats.totalCommission)}
           sub="Paid to staff"
           icon={User}
           color="from-purple-500 to-fuchsia-600"
         />
         <StatCard
           label="Total Expenses"
-          value={formatCurrency(summaryStats.totalExpenses)}
+          value={formatCurrencyWithSymbol(summaryStats.totalExpenses)}
           sub="From remittances"
           icon={AlertCircle}
           color="from-red-500 to-rose-600"
@@ -592,8 +597,10 @@ function Remittances() {
           <table className="w-full">
             <thead className="bg-slate-50/80">
               <tr>
-                {['Business Date', 'Remitted By', 'Remitted', 'Status', 'Actions'].map((h) => (
-                  <th key={h} className="px-4 py-3 text-left text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
+                {['Business Date', 'Remitted By', 'Remitted (₱)', 'Status'].map((h) => (
+                  <th key={h} className={`px-4 py-3 text-left text-[10px] font-semibold text-slate-500 uppercase tracking-wider ${
+                    h === 'Remitted (₱)' ? 'text-right' : ''
+                  }`}>
                     {h}
                   </th>
                 ))}
@@ -602,7 +609,7 @@ function Remittances() {
             <tbody className="divide-y divide-slate-100">
               {isLoading ? (
                 <tr>
-                  <td colSpan="5" className="px-4 py-12">
+                  <td colSpan="4" className="px-4 py-12">
                     <div className="flex flex-col items-center justify-center">
                       <div className="w-8 h-8 border-[3px] border-pink-500 border-t-transparent rounded-full animate-spin mb-2" />
                       <p className="text-xs text-slate-500">Loading remittances...</p>
@@ -611,7 +618,7 @@ function Remittances() {
                 </tr>
               ) : error ? (
                 <tr>
-                  <td colSpan="5" className="px-4 py-10">
+                  <td colSpan="4" className="px-4 py-10">
                     <EmptyState
                       icon={AlertCircle}
                       title="Failed to load remittances"
@@ -630,7 +637,7 @@ function Remittances() {
                 </tr>
               ) : filteredRemittances.length === 0 ? (
                 <tr>
-                  <td colSpan="5" className="px-4 py-10">
+                  <td colSpan="4" className="px-4 py-10">
                     <EmptyState
                       icon={Calendar}
                       title="No remittance records found"
@@ -640,7 +647,11 @@ function Remittances() {
                 </tr>
               ) : (
                 filteredRemittances.map((item) => (
-                  <tr key={item.id} className="hover:bg-pink-50/40 transition-colors duration-200 group">
+                  <tr
+                    key={item.id}
+                    onClick={() => handleViewDetails(item)}
+                    className="hover:bg-pink-50/40 transition-colors duration-200 group cursor-pointer"
+                  >
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         <div className="w-7 h-7 rounded-lg bg-pink-50 border border-pink-100 flex items-center justify-center flex-shrink-0">
@@ -661,7 +672,7 @@ function Remittances() {
                       </div>
                     </td>
 
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3 text-right">
                       <span className="text-xs font-bold text-pink-700">
                         {formatCurrency(item.amount_remitted)}
                       </span>
@@ -669,16 +680,6 @@ function Remittances() {
 
                     <td className="px-4 py-3">
                       <StatusPill status={item.status} />
-                    </td>
-
-                    <td className="px-4 py-3">
-                      <button
-                        onClick={() => handleViewDetails(item)}
-                        className="p-1.5 text-pink-600 bg-pink-50 border border-pink-100 rounded-lg hover:bg-pink-100 transition-colors"
-                        title="View Details"
-                      >
-                        <Eye size={14} />
-                      </button>
                     </td>
                   </tr>
                 ))

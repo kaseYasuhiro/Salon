@@ -21,12 +21,7 @@ import {
   Upload,
   CloudUpload,
   Loader,
-  Settings,
-  Save,
-  Lock,
   Mail,
-  Eye as EyeIcon,
-  EyeOff,
   ArrowUpRight,
   ArrowDownRight,
   Minus,
@@ -131,11 +126,6 @@ const RANK_STYLES = [
 const getRankStyle = (index, fallback) => RANK_STYLES[index] || fallback;
 const PINK_RANK_FALLBACK = { badge: 'bg-pink-50 text-pink-600', bar: 'from-pink-400 to-pink-500' };
 const GREEN_RANK_FALLBACK = { badge: 'bg-emerald-50 text-emerald-600', bar: 'from-emerald-400 to-emerald-500' };
-
-const inputClass = (hasError) =>
-  `w-full pl-10 pr-3 py-2.5 text-sm bg-slate-50/60 border rounded-xl focus:outline-none focus:ring-2 focus:bg-white focus:border-transparent transition-all ${
-    hasError ? 'border-red-300 focus:ring-red-400' : 'border-slate-200 focus:ring-pink-500'
-  }`;
 
 // ─────────────────────────────────────────────────────────────
 // Small UI building blocks
@@ -461,7 +451,6 @@ function QrCodeModal({ open, qrData, onClose, onUploaded }) {
 function Dashboard() {
   const auth = useAuth();
   const logout = auth?.logout;
-  const updateUser = auth?.updateUser;
   const user = auth?.user;
   const isHydrated = auth?.isHydrated;
 
@@ -513,19 +502,6 @@ function Dashboard() {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const unreadCount = notifications.filter((n) => !n.read_at).length;
 
-  const [settingsForm, setSettingsForm] = useState({
-    first_name: '',
-    last_name: '',
-    email: '',
-    phone_number: '',
-    password: '',
-    password_confirmation: '',
-  });
-  const [isSavingSettings, setIsSavingSettings] = useState(false);
-  const [showSettingsPassword, setShowSettingsPassword] = useState(false);
-  const [showSettingsConfirmPassword, setShowSettingsConfirmPassword] = useState(false);
-  const [settingsErrors, setSettingsErrors] = useState({});
-
   const [walkIns, setWalkIns] = useState([]);
 
   useEffect(() => {
@@ -545,20 +521,6 @@ function Dashboard() {
       location.pathname === '/dashboard/remittances';
     if (isTransactionsRoute) setTransactionsOpen(true);
   }, [location.pathname]);
-
-  useEffect(() => {
-    if (location.pathname === '/dashboard/settings' && user) {
-      setSettingsForm({
-        first_name: user.first_name || '',
-        last_name: user.last_name || '',
-        email: user.email || '',
-        phone_number: user.phone_number || '',
-        password: '',
-        password_confirmation: '',
-      });
-      setSettingsErrors({});
-    }
-  }, [location.pathname, user]);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -970,7 +932,6 @@ function Dashboard() {
   const isInventoryRoute = location.pathname === '/dashboard/inventory';
   const isReportsRoute = location.pathname === '/dashboard/reports';
   const isProductsRoute = location.pathname === '/dashboard/products';
-  const isSettingsRoute = location.pathname === '/dashboard/settings';
   const isSalesRoute = location.pathname === '/dashboard/sales';
   const isInventoryReportsRoute = location.pathname === '/dashboard/inventoryReports';
   const isRemittancesRoute = location.pathname === '/dashboard/remittances';
@@ -1045,50 +1006,6 @@ function Dashboard() {
 
   const handleAppointmentClick = (appointment) => { setSelectedAppointment(appointment); setShowModal(true); };
   const closeModal = () => { setShowModal(false); setSelectedAppointment(null); };
-
-  const handleSettingsChange = (field) => (e) => {
-    setSettingsForm((prev) => ({ ...prev, [field]: e.target.value }));
-    setSettingsErrors((prev) => ({ ...prev, [field]: null }));
-  };
-
-  const validateSettings = () => {
-    const newErrors = {};
-    if (!settingsForm.first_name.trim()) newErrors.first_name = 'First name is required';
-    if (!settingsForm.last_name.trim()) newErrors.last_name = 'Last name is required';
-    if (!settingsForm.email.trim()) newErrors.email = 'Email is required';
-    else if (!/^\S+@\S+\.\S+$/.test(settingsForm.email)) newErrors.email = 'Enter a valid email';
-    if (!settingsForm.phone_number.trim()) newErrors.phone_number = 'Phone number is required';
-    if (settingsForm.password) {
-      if (settingsForm.password.length < 8) newErrors.password = 'Password must be at least 8 characters';
-      if (settingsForm.password !== settingsForm.password_confirmation) newErrors.password_confirmation = 'Passwords do not match';
-    }
-    setSettingsErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
-
-  const handleSettingsSubmit = async (e) => {
-    e.preventDefault();
-    if (!validateSettings() || !user?.id) return;
-    setIsSavingSettings(true);
-    try {
-      const payload = { first_name: settingsForm.first_name.trim(), last_name: settingsForm.last_name.trim(), email: settingsForm.email.trim(), phone_number: settingsForm.phone_number.trim() };
-      if (settingsForm.password) {
-        payload.password = settingsForm.password;
-        payload.password_confirmation = settingsForm.password_confirmation;
-      }
-      const response = await api.post(`/owner/update/${user.id}`, payload);
-      setToast({ message: response.data?.message || 'Profile updated successfully!', type: 'success' });
-      setSettingsForm((prev) => ({ ...prev, password: '', password_confirmation: '' }));
-      if (typeof updateUser === 'function' && response.data?.user) updateUser(response.data.user);
-    } catch (error) {
-      if (error.response?.data?.errors) {
-        const backendErrors = {};
-        Object.entries(error.response.data.errors).forEach(([key, messages]) => backendErrors[key] = Array.isArray(messages) ? messages[0] : messages);
-        setSettingsErrors(backendErrors);
-        setToast({ message: 'Please fix the errors in the form.', type: 'error' });
-      } else setToast({ message: error.response?.data?.message || 'Failed to update profile.', type: 'error' });
-    } finally { setIsSavingSettings(false); }
-  };
 
   // ───────────────────────────────────────────────────────────
   // Appointment details modal
@@ -1187,95 +1104,6 @@ function Dashboard() {
             <button onClick={closeModal} className="px-5 py-2 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-xl shadow-md shadow-pink-500/25 hover:shadow-lg transition-all text-sm font-semibold">Close</button>
           </div>
         </div>
-      </div>
-    );
-  };
-
-  // ───────────────────────────────────────────────────────────
-  // Settings
-  // ───────────────────────────────────────────────────────────
-  const renderSettingsContent = () => {
-    const initials = `${settingsForm.first_name?.[0] || ''}${settingsForm.last_name?.[0] || ''}`.toUpperCase();
-    return (
-      <div className="max-w-3xl mx-auto">
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-200/70 overflow-hidden mb-5">
-          <div className="h-24 bg-gradient-to-r from-pink-500 via-pink-500 to-fuchsia-600 relative">
-            <div className="absolute -right-10 -top-10 w-40 h-40 rounded-full bg-white/10" />
-            <div className="absolute right-24 -bottom-12 w-28 h-28 rounded-full bg-white/10" />
-          </div>
-          <div className="px-6 pb-6">
-            <div className="flex items-end gap-4 -mt-9">
-              <div className="w-[72px] h-[72px] bg-gradient-to-br from-pink-500 to-pink-600 rounded-2xl flex items-center justify-center shadow-lg ring-4 ring-white">
-                <span className="text-white text-2xl font-bold">{initials || <User size={26} />}</span>
-              </div>
-              <div className="pb-1">
-                <h2 className="text-lg font-bold text-slate-800">{settingsForm.first_name} {settingsForm.last_name}</h2>
-                <p className="text-xs text-slate-500 capitalize flex items-center gap-1 mt-0.5"><Crown size={12} className="text-yellow-500" />{user?.role || 'owner'}</p>
-              </div>
-            </div>
-            <p className="text-xs text-slate-400 mt-3 flex items-center gap-1.5"><Mail size={12} />{settingsForm.email}</p>
-          </div>
-        </div>
-
-        <form onSubmit={handleSettingsSubmit} className="bg-white rounded-2xl shadow-sm border border-slate-200/70 overflow-hidden">
-          <div className="px-6 py-4 border-b border-slate-100 flex items-center gap-3">
-            <div className="bg-pink-50 w-9 h-9 rounded-xl flex items-center justify-center"><Settings size={16} className="text-pink-500" /></div>
-            <div><h3 className="text-sm font-semibold text-slate-800">Personal Information</h3><p className="text-[11px] text-slate-500 mt-0.5">Update your account details and password</p></div>
-          </div>
-          <div className="p-6 space-y-6">
-            <div>
-              <h4 className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-3">Basic Information</h4>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">First Name <span className="text-pink-500">*</span></label>
-                  <div className="relative"><User size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" /><input type="text" value={settingsForm.first_name} onChange={handleSettingsChange('first_name')} className={inputClass(settingsErrors.first_name)} placeholder="Enter first name" /></div>
-                  {settingsErrors.first_name && <p className="text-[11px] text-red-500 mt-1">{settingsErrors.first_name}</p>}
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">Last Name <span className="text-pink-500">*</span></label>
-                  <div className="relative"><User size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" /><input type="text" value={settingsForm.last_name} onChange={handleSettingsChange('last_name')} className={inputClass(settingsErrors.last_name)} placeholder="Enter last name" /></div>
-                  {settingsErrors.last_name && <p className="text-[11px] text-red-500 mt-1">{settingsErrors.last_name}</p>}
-                </div>
-              </div>
-            </div>
-            <div className="border-t border-slate-100 pt-6">
-              <h4 className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-3">Contact Information</h4>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">Email Address <span className="text-pink-500">*</span></label>
-                  <div className="relative"><Mail size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" /><input type="email" value={settingsForm.email} onChange={handleSettingsChange('email')} className={inputClass(settingsErrors.email)} placeholder="you@example.com" /></div>
-                  {settingsErrors.email && <p className="text-[11px] text-red-500 mt-1">{settingsErrors.email}</p>}
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">Phone Number <span className="text-pink-500">*</span></label>
-                  <div className="relative"><Phone size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" /><input type="text" value={settingsForm.phone_number} onChange={(e) => setSettingsForm((prev) => ({ ...prev, phone_number: e.target.value.replace(/[^\d+\-\s()]/g, '') }))} className={inputClass(settingsErrors.phone_number)} placeholder="09171234567" /></div>
-                  {settingsErrors.phone_number && <p className="text-[11px] text-red-500 mt-1">{settingsErrors.phone_number}</p>}
-                </div>
-              </div>
-            </div>
-            <div className="border-t border-slate-100 pt-6">
-              <h4 className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Change Password</h4>
-              <p className="text-[11px] text-slate-400 mb-3">Leave blank to keep your current password</p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">New Password</label>
-                  <div className="relative"><Lock size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" /><input type={showSettingsPassword ? 'text' : 'password'} value={settingsForm.password} onChange={handleSettingsChange('password')} className={`${inputClass(settingsErrors.password)} pr-10`} placeholder="Min. 8 characters" autoComplete="new-password" /><button type="button" onClick={() => setShowSettingsPassword((s) => !s)} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600" tabIndex={-1}>{showSettingsPassword ? <EyeOff size={15} /> : <EyeIcon size={15} />}</button></div>
-                  {settingsErrors.password && <p className="text-[11px] text-red-500 mt-1">{settingsErrors.password}</p>}
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">Confirm New Password</label>
-                  <div className="relative"><Lock size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" /><input type={showSettingsConfirmPassword ? 'text' : 'password'} value={settingsForm.password_confirmation} onChange={handleSettingsChange('password_confirmation')} className={`${inputClass(settingsErrors.password_confirmation)} pr-10`} placeholder="Re-enter new password" autoComplete="new-password" /><button type="button" onClick={() => setShowSettingsConfirmPassword((s) => !s)} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600" tabIndex={-1}>{showSettingsConfirmPassword ? <EyeOff size={15} /> : <EyeIcon size={15} />}</button></div>
-                  {settingsErrors.password_confirmation && <p className="text-[11px] text-red-500 mt-1">{settingsErrors.password_confirmation}</p>}
-                </div>
-              </div>
-            </div>
-          </div>
-          <div className="border-t border-slate-100 px-6 py-4 flex justify-end gap-2 bg-slate-50/60">
-            <button type="submit" disabled={isSavingSettings} className="flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-gradient-to-r from-pink-500 to-pink-600 rounded-xl shadow-md shadow-pink-500/25 hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed">
-              {isSavingSettings ? (<><Loader size={14} className="animate-spin" />Saving...</>) : (<><Save size={14} />Save Changes</>)}
-            </button>
-          </div>
-        </form>
       </div>
     );
   };
@@ -1720,7 +1548,6 @@ function Dashboard() {
     isSalesRoute ? 'Income' :
     isInventoryReportsRoute ? 'Inventory Reports' :
     isRemittancesRoute ? 'Remittances' :
-    isSettingsRoute ? 'Settings' :
     isDashboardRoute ? 'Dashboard' : '';
 
   const pageSubtitle =
@@ -1733,7 +1560,6 @@ function Dashboard() {
     isSalesRoute ? 'View income performance and revenue statistics' :
     isInventoryReportsRoute ? 'View inventory usage and stock reports' :
     isRemittancesRoute ? 'View remittance records and history' :
-    isSettingsRoute ? 'Manage your personal account details' :
     isDashboardRoute ? "Welcome back! Here's your overview" : '';
 
   const closeSidebar = () => setSidebarOpen(false);
@@ -1820,11 +1646,6 @@ function Dashboard() {
                 <NavItem compact to="/dashboard/remittances" glyph="₱" label="Remittances" active={isRemittancesRoute} onClick={closeSidebar} />
               </div>
             </div>
-          </div>
-
-          <NavGroupLabel>Account</NavGroupLabel>
-          <div className="space-y-0.5 pb-2">
-            <NavItem to="/dashboard/settings" icon={Settings} label="Settings" active={isSettingsRoute} onClick={closeSidebar} />
           </div>
         </nav>
 
@@ -1921,7 +1742,7 @@ function Dashboard() {
         </header>
 
         <main className="p-4 sm:p-6 lg:p-8">
-          {isSettingsRoute ? renderSettingsContent() : isNestedRoute ? <Outlet /> : renderDashboardContent()}
+          {isNestedRoute ? <Outlet /> : renderDashboardContent()}
         </main>
       </div>
     </div>

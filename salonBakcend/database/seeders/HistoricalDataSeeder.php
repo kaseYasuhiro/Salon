@@ -144,13 +144,11 @@ class HistoricalDataSeeder extends Seeder
             'updated_at'        => $this->startDate,
         ]);
 
-        // Order matters: see seedStaffSpecialties() / seedWalkinAuthorizations()
+        // Order matters: see seedStaffSpecialties() / seedWalkinAuthorizations() / seedAssignStaff()
         $staffData = [
-            ['Anna',   'Reyes',   '09181111111'],
-            ['Bea',    'Cruz',    '09182222222'],
-            ['Carla',  'Mendoza', '09183333333'], // all-rounder (Stylist + Barber, walk-in authorized)
-            ['Diana',  'Garcia',  '09184444444'],
-            ['Ella',   'Torres',  '09185555555'],
+            ['Jieve',   'Gonzaga', '09181111111'], // Barber (the only barber)
+            ['Reshel',  'Oco',     '09182222222'], // Stylist
+            ['Joan',    'Oco',     '09183333333'], // Stylist
         ];
 
         $staffIds = [];
@@ -227,11 +225,9 @@ class HistoricalDataSeeder extends Seeder
     {
         // Same order as the staff list in seedUsers()
         $plan = [
-            ['Stylist'],
-            ['Stylist'],
-            ['Stylist', 'Barber'],
-            ['Barber'],
-            ['Stylist', 'Barber'],
+            ['Barber'],   // Jieve Gonzaga
+            ['Stylist'],  // Reshel Oco
+            ['Stylist'],  // Joan Oco
         ];
 
         $rows = [];
@@ -253,8 +249,8 @@ class HistoricalDataSeeder extends Seeder
 
     protected function seedWalkinAuthorizations(array $users): void
     {
-        // Anna, Carla and Ella can take walk-ins (they cover both specialties between them)
-        $authorized = [true, false, true, false, true];
+        // All three staff can take walk-ins (same order as the staff list in seedUsers())
+        $authorized = [true, true, true];
 
         $rows = [];
         foreach ($users['staff'] as $i => $staffId) {
@@ -292,7 +288,6 @@ class HistoricalDataSeeder extends Seeder
             ['Cellophane Gloss',     'Cellophane hair gloss',          'ml',     250,  10],
             ['Hot Oil Treatment',    'Hot oil hair treatment',         'ml',     500,  10],
             ['Cotton Roll',          'Disposable cotton',              'sachet', 1,    1],
-            ['Gloves Pair',          'Disposable gloves',              'sachet', 1,    1],
         ];
 
         foreach ($products as [$name, $desc, $unit, $size, $usages]) {
@@ -351,17 +346,17 @@ class HistoricalDataSeeder extends Seeder
             ['Haircut (Female)',          'Women\'s haircut with wash and blowdry',             150,  45,  false, false, ['Stylist'],
                 ['Shampoo Professional' => 1, 'Conditioner Pro' => 1, 'Hair Serum' => 1], null],
             ['Brazillian Hair Rebond',    'Brazilian keratin straightening treatment',          2000, 240, true,  false, ['Stylist'],
-                ['Keratin Solution' => 3, 'Rebond Cream' => 2, 'Neutralizer' => 2, 'Shampoo Professional' => 2, 'Conditioner Pro' => 1, 'Hair Serum' => 1, 'Gloves Pair' => 1], null],
+                ['Keratin Solution' => 3, 'Rebond Cream' => 2, 'Neutralizer' => 2, 'Shampoo Professional' => 2, 'Conditioner Pro' => 1, 'Hair Serum' => 1], null],
             ['Hair Rebond (Cellopane)',   'Hair rebond with cellophane finish',                 1000, 210, true,  false, ['Stylist'],
-                ['Rebond Cream' => 3, 'Neutralizer' => 3, 'Cellophane Gloss' => 1, 'Shampoo Professional' => 1, 'Conditioner Pro' => 1, 'Gloves Pair' => 1], null],
+                ['Rebond Cream' => 3, 'Neutralizer' => 3, 'Cellophane Gloss' => 1, 'Shampoo Professional' => 1, 'Conditioner Pro' => 1], null],
             ['Hair Color',                'Full head hair color application',                   600, 120, true,  true,  ['Stylist'],
-                ['Hair Color - Black' => 2, 'Hair Color - Brown' => 2, 'Hair Color - Blonde' => 2, 'Developer 20vol' => 2, 'Gloves Pair' => 1, 'Shampoo Professional' => 1, 'Conditioner Pro' => 1], null],
+                ['Hair Color - Black' => 2, 'Hair Color - Brown' => 2, 'Hair Color - Blonde' => 2, 'Developer 20vol' => 2, 'Shampoo Professional' => 1, 'Conditioner Pro' => 1], null],
             ['Hair Spa',                  'Deep conditioning hair spa',                         300,  60,  true,  false, ['Stylist'],
                 ['Hair Spa Mask' => 2, 'Shampoo Professional' => 1, 'Conditioner Pro' => 1], null],
-            ['Hair Cellopane',            'Cellophane gloss treatment for shine and tint',      600,  60,  true,  false, ['Stylist'],
-                ['Cellophane Gloss' => 2, 'Shampoo Professional' => 1, 'Conditioner Pro' => 1, 'Gloves Pair' => 1], null],
-            ['Hot Oil',                   'Hot oil scalp and hair treatment',                   300,  45,  true,  false, ['Stylist'],
-                ['Hot Oil Treatment' => 2, 'Shampoo Professional' => 1, 'Conditioner Pro' => 1, 'Gloves Pair' => 1], null],
+            ['Hair Cellopane',            'Cellophane gloss treatment for shine and tint',      600, 60,  true,  false, ['Stylist'],
+                ['Cellophane Gloss' => 2, 'Shampoo Professional' => 1, 'Conditioner Pro' => 1], null],
+            ['Hot Oil',                   'Hot oil scalp and hair treatment',                   300, 45,  true,  false, ['Stylist'],
+                ['Hot Oil Treatment' => 2, 'Shampoo Professional' => 1, 'Conditioner Pro' => 1], null],
         ];
 
         $specialtyRows = [];
@@ -456,12 +451,12 @@ class HistoricalDataSeeder extends Seeder
                 continue;
             }
 
-            $picked = collect($this->staffIds)->random(rand(3, 4))->values()->all();
+            $picked = collect($this->staffIds)->random(rand(2, 3))->values()->all();
 
             // Every open day needs a stylist, a barber and someone allowed to take walk-ins.
-            // Carla (index 2) covers all three.
+            // Jieve (index 0) is the only barber, so swap him in when he wasn't picked.
             if (! $this->hasRequiredCoverage($picked)) {
-                $picked[array_rand($picked)] = $this->staffIds[2];
+                $picked[array_rand($picked)] = $this->staffIds[0];
                 $picked = array_values(array_unique($picked));
             }
 

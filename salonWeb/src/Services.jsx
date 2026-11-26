@@ -627,6 +627,10 @@ function Services() {
           updatePayload.estimated_usage = parseFloat(usageFormData.estimated_usage);
         }
 
+        if (formData.reqHairColor) {
+          updatePayload.hair_color_ids = selectedHairColorIds;
+        }
+
         const updateRes = await api.post('/services/update-all', updatePayload);
 
         if (updateRes.data.success === false) {
@@ -1364,7 +1368,7 @@ function Services() {
                     </div>
                   )}
 
-                  {/* Hair Colors — only editable during creation, read-only when editing an existing service */}
+                  {/* Hair Colors — shown for any service that requires hair color */}
                   {formData.reqHairColor && (
                     <div className="border-t border-slate-100 pt-4">
                       <div className="flex items-center justify-between mb-3">
@@ -1377,45 +1381,39 @@ function Services() {
                             ({selectedHairColorIds.length} selected)
                           </span>
                         </div>
-                        {isCreatingNew && (
-                          <button
-                            type="button"
-                            onClick={() => handleOpenHairColorModal()}
-                            className="flex items-center gap-1 px-2.5 py-1 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-md transition-all text-[10px] font-semibold shadow-sm shadow-pink-500/25"
-                          >
-                            <Plus size={12} />
-                            Add Color
-                          </button>
-                        )}
+                        <button
+                          type="button"
+                          onClick={() => handleOpenHairColorModal()}
+                          className="flex items-center gap-1 px-2.5 py-1 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:shadow-md transition-all text-[10px] font-semibold shadow-sm shadow-pink-500/25"
+                        >
+                          <Plus size={12} />
+                          Add Color
+                        </button>
                       </div>
 
                       <p className="text-[11px] text-slate-500 mb-3">
-                        {isCreatingNew
-                          ? 'Select which hair colors customers can choose from for this service.'
-                          : 'Hair colors linked to this service (set at creation).'}
+                        Select which hair colors customers can choose from for this service.
                       </p>
 
                       {hairColors.length === 0 ? (
                         <div className="text-center py-6 bg-slate-50 rounded-xl border border-slate-100">
                           <Palette size={28} className="text-slate-300 mx-auto mb-1" />
                           <p className="text-xs text-slate-400">No hair colors yet</p>
-                          {isCreatingNew && (
-                            <button
-                              type="button"
-                              onClick={() => handleOpenHairColorModal()}
-                              className="mt-2 inline-flex items-center gap-1 px-2.5 py-1 bg-pink-500 text-white rounded-lg hover:bg-pink-600 text-xs font-semibold"
-                            >
-                              <Plus size={12} />
-                              Add Your First Color
-                            </button>
-                          )}
+                          <button
+                            type="button"
+                            onClick={() => handleOpenHairColorModal()}
+                            className="mt-2 inline-flex items-center gap-1 px-2.5 py-1 bg-pink-500 text-white rounded-lg hover:bg-pink-600 text-xs font-semibold"
+                          >
+                            <Plus size={12} />
+                            Add Your First Color
+                          </button>
                         </div>
                       ) : (
                         <div className="grid grid-cols-2 gap-2 max-h-64 overflow-y-auto pr-1 scrollbar-hide">
                           {hairColors.map((color) => {
                             const isInactive = color.is_active === 0 || color.is_active === false;
                             const isSelected = selectedHairColorIds.includes(color.id);
-                            const isSelectable = isCreatingNew && !isInactive;
+                            const isSelectable = !isInactive;
                             return (
                               <div
                                 key={color.id}
@@ -1451,16 +1449,14 @@ function Services() {
                                     </p>
                                   </div>
 
-                                  {isCreatingNew && (
-                                    <button
-                                      type="button"
-                                      onClick={() => handleOpenHairColorModal(color)}
-                                      className="p-1 rounded-lg hover:bg-pink-100 transition-colors flex-shrink-0"
-                                      title="Edit color"
-                                    >
-                                      <Edit size={12} className="text-pink-500" />
-                                    </button>
-                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenHairColorModal(color)}
+                                    className="p-1 rounded-lg hover:bg-pink-100 transition-colors flex-shrink-0"
+                                    title="Edit color"
+                                  >
+                                    <Edit size={12} className="text-pink-500" />
+                                  </button>
                                 </div>
 
                                 {isInactive && (
