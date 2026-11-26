@@ -113,6 +113,26 @@ const inputClass =
 const labelClass = 'block text-xs font-semibold text-slate-700 mb-1.5';
 
 // ─────────────────────────────────────────────────────────────
+// Recent-first sorting
+// Newest staff first. Uses created_at (employee row, then the linked user),
+// and falls back to the highest id when timestamps are missing or identical
+// (e.g. seeded rows that share the same created_at).
+// ─────────────────────────────────────────────────────────────
+const getEmployeeCreatedTime = (employee) => {
+  const raw = employee?.created_at ?? employee?.user?.created_at ?? null;
+  if (!raw) return 0;
+  const time = new Date(raw).getTime();
+  return Number.isNaN(time) ? 0 : time;
+};
+
+const sortEmployeesByRecent = (employeesArray) =>
+  [...employeesArray].sort((a, b) => {
+    const timeDiff = getEmployeeCreatedTime(b) - getEmployeeCreatedTime(a);
+    if (timeDiff !== 0) return timeDiff;
+    return (Number(b.id) || 0) - (Number(a.id) || 0);
+  });
+
+// ─────────────────────────────────────────────────────────────
 // Main Component
 // ─────────────────────────────────────────────────────────────
 function Employees() {
@@ -184,13 +204,6 @@ function Employees() {
     }
     return true;
   };
-
-  const sortEmployeesByRecent = (employeesArray) =>
-    [...employeesArray].sort((a, b) => {
-      if (a.created_at && b.created_at) return new Date(b.created_at) - new Date(a.created_at);
-      if (a.id && b.id) return b.id - a.id;
-      return 0;
-    });
 
   const fetchStaffFeedbacks = async () => {
     try {
@@ -503,6 +516,7 @@ function Employees() {
   const getInitials = (firstName, lastName) =>
     `${firstName?.charAt(0) || ''}${lastName?.charAt(0) || ''}`.toUpperCase();
 
+  // `employees` is already sorted newest-first; filter() keeps that order.
   const filteredEmployees = employees.filter(emp => {
     if (searchTerm && !`${emp.first_name} ${emp.last_name}`.toLowerCase().includes(searchTerm.toLowerCase())) return false;
 
