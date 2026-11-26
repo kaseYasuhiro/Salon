@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import { useAuth } from "@/contexts/auth-context";
 import api from '@/api/axios';
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 interface ReceiptAppointment {
   groupLabel: string;
@@ -147,6 +148,9 @@ interface Appointment {
  * - Multitaskable services of the same specialty share ONE group (one appointment).
  * - A non-multitaskable service always gets its OWN group, even if it shares a specialty
  *   with other selected services.
+ *
+ * (The services step also reuses this shape for its two dropdown sections:
+ *  "multitaskable" and "separate".)
  */
 interface ServiceGroup {
   key: string; // unique group id (a solo group looks like "stylist::solo-12")
@@ -322,6 +326,15 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
   const [showHairColorModal, setShowHairColorModal] = useState(false);
   const [hairColorSearch, setHairColorSearch] = useState('');
 
+  // Which service sections (dropdowns) are open on the services step
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
+    multitaskable: false,
+    separate: false,
+  });
+
+  const toggleSection = (key: string) =>
+    setExpandedSections((prev) => ({ ...prev, [key]: !prev[key] }));
+
   // Stylist "ratings & details" popup (which stylist, and which service group it was opened from)
   const [detailsTarget, setDetailsTarget] = useState<{ staffId: number; groupKey: string } | null>(null);
 
@@ -340,6 +353,7 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
   const [isLoadingQr, setIsLoadingQr] = useState(false);
 
   const { user } = useAuth();
+  const insets = useSafeAreaInsets();
 
   // Every stylist's existing appointments, grouped for fast lookups while rendering the calendar
   const busyIndex = useMemo(() => buildBusyIndex(allAppointments), [allAppointments]);
@@ -672,17 +686,37 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     });
   };
 
-  // Sections shown on the services step (one per specialty)
+  // Sections shown on the services step: multitaskable vs. separate (non-multitaskable).
+  // Each section is a dropdown. (Appointment grouping by specialty still happens in getSelectedGroups.)
   const getServiceSections = (): ServiceGroup[] => {
-    const map = new Map<string, ServiceGroup>();
+    const multitaskable: Service[] = [];
+    const separate: Service[] = [];
+
     getBookableServices().forEach((service) => {
-      const info = getServiceGroupInfo(service.id);
-      if (!info) return;
-      const { key, label } = info;
-      if (!map.has(key)) map.set(key, { key, specialtyKey: key, label, services: [] });
-      map.get(key)!.services.push(service);
+      if (service.is_multitaskable === 1) multitaskable.push(service);
+      else separate.push(service);
     });
-    return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label));
+
+    const byName = (a: Service, b: Service) => a.service_name.localeCompare(b.service_name);
+    const sections: ServiceGroup[] = [];
+
+    if (multitaskable.length > 0) {
+      sections.push({
+        key: 'multitaskable',
+        specialtyKey: 'multitaskable',
+        label: 'Multitaskable Services',
+        services: multitaskable.sort(byName),
+      });
+    }
+    if (separate.length > 0) {
+      sections.push({
+        key: 'separate',
+        specialtyKey: 'separate',
+        label: 'Non-Multitaskable Services',
+        services: separate.sort(byName),
+      });
+    }
+    return sections;
   };
 
   const getSelectedServices = (): Service[] =>
@@ -1511,6 +1545,7 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     setSelectedHairLength('');
     setSelectedHairThickness('');
     setSelectedHairColor(null);
+    setExpandedSections({ multitaskable: false, separate: false });
     submittedGroupsRef.current = {};
     if (onBookingSuccess) onBookingSuccess();
   };
@@ -2307,7 +2342,7 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
     return (
       <View className="flex-1">
         <ScrollView showsVerticalScrollIndicator={false} className="flex-1">
-          <View className="px-5 pt-6">
+          <View className="px-5" style={{ paddingTop: insets.top + 16 }}>
             {bookingStep !== 'services' && (
               <TouchableOpacity
                 className="flex-row items-center mb-4"
@@ -2350,12 +2385,36 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                   </View>
                 ) : (
                   serviceSections.map((section) => (
-                    <View key={section.key} className="mb-2">
-                      <Text className="text-gray-500 text-xs font-semibold uppercase tracking-wider mb-2">
-                        {section.label}
-                      </Text>
+                    <View key={section.key} className="mb-3">
+                      {/* Dropdown header: Multitaskable / Separate Appointment */}
+                      <TouchableOpacity
+                        onPress={() => toggleSection(section.key)}
+                        activeOpacity={0.7}
+                        className={`flex-row items-center justify-between rounded-xl px-4 py-3 border ${
+                          expandedSections[section.key]
+                            ? 'border-pink-500 bg-pink-50'
+                            : 'border-gray-200 bg-gray-50'
+                        }`}
+                      >
+                        <View className="flex-1 pr-3">
+                          <Text className="text-gray-800 text-sm font-bold">{section.label}</Text>
+                          <Text className="text-gray-500 text-xs mt-0.5">
+                            {section.services.length} service{section.services.length !== 1 ? 's' : ''}
+                            {(() => {
+                              const n = section.services.filter((s) => selectedServiceIds.includes(s.id)).length;
+                              return n > 0 ? ` · ${n} selected` : '';
+                            })()}
+                          </Text>
+                        </View>
+                        <Ionicons
+                          name={expandedSections[section.key] ? 'chevron-up' : 'chevron-down'}
+                          size={20}
+                          color="#ec4899"
+                        />
+                      </TouchableOpacity>
 
-                      {section.services.map((service) => {
+                      <View className="mt-3">
+                      {expandedSections[section.key] && section.services.map((service) => {
                         const isSelected = selectedServiceIds.includes(service.id);
                         const isMultitaskable = service.is_multitaskable === 1;
                         const requiresHairColor = service.reqHairColor === 1;
@@ -2387,16 +2446,6 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                                 <View className="flex-row items-center mt-2 flex-wrap gap-1">
                                   <Ionicons name="time-outline" size={14} color="#9ca3af" />
                                   <Text className="text-gray-500 text-xs mr-2">{service.duration_minutes} mins</Text>
-                                  {isMultitaskable && (
-                                    <View className="bg-green-100 px-2 py-0.5 rounded-full">
-                                      <Text className="text-green-600 text-xs">Multitaskable</Text>
-                                    </View>
-                                  )}
-                                  {!isMultitaskable && (
-                                    <View className="bg-orange-100 px-2 py-0.5 rounded-full">
-                                      <Text className="text-orange-600 text-xs">Separate Appointment</Text>
-                                    </View>
-                                  )}
                                   {requiresHairColor && (
                                     <View className="bg-purple-100 px-2 py-0.5 rounded-full">
                                       <Text className="text-purple-600 text-xs">Hair Color</Text>
@@ -2417,6 +2466,7 @@ export default function CustomerBooking({ onBookingSuccess }: CustomerBookingPro
                           </TouchableOpacity>
                         );
                       })}
+                      </View>
                     </View>
                   ))
                 )}

@@ -5,6 +5,7 @@ import { useAuth } from "@/contexts/auth-context";
 import * as DocumentPicker from 'expo-document-picker';
 import api from '@/api/axios';
 
+
 interface CustomerSettingsProps {
   onLogout?: () => void;
 }

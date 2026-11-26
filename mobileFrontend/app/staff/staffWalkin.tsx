@@ -622,14 +622,37 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
       .filter(s => getEligibleStaffForGroup(getServiceGroupInfo(s.id).key).length > 0);
   };
 
+  // Sections shown on the services step: multitaskable vs. non-multitaskable.
+  // (Grouping the selected services into stylist groups by specialty still happens in getSelectedGroups.)
   const getServiceSections = (): ServiceGroup[] => {
-    const map = new Map<string, ServiceGroup>();
+    const multitaskable: Service[] = [];
+    const separate: Service[] = [];
+
     getBookableServices().forEach((service) => {
-      const { key, label } = getServiceGroupInfo(service.id);
-      if (!map.has(key)) map.set(key, { key, specialtyKey: key, label, services: [] });
-      map.get(key)!.services.push(service);
+      if (service.is_multitaskable === 1) multitaskable.push(service);
+      else separate.push(service);
     });
-    return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label));
+
+    const byName = (a: Service, b: Service) => a.service_name.localeCompare(b.service_name);
+    const sections: ServiceGroup[] = [];
+
+    if (multitaskable.length > 0) {
+      sections.push({
+        key: 'multitaskable',
+        specialtyKey: 'multitaskable',
+        label: 'Multitaskable Services',
+        services: multitaskable.sort(byName),
+      });
+    }
+    if (separate.length > 0) {
+      sections.push({
+        key: 'separate',
+        specialtyKey: 'separate',
+        label: 'Non-Multitaskable Services',
+        services: separate.sort(byName),
+      });
+    }
+    return sections;
   };
 
   const getSelectedServices = (): Service[] =>
@@ -756,6 +779,28 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
     setBookingStep('services');
   };
 
+  /**
+   * Why a service can't be added right now (null = it can).
+   * Multitaskable and non-multitaskable services can't be combined in one walk-in,
+   * so once one type is selected the other type is blocked until it's cleared.
+   */
+  const getServiceBlockReason = (service: Service): string | null => {
+    if (selectedServiceIds.includes(service.id)) return null;
+
+    const selected = getSelectedServices();
+    if (selected.length === 0) return null;
+
+    const selectedIsMultitaskable = selected[0].is_multitaskable === 1;
+    const thisIsMultitaskable = service.is_multitaskable === 1;
+
+    if (selectedIsMultitaskable !== thisIsMultitaskable) {
+      return selectedIsMultitaskable
+        ? "Can't be combined with multitaskable services"
+        : "Can't be combined with non-multitaskable services";
+    }
+    return null;
+  };
+
   const handleServiceSelect = (serviceId: number) => {
     if (selectedServiceIds.includes(serviceId)) {
       setSelectedServiceIds(selectedServiceIds.filter(id => id !== serviceId));
@@ -764,6 +809,15 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
 
     const service = services.find(s => s.id === serviceId);
     if (!service) return;
+
+    const reason = getServiceBlockReason(service);
+    if (reason) {
+      Alert.alert(
+        "Service Unavailable",
+        `${reason}. Please deselect your current services first if you'd like to switch.`
+      );
+      return;
+    }
 
     setSelectedServiceIds([...selectedServiceIds, serviceId]);
   };
@@ -1464,13 +1518,13 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
 
           <Text className="text-3xl font-bold text-gray-800 mb-2">
             {bookingStep === 'customer' ? 'Select Customer' :
-             bookingStep === 'services' ? 'Select Services' :
+             bookingStep === 'services' ? `Customer: ${customerName.trim() || 'Walk-in Guest'}` :
              bookingStep === 'stylist' ? (hasMultipleGroups ? 'Select Stylists' : 'Select Stylist') :
              'Confirm Walk-in'}
           </Text>
           <Text className="text-gray-500 mb-6">
             {bookingStep === 'customer' ? 'Search for an existing account, a returning guest, or add a new guest' :
-             bookingStep === 'services' ? `Customer: ${customerName || 'Walk-in Guest'}` :
+             bookingStep === 'services' ? 'Choose one or more services' :
              bookingStep === 'stylist' ? (hasMultipleGroups ? 'Choose a stylist for each group' : 'Choose a stylist for this walk-in') :
              `Review walk-in details`}
           </Text>
@@ -1607,7 +1661,8 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
 
               <Text className="text-gray-500 text-sm mb-4">
                 Multitaskable services of the same specialty are grouped together. Services that
-                aren't multitaskable get their own stylist.
+                aren't multitaskable get their own stylist. Multitaskable and non-multitaskable
+                services can't be selected together.
               </Text>
 
               {isLoading ? (
@@ -1634,13 +1689,14 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
                     {section.services.map((service) => {
                       const isSelected = selectedServiceIds.includes(service.id);
                       const isMultitaskable = service.is_multitaskable === 1;
+                      const blockReason = getServiceBlockReason(service);
 
                       return (
                         <TouchableOpacity
                           key={service.id}
                           className={`rounded-2xl p-4 mb-3 border-2 ${
                             isSelected ? 'border-pink-500 bg-pink-50' : 'border-gray-200 bg-white'
-                          }`}
+                          } ${blockReason ? 'opacity-50' : ''}`}
                           onPress={() => handleServiceSelect(service.id)}
                           activeOpacity={0.7}
                           disabled={isProcessing}>
@@ -1654,16 +1710,10 @@ export default function StaffWalkIn({ onSuccess }: StaffWalkInProps) {
                               <View className="flex-row items-center mt-2 flex-wrap gap-1">
                                 <Ionicons name="time-outline" size={14} color="#9ca3af" />
                                 <Text className="text-gray-500 text-xs mr-2">{service.duration_minutes} mins</Text>
-                                {isMultitaskable ? (
-                                  <View className="bg-green-100 px-2 py-0.5 rounded-full">
-                                    <Text className="text-green-600 text-xs">Multitaskable</Text>
-                                  </View>
-                                ) : (
-                                  <View className="bg-orange-100 px-2 py-0.5 rounded-full">
-                                    <Text className="text-orange-600 text-xs">Own Stylist</Text>
-                                  </View>
-                                )}
                               </View>
+                              {blockReason && (
+                                <Text className="text-red-500 text-[11px] mt-1">{blockReason}</Text>
+                              )}
                             </View>
                             <Text className="text-pink-600 font-bold text-lg">₱{service.price.toLocaleString()}</Text>
                           </View>

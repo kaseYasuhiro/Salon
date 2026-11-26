@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, ScrollView, Alert, RefreshControl, TextIn
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from "@/contexts/auth-context";
 import api from '@/api/axios';
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // ─────────────────────────────────────────────────────────────
 // Types
@@ -767,6 +768,7 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
   const [isLoading, setIsLoading] = useState(false);
 
   const { user } = useAuth();
+  const insets = useSafeAreaInsets();
 
   const fetchUserAppointments = async () => {
     try {
@@ -1367,7 +1369,7 @@ export default function CustomerHistoryTab({ onOpenFeedbackPage, refreshTrigger 
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#ec4899']} />
         }
       >
-        <View className="px-5 pt-6">
+        <View className="px-5" style={{ paddingTop: insets.top + 16 }}>
           <Text className="text-3xl font-bold text-gray-800 mb-2">History</Text>
           <Text className="text-gray-500 mb-6">Your completed appointments & walk-ins</Text>
 

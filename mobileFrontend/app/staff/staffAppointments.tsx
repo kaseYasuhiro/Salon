@@ -13,6 +13,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "@/contexts/auth-context";
 import api from "@/api/axios";
 
@@ -282,6 +283,13 @@ export default function StaffAppointments({
   refreshing,
   onRefresh,
 }: StaffAppointmentsProps) {
+  // ✅ Safe-area inset so headers clear the status bar / notch on all devices
+  const insets = useSafeAreaInsets();
+
+  // ✅ Which list the staff chose to view. "choose" = the prompt screen shown first.
+  //    (Local state only — no tabs/navigation involved.)
+  const [viewMode, setViewMode] = useState<"choose" | "appointments" | "walkins">("choose");
+
   const [showUpdatePage, setShowUpdatePage] = useState(false);
 
   // ✅ Walk-in update is now a separate page (was a modal)
@@ -2052,10 +2060,23 @@ export default function StaffAppointments({
   const allItems = getDisplayItems();
   const grouped = getGroupedByDate(allItems);
 
-  const todayCount =
-    grouped.today.appointments.length + grouped.today.walkIns.length;
-  const upcomingCount =
-    grouped.upcoming.appointments.length + grouped.upcoming.walkIns.length;
+  // Totals shown on the chooser cards
+  const appointmentsTotal =
+    grouped.today.appointments.length + grouped.upcoming.appointments.length;
+  const walkInsTotal =
+    grouped.today.walkIns.length + grouped.upcoming.walkIns.length;
+
+  // Only the chosen type is rendered in the list view
+  const showAppointments = viewMode === "appointments";
+  const showWalkIns = viewMode === "walkins";
+
+  const todayAppointments = showAppointments ? grouped.today.appointments : [];
+  const todayWalkIns = showWalkIns ? grouped.today.walkIns : [];
+  const upcomingAppointments = showAppointments ? grouped.upcoming.appointments : [];
+  const upcomingWalkIns = showWalkIns ? grouped.upcoming.walkIns : [];
+
+  const todayCount = todayAppointments.length + todayWalkIns.length;
+  const upcomingCount = upcomingAppointments.length + upcomingWalkIns.length;
 
   const todayStaff = getTodayStaff();
 
@@ -2727,12 +2748,75 @@ export default function StaffAppointments({
     );
   };
 
+  // ─────────────────────────────────────────────
+  // ✅ Chooser screen — shown first so staff pick Appointments or Walk-ins
+  // ─────────────────────────────────────────────
+  const renderChooser = () => (
+    <ScrollView showsVerticalScrollIndicator={false} className="flex-1">
+      <View
+        className="px-5 pb-8"
+        style={{ paddingTop: insets.top + 24 }}
+      >
+        <Text className="text-3xl font-bold text-gray-800 mb-2">
+           My Appointments & Walk-ins
+        </Text>
+        <Text className="text-gray-500 mb-8">
+          Choose what you'd like to do
+        </Text>
+
+        {/* Appointments Button */}
+        <TouchableOpacity
+          onPress={() => setViewMode("appointments")}
+          activeOpacity={0.85}
+          className="bg-white rounded-2xl p-5 mb-4 shadow-sm border border-gray-100"
+          style={{ elevation: 2 }}
+        >
+          <View className="flex-row items-center">
+            <View className="w-14 h-14 bg-blue-100 rounded-2xl items-center justify-center mr-4">
+              <Ionicons name="calendar" size={28} color="#3b82f6" />
+            </View>
+            <View className="flex-1">
+              <Text className="text-lg font-bold text-gray-800"> My Appointments</Text>
+              <Text className="text-gray-500 text-sm mt-0.5">
+                View upcoming bookings, confirm or cancel
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={22} color="#9ca3af" />
+          </View>
+        </TouchableOpacity>
+
+        {/* Walk-ins Button */}
+        <TouchableOpacity
+          onPress={() => setViewMode("walkins")}
+          activeOpacity={0.85}
+          className="bg-white rounded-2xl p-5 mb-4 shadow-sm border border-gray-100"
+          style={{ elevation: 2 }}
+        >
+          <View className="flex-row items-center">
+            <View className="w-14 h-14 bg-pink-100 rounded-2xl items-center justify-center mr-4">
+              <Ionicons name="walk" size={28} color="#ec4899" />
+            </View>
+            <View className="flex-1">
+              <Text className="text-lg font-bold text-gray-800">My Walk-ins</Text>
+              <Text className="text-gray-500 text-sm mt-0.5">
+                View and Manage Your Existing Walk-ins
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={22} color="#9ca3af" />
+          </View>
+        </TouchableOpacity>
+      </View>
+    </ScrollView>
+  );
+
   return (
     <>
       {showUpdatePage ? (
         renderUpdatePage()
       ) : showWalkInUpdatePage ? (
         renderWalkInUpdatePage()
+      ) : viewMode === "choose" ? (
+        renderChooser()
       ) : (
         <>
           <ScrollView
@@ -2746,21 +2830,32 @@ export default function StaffAppointments({
               />
             }
           >
-            <View className="px-5 pt-6">
-              <View className="flex-row justify-between items-center mb-2">
-                <Text className="text-3xl font-bold text-gray-800">
-                  My Appointments
-                </Text>
-              </View>
+            <View
+              className="px-5"
+              style={{ paddingTop: insets.top + 24 }}
+            >
+              <TouchableOpacity
+                onPress={() => setViewMode("choose")}
+                className="flex-row items-center mb-3 self-start"
+              >
+                <Ionicons name="arrow-back" size={20} color="#6b7280" />
+                <Text className="text-gray-500 text-sm ml-1">Change view</Text>
+              </TouchableOpacity>
+
+              <Text className="text-3xl font-bold text-gray-800 mb-2">
+                {showWalkIns ? "My Walk-ins" : "My Appointments"}
+              </Text>
               <Text className="text-gray-500 mb-4">
-                Your upcoming appointments &amp; walk-ins
+                {showWalkIns
+                  ? "Your walk-in customers"
+                  : "Your upcoming appointments"}
               </Text>
 
               {renderDateSection(
                 "Today",
                 todayCount,
-                grouped.today.appointments,
-                grouped.today.walkIns,
+                todayAppointments,
+                todayWalkIns,
                 "bg-pink-100",
                 "text-pink-600"
               )}
@@ -2768,17 +2863,23 @@ export default function StaffAppointments({
               {renderDateSection(
                 "Upcoming",
                 upcomingCount,
-                grouped.upcoming.appointments,
-                grouped.upcoming.walkIns,
+                upcomingAppointments,
+                upcomingWalkIns,
                 "bg-blue-100",
                 "text-blue-600"
               )}
 
               {todayCount + upcomingCount === 0 && (
                 <View className="bg-white rounded-2xl p-12 items-center mt-4">
-                  <Ionicons name="calendar-outline" size={60} color="#d1d5db" />
+                  <Ionicons
+                    name={showWalkIns ? "walk-outline" : "calendar-outline"}
+                    size={60}
+                    color="#d1d5db"
+                  />
                   <Text className="text-gray-400 mt-4 text-center">
-                    No upcoming appointments or walk-ins
+                    {showWalkIns
+                      ? "No walk-ins for today or later"
+                      : "No upcoming appointments"}
                   </Text>
                 </View>
               )}
